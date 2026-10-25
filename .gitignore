@@ -1,0 +1,36 @@
+# Dependencies and generated output
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+*.tsbuildinfo
+playwright-report/
+test-results/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.codex/
+.claude/
+.local/
+
+# Runtime data and project checkouts
+data/
+logs/
+artifacts/
+workspaces/
+sessions/
+*.log
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
