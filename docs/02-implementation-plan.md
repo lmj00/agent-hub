@@ -15,8 +15,8 @@
 ## 1단계 개발 환경과 작업 API
 
 - TypeScript 워크스페이스와 web/server 패키지를 만듭니다. 실행 모듈은 server 내부에 둡니다.
-- Node.js LTS, 패키지 관리자와 의존성을 고정합니다.
-- Fastify 상태 확인 API와 SQLite 마이그레이션을 추가합니다.
+- [기술 선택안](03-technology-decisions.md)에 따라 Node.js 24 LTS, pnpm, better-sqlite3와 Drizzle ORM·Kit의 호환성을 확인하고 정확한 버전을 고정합니다. 대안으로 변경하면 이유를 기록합니다.
+- Fastify 상태 확인 API와 SQLite 마이그레이션을 추가합니다. 생성 SQL을 검토하고 빈 DB 생성과 기존 DB 업그레이드를 검증합니다.
 - 프로젝트 등록, 작업 등록·목록·상세 조회를 구현합니다.
 - 공유 요청·응답 스키마와 런타임 검증을 추가합니다.
 - 상태 확인 API에서 앱 응답과 DB 준비 상태를 구분하고 관측 시각을 제공합니다.

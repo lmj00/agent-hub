@@ -32,7 +32,7 @@
 | 테스트 | Vitest + Playwright | 상태 전이와 주요 사용자 흐름 검증 |
 | 배포 | Docker Compose | 서비스 실행 환경과 영속 저장소 구성 |
 
-Node.js는 구현 시점에 지원되는 LTS를 선택해 버전을 고정합니다. 의존성 버전과 잠금 파일은 첫 실행 골격을 만들 때 추가합니다.
+초기 개발 환경 선택안은 Node.js 24 LTS, pnpm, better-sqlite3와 Drizzle ORM·Kit입니다. [대안 비교와 선택 이유](docs/03-technology-decisions.md)를 기록하며, 정확한 의존성 버전과 잠금 파일은 첫 실행 골격에서 호환성을 검증한 뒤 고정합니다.
 
 ## 구성
 
@@ -56,6 +56,7 @@ flowchart TD
 
 1. [구조와 작업 실행 규칙](docs/01-architecture.md)
 2. [구현 순서와 완료 기준](docs/02-implementation-plan.md)
+3. [초기 기술 선택과 대안](docs/03-technology-decisions.md)
 
 문서에 표시한 초기 수치와 세부 정책은 설계 기본안입니다. 구현과 측정 결과에 따라 변경하고, 변경 이유를 해당 문서에 기록합니다.
 
