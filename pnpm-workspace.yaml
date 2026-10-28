@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+
+engineStrict: true
+saveExact: true
+
+allowBuilds:
+  esbuild: true
