@@ -1,8 +1,12 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 import { buildApp } from "../src/app.js";
 
 test("reports a live server with the observation time and disables caching", async () => {
-  const app = buildApp();
+  const directory = mkdtempSync(join(tmpdir(), "agent-hub-health-"));
+  const app = buildApp({ databasePath: join(directory, "hub.sqlite") });
 
   try {
     const before = Date.now();
@@ -18,6 +22,10 @@ test("reports a live server with the observation time and disables caching", asy
     expect(Date.parse(body.checkedAt)).toBeLessThanOrEqual(after);
     expect(new Date(body.checkedAt).toISOString()).toBe(body.checkedAt);
   } finally {
-    await app.close();
+    try {
+      await app.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   }
 });

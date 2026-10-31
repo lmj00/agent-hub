@@ -4,7 +4,7 @@
 
 사용자는 프로젝트별 목표·우선순위·허용 범위를 설정합니다. 총괄은 현재 코드와 작업 이력을 바탕으로 다음 작업을 만들고, 개발·검증 역할의 에이전트가 결과와 피드백을 주고받습니다. 작업이 끝나면 다음 작업을 선택하므로 매번 사용자의 새 지시가 필요하지 않습니다. 사용자는 진행 상황을 확인하고 목표를 바꾸거나 실행을 멈출 수 있습니다.
 
-현재는 **1단계 개발 중**입니다. Node.js·pnpm·TypeScript 실행 환경과 Fastify 서버 상태 확인 API를 구현했습니다. 다음 작업은 SQLite 저장과 프로젝트·작업 등록·조회입니다. AI 실행·관리 화면·배포는 이후 단계에서 추가합니다.
+현재는 **1단계 개발 중**입니다. 서버 실행 환경, SQLite 연결·첫 프로젝트 테이블·마이그레이션, 서버 응답과 DB 준비 상태 확인 API를 구현했습니다. 다음 작업은 프로젝트 등록·조회 API입니다. 작업 관리·AI 실행·관리 화면·배포는 이후 구현 범위입니다.
 
 ## 문서를 읽는 순서
 
@@ -54,7 +54,7 @@ MVP는 핵심 목적을 실제로 수행할 수 있는 첫 운영 버전입니�
 | 테스트 | Vitest + Playwright | 상태 전이와 주요 사용자 흐름 검증 |
 | 배포 | Docker Compose | 서비스 실행 환경과 재시작해도 데이터가 남는 저장 공간 구성 |
 
-개발 환경은 Node.js 24 LTS와 pnpm을 사용합니다. 서버 골격의 의존성은 `package.json`과 `pnpm-lock.yaml`에 고정했습니다. SQLite 연결에는 better-sqlite3와 Drizzle ORM·Kit을 선택했으며, DB를 구현할 때 설치·동작을 검증합니다. [대안 비교와 선택 이유](docs/03-technology-decisions.md)를 기록합니다.
+개발 환경은 Node.js 24 LTS와 pnpm을 사용합니다. SQLite는 better-sqlite3와 Drizzle ORM·Kit으로 연결합니다. 의존성은 `package.json`과 `pnpm-lock.yaml`에 고정했으며, macOS arm64와 Linux arm64에서 설치·타입 검사·빌드·실제 SQLite 테스트를 확인했습니다. [대안 비교와 선택 이유](docs/03-technology-decisions.md)를 기록합니다.
 
 ## 로컬 실행
 
@@ -77,15 +77,27 @@ pnpm dev
 
 ```sh
 curl http://127.0.0.1:3000/health/live
+curl http://127.0.0.1:3000/health/ready
 ```
 
-응답 예시:
+서버 응답 확인(`/health/live`) 예시:
 
 ```json
 {"status":"ok","checkedAt":"2026-10-29T00:00:00.000Z"}
 ```
 
-`status`는 서버가 요청에 응답했음을, `checkedAt`은 응답 시점의 UTC 시각을 나타냅니다. 응답에는 `Cache-Control: no-store`를 지정합니다. DB 준비 상태는 DB 연결을 구현할 때 별도 API로 추가합니다.
+DB 준비 상태(`/health/ready`) 예시:
+
+```json
+{"status":"ok","database":"ok","checkedAt":"2026-10-29T00:00:00.000Z"}
+```
+
+| API | 확인하는 범위 |
+| --- | --- |
+| `/health/live` | 서버가 HTTP 요청에 응답하는지 확인 |
+| `/health/ready` | 현재 DB 연결로 프로젝트 테이블을 조회하는지 확인. 성공하면 200, 실패하면 503 |
+
+두 응답 모두 `checkedAt`에 UTC 관측 시각을 담고 `Cache-Control: no-store`를 지정합니다. 실행 중 DB 조회가 실패해도 서버 응답 여부는 별도로 확인할 수 있습니다. DB 준비 상태는 조회 기준이며, AI 실행 준비 상태는 해당 단계에서 추가합니다.
 
 현재 서버는 같은 컴퓨터에서 접속하는 `127.0.0.1`에 바인딩합니다. 포트의 기본값은 3000이며, `PORT=4000 pnpm dev`처럼 셸 환경 변수로 바꿀 수 있습니다. `PORT`는 1~65535의 정수여야 합니다. 종료할 때는 `Ctrl+C`를 누릅니다.
 
@@ -96,8 +108,30 @@ curl http://127.0.0.1:3000/health/live
 | `pnpm test` | 자동 테스트 한 번 실행 |
 | `pnpm build` | 서버 코드를 `apps/server/dist`에 JavaScript로 빌드 |
 | `pnpm start` | 빌드한 서버 실행. 먼저 `pnpm build` 필요 |
+| `pnpm db:generate --name=변경이름` | 스키마와 이전 기록을 비교해 SQL 마이그레이션 생성 |
 
-현재 코드는 `apps/server`에 있습니다. `main.ts`는 설정을 읽고 서버를 시작·종료하며, `app.ts`는 기능을 연결합니다. `config.ts`는 환경 변수를 확인하고, 상태 확인 API는 `modules/health/routes.ts`에 둡니다. 화면과 공통 요청·응답 패키지는 사용하는 기능을 구현할 때 추가합니다.
+현재 코드는 `apps/server`에 있습니다. `main.ts`는 설정을 읽고 서버를 시작·종료하며, `app.ts`는 DB와 기능을 연결합니다. `config.ts`는 환경 변수를 확인하고, DB 연결·테이블 정의는 `db/`, 상태 확인 API는 `modules/health/routes.ts`에 둡니다. 화면과 공통 요청·응답 패키지는 사용하는 기능을 구현할 때 추가합니다.
+
+## 로컬 DB와 테이블 변경
+
+기본 DB 파일은 저장소 루트의 `data/agent-hub.sqlite`입니다. 서버 시작 시 디렉터리와 DB를 만들고, `apps/server/migrations/`의 SQL 중 아직 적용하지 않은 변경을 순서대로 적용합니다. 성공해야 HTTP 요청을 받으며, DB 열기나 마이그레이션에 실패하면 시작을 중단하고 오류를 기록합니다. 정상 종료 시 DB 연결도 닫습니다.
+
+다른 DB 파일을 사용하려면 셸 환경 변수로 경로를 전달합니다. 상대 경로는 개발 실행·빌드 실행 모두 저장소 루트를 기준으로 해석하고, 절대 경로도 사용할 수 있습니다.
+
+```sh
+DATABASE_PATH=data/dev.sqlite pnpm dev
+```
+
+기본 `data/` 디렉터리, `*.sqlite`·`*.db` 파일과 그에 붙는 SQLite 임시·로그 파일은 Git에서 제외합니다. 테스트는 별도의 임시 디렉터리에 DB를 만들어 사용합니다.
+
+테이블을 바꿀 때는 다음 순서를 따릅니다.
+
+1. `apps/server/src/db/schema.ts`에서 테이블 정의를 수정합니다.
+2. `pnpm db:generate --name=변경이름`으로 SQL과 변경 기록을 생성합니다.
+3. 생성된 SQL을 검토하고, 빈 DB 적용·기존 데이터 보존·실패 시 되돌리기를 테스트합니다.
+4. 스키마와 `migrations/`를 함께 커밋합니다. 검토한 변경은 다음 서버 시작 때 적용됩니다.
+
+이미 적용한 마이그레이션은 수정하지 않고 새 변경을 추가합니다. 빌드한 서버를 실행할 때도 `apps/server/migrations/`가 함께 있어야 합니다. 첫 테이블에는 프로젝트 ID·이름·작업 공간 식별자·생성 시각을 저장하며, 등록·조회 API는 다음 작업에서 추가합니다.
 
 ## 구성
 
