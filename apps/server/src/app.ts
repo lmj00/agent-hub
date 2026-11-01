@@ -3,6 +3,8 @@ import { openDatabase } from "./db/connection.js";
 import { healthRoutes } from "./modules/health/routes.js";
 import { createDrizzleProjectStore } from "./modules/projects/drizzle-project-store.js";
 import { projectRoutes } from "./modules/projects/routes.js";
+import { createDrizzleTaskStore } from "./modules/tasks/drizzle-task-store.js";
+import { taskRoutes } from "./modules/tasks/routes.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & { databasePath: string };
 
@@ -21,7 +23,12 @@ export function buildApp({ databasePath, ...options }: AppOptions) {
     });
 
     scope.register(healthRoutes, { checkDatabase: () => database.checkReady() });
-    scope.register(projectRoutes, { store: createDrizzleProjectStore(database.db) });
+    const projectStore = createDrizzleProjectStore(database.db);
+    scope.register(projectRoutes, { store: projectStore });
+    scope.register(taskRoutes, {
+      store: createDrizzleTaskStore(database.db),
+      projectExists: (id) => projectStore.findById(id) !== undefined,
+    });
   });
 
   return app;

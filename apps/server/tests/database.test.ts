@@ -4,7 +4,9 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
-import { projects } from "../src/db/schema.js";
+import { projects, tasks } from "../src/db/schema.js";
+
+const migrationCount = JSON.parse(readFileSync(join(migrationsDirectory, "meta", "_journal.json"), "utf8")).entries.length;
 
 let directory: string;
 let databasePath: string;
@@ -41,7 +43,7 @@ function withNextMigration(sql: string) {
   const journalPath = join(folder, "meta", "_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8"));
   const last = journal.entries.at(-1);
-  const tag = "0001_test_change";
+  const tag = `${String(last.idx + 1).padStart(4, "0")}_test_change`;
   journal.entries.push({ idx: last.idx + 1, version: last.version, when: last.when + 1, tag, breakpoints: true });
   writeFileSync(journalPath, JSON.stringify(journal));
   writeFileSync(join(folder, `${tag}.sql`), sql);
@@ -67,7 +69,7 @@ test("keeps data after reopening and does not apply the initial migration twice"
 
   const second = connect();
   expect(second.db.select().from(projects).all()).toEqual([project]);
-  expect(second.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: 1 });
+  expect(second.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: migrationCount });
 });
 
 test("rolls back all writes in a transaction when a duplicate project id is inserted", () => {
@@ -92,7 +94,7 @@ test("upgrades an existing database without losing records or repeating the upgr
   upgraded.close();
 
   const reopened = connect(folder);
-  expect(reopened.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: 2 });
+  expect(reopened.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: migrationCount + 1 });
 });
 
 test("rolls back a failed migration and leaves the existing data and migration history intact", () => {
@@ -109,7 +111,7 @@ test("rolls back a failed migration and leaves the existing data and migration h
   try {
     expect(client.prepare("SELECT name FROM projects").get()).toEqual({ name: project.name });
     expect(() => client.prepare("SELECT note FROM projects")).toThrow();
-    expect(client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: 1 });
+    expect(client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: migrationCount });
   } finally {
     client.close();
   }
@@ -117,4 +119,47 @@ test("rolls back a failed migration and leaves the existing data and migration h
 
 test("rejects a migration folder with missing history", () => {
   expect(() => connect(directory)).toThrow();
+});
+
+test("adds tasks to a projects-only database and preserves existing projects", () => {
+  const folder = join(directory, "legacy-migrations");
+  cpSync(migrationsDirectory, folder, { recursive: true });
+  const journalPath = join(folder, "meta", "_journal.json");
+  const journal = JSON.parse(readFileSync(journalPath, "utf8"));
+  journal.entries = journal.entries.slice(0, 1);
+  writeFileSync(journalPath, JSON.stringify(journal));
+
+  const legacy = connect(folder);
+  legacy.db.insert(projects).values(project).run();
+  expect(() => legacy.client.prepare("SELECT * FROM tasks").all()).toThrow();
+  legacy.close();
+
+  const upgraded = connect();
+  expect(upgraded.db.select().from(projects).all()).toEqual([project]);
+  expect(upgraded.db.select().from(tasks).all()).toEqual([]);
+  const task = {
+    id: "example-task", projectId: project.id, instruction: "Inspect the project", requestKey: "first-request",
+    status: "queued" as const, createdAt: new Date("2026-11-01T00:00:00Z"),
+  };
+  upgraded.db.insert(tasks).values(task).run();
+  upgraded.close();
+
+  const reopened = connect();
+  expect(reopened.db.select().from(tasks).all()).toEqual([task]);
+  expect(reopened.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: migrationCount });
+});
+
+test("enforces task foreign keys, request uniqueness, and status in SQLite", () => {
+  const { db, client } = connect();
+  const task = {
+    id: "example-task", projectId: project.id, instruction: "Inspect the project", requestKey: "first-request",
+    createdAt: new Date("2026-11-01T00:00:00Z"),
+  };
+  expect(() => db.insert(tasks).values(task).run()).toThrow();
+  db.insert(projects).values(project).run();
+  db.insert(tasks).values(task).run();
+  expect(() => db.insert(tasks).values({ ...task, id: "duplicate-task" }).run()).toThrow();
+  expect(() => client.prepare("UPDATE tasks SET status = ?").run("invalid")).toThrow();
+  expect(() => client.prepare("DELETE FROM projects WHERE id = ?").run(project.id)).toThrow();
+  expect(db.select().from(tasks).all()).toEqual([{ ...task, status: "queued" }]);
 });
