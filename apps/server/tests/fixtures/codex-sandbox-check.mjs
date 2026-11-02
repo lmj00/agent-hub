@@ -3,9 +3,17 @@ import { execFile } from "node:child_process";
 import { once } from "node:events";
 import { createServer, get } from "node:http";
 import { promisify } from "node:util";
+import { readFileSync } from "node:fs";
 import { codexOptions } from "/app/apps/server/dist/modules/execution/codex-executor.js";
 
 const exec = promisify(execFile);
+const outerStatus = readFileSync("/proc/self/status", "utf8");
+assert.match(outerStatus, /^Seccomp:\s+2$/m);
+assert.match(outerStatus, /^NoNewPrivs:\s+1$/m);
+assert.match(outerStatus, /^CapEff:\s+0+$/m);
+if (process.env.EXPECT_APPARMOR) assert.equal(readFileSync("/proc/self/attr/current", "utf8").trim(), `${process.env.EXPECT_APPARMOR} (enforce)`);
+await assert.rejects(exec("/usr/bin/unshare", ["--mount", "true"]));
+await assert.rejects(exec("/usr/bin/unshare", ["--net", "true"]));
 const runtime = "/usr/local/lib/codex/bin/codex";
 const options = codexOptions("/codex-home", "/workspace", runtime);
 const args = ["sandbox", "-c", 'default_permissions="hub-readonly"', ...options.configOverrides.flatMap(value => ["-c", value]), "--"];

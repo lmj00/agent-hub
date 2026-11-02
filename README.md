@@ -120,11 +120,11 @@ DB 준비 상태(`/health/ready`) 예시:
 
 ### GitHub 자동 검사
 
-[`CI`](.github/workflows/ci.yml)는 `main` 푸시와 PR마다 Ubuntu 22.04에서 잠금 파일을 유지한 설치·타입 검사·빌드·테스트를 실행합니다. Node.js와 pnpm 버전은 저장소 설정을 읽습니다. Docker 종료·권한 제한 테스트와 Chromium 화면 테스트도 포함합니다. 실패한 화면의 추적 자료는 7일간 보관합니다.
+[`CI`](.github/workflows/ci.yml)는 `main` 푸시와 PR마다 Ubuntu 22.04·24.04에서 잠금 파일을 유지한 설치·타입 검사·빌드·테스트를 실행합니다. Node.js와 pnpm 버전은 저장소 설정을 읽습니다. Docker 종료·권한 제한 테스트와 Chromium 화면 테스트도 포함합니다. 실패한 화면의 추적 자료는 7일간 보관합니다.
 
 GitHub가 제공하는 임시 실행 서버에서 합성 인증과 가짜 AI 실행기를 사용하며, 개인 Codex 인증·실제 모델 호출·배포는 연결하지 않습니다. 로컬 전체 검증은 `RUN_CONTAINER_TESTS=1 pnpm test`와 `pnpm test:browser`로 실행할 수 있습니다. 자동 검사의 성공 여부는 저장소의 Actions에서 해당 커밋 결과를 확인합니다.
 
-Ubuntu 24.04의 기본 GitHub 실행 환경에서는 Codex 샌드박스의 사용자 네임스페이스 생성이 거부됐습니다. 이 환경의 실제 분석 실행은 아직 지원 검증 전입니다. 동일한 오류가 발생하면 설정 문제로 보류하며, 샌드박스를 끄거나 실패한 분석을 성공으로 표시하지 않습니다.
+기본 Docker 정책에서는 Codex의 중첩 샌드박스 생성이 거부될 수 있어 전용 seccomp·AppArmor 정책을 적용합니다. 정책의 근거와 설치 방법은 아래 컨테이너 실행 안내에 있습니다. 초기화 실패는 설정 문제로 보류하며, 샌드박스를 끄거나 실패한 분석을 성공으로 표시하지 않습니다.
 
 ## 단일 사용자 로그인 설정
 
@@ -375,6 +375,15 @@ Docker를 사용할 수 있는 일반 사용자 계정에서 실행합니다. ro
 ```sh
 docker build -f docker/analysis-runner.Dockerfile -t agent-hub-analysis:local .
 ```
+
+실행마다 저장소의 seccomp 정책을 명시해 Docker 엔진의 기본 설정에 의존하지 않습니다. 서버의 `dist/`만 따로 배포한다면 `apps/server/security/`도 같은 패키지에 보관해야 합니다. AppArmor를 사용하는 Linux Docker 엔진에서는 agent-hub를 시작하기 전에 전용 프로필을 한 번 설치합니다. 정책을 갱신할 때는 기존 agent-hub 실행을 종료한 상태에서 적용합니다.
+
+```sh
+# docker info의 SecurityOptions에 name=apparmor가 있는 Linux 호스트에서 실행
+sudo apparmor_parser -r apps/server/security/agent-hub-codex.apparmor
+```
+
+앱이 관리자 권한으로 호스트 정책을 자동 변경하지는 않습니다. AppArmor가 있는 엔진은 지정한 프로필을 사용하며, 프로필이 없으면 실행이 거부됩니다. Docker Desktop처럼 AppArmor가 없는 엔진에도 seccomp·권한 제거·읽기 전용 파일 시스템은 적용합니다. [정책의 원본·추가 허용 범위와 검증](apps/server/security/README.md)을 확인할 수 있습니다.
 
 비공개 실행 설정에 `"containerImage": "agent-hub-analysis:local"`을 추가하면 같은 서버·CLI가 Run마다 로컬 컨테이너 하나에서 SDK를 실행합니다. 설정을 생략하면 기존 직접 실행입니다. 실행 시 이미지를 내려받거나 Docker를 자동 설치하지 않습니다. runner 코드를 변경한 뒤에는 이미지를 다시 빌드합니다.
 

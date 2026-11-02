@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { beforeAll, describe, expect, test } from "vitest";
+import { containerSecurityOptions } from "../src/modules/execution/container-runtime.js";
 
 const exec = promisify(execFile);
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -26,8 +27,11 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("Codex container sandbo
     writeFileSync(join(workspace, "check.mjs"), readFileSync(new URL("./fixtures/codex-sandbox-check.mjs", import.meta.url)));
     const uid = process.getuid!(), gid = process.getgid!();
     try {
+      const security = await containerSecurityOptions();
       const result = await exec("docker", [
         "run", "--rm", "--init", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+        ...security,
+        ...(security.includes("apparmor=agent-hub-codex-v1") ? ["--env", "EXPECT_APPARMOR=agent-hub-codex-v1"] : []),
         "--pids-limit", "128", "--memory", "768m", "--cpus", "1", "--user", `${uid}:${gid}`,
         "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
         "--mount", `type=bind,src=${home},dst=/codex-home`,

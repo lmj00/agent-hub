@@ -15,9 +15,11 @@ concurrency:
 
 jobs:
   verify:
-    # Ubuntu 24.04's default host blocks the bundled sandbox's user namespaces.
-    # Keep the complete sandbox regression on 22.04; do not disable host protections.
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -40,6 +42,8 @@ jobs:
         run: |
           docker build -f docker/analysis-runner.Dockerfile -t agent-hub-sandbox-test:local .
           docker build -t agent-hub-execution-test:local apps/server/tests/fixtures/container-runner
+      - name: Load the scoped runner AppArmor profile
+        run: sudo apparmor_parser -r apps/server/security/agent-hub-codex.apparmor
       - name: Test with real container boundaries and synthetic credentials
         # Direct output preserves GitHub's ::error annotations (recursive scripts add prefixes).
         shell: bash
@@ -74,7 +78,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: browser-failure-evidence
+          name: browser-failure-evidence-${{ matrix.os }}
           path: apps/web/test-results/
           if-no-files-found: ignore
           retention-days: 7

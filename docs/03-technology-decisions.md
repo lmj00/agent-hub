@@ -515,7 +515,7 @@ DB가 중단 요청을 저장하지 못하면 신호 전송까지 막지 않습�
 
 ## 공개 저장소의 자동 검사 — 2026-11-03
 
-**선택:** GitHub가 제공하는 Ubuntu 22.04 실행 서버에서 기존 검증 명령을 실행합니다. 로컬 검사에만 의존하면 다른 환경의 실패와 PR의 회귀를 놓칠 수 있어 타입·빌드·SQLite·컨테이너·화면 검사를 연결했습니다. 별도의 테스트 프레임워크나 개인 서버는 추가하지 않습니다.
+**선택:** GitHub가 제공하는 Ubuntu 22.04·24.04 실행 서버에서 기존 검증 명령을 실행합니다. 로컬 검사에만 의존하면 다른 환경의 실패와 PR의 회귀를 놓칠 수 있어 타입·빌드·SQLite·컨테이너·화면 검사를 연결했습니다. 별도의 테스트 프레임워크나 개인 서버는 추가하지 않습니다.
 
 Node.js는 `.nvmrc`, pnpm은 `packageManager` 값을 읽고 `--frozen-lockfile`로 설치합니다. [checkout](https://github.com/actions/checkout)·[setup-node](https://github.com/actions/setup-node) 등 외부 Action은 전체 커밋 ID로 고정하며 저장소 권한은 읽기만 허용합니다. [Playwright의 CI 안내](https://playwright.dev/docs/ci-intro)에 따라 Chromium과 OS 의존성을 설치하고, 이미 빌드한 앱에 가짜 AI 실행기를 연결합니다. Docker 이미지를 먼저 빌드해 첫 다운로드 시간을 개별 테스트의 제한 시간과 분리합니다.
 
@@ -524,6 +524,17 @@ Node.js는 `.nvmrc`, pnpm은 `packageManager` 값을 읽고 `--frozen-lockfile`�
 
 ### Linux 호스트의 샌드박스 제약 확인
 
-첫 Ubuntu 24.04 CI에서는 서버 테스트 312개 중 311개와 컨테이너 수명 검사 13개가 통과했으나, 실제 Codex CLI의 샌드박스 검사 1개가 실패했습니다. 오류는 `bwrap: No permissions to create a new namespace`였고 모델이나 실제 인증을 사용하기 전에 발생했습니다. [Ubuntu의 사용자 네임스페이스 제한](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/)과 같은 호스트 정책 영향을 받는 경로입니다. 이 실행만으로 정확히 어느 커널·보안 필터가 거부했는지까지 분리해 확인한 것은 아닙니다.
+첫 Ubuntu 24.04와 22.04 CI에서 실제 Codex CLI의 샌드박스 검사만 `bwrap: No permissions to create a new namespace`로 실패했습니다. 당시 Mac Docker 엔진은 seccomp 기본 정책이 `unconfined`였으므로 로컬 통과만으로 일반 Linux 호환성을 판단할 수 없었습니다. Moby 기본 정책을 로컬에 명시하니 동일하게 격리 공간 생성이 거부됐습니다. 실제 시스템 호출을 추적해 고정 CLI가 필요한 clone 플래그·unshare·파일 트리 생성 호출을 확인했습니다.
 
-전체 권한 검사는 Ubuntu 22.04에서 다시 실행하도록 바꿨으며, 호스트 보안 설정을 끄거나 컨테이너에 특권을 추가하지 않았습니다. Ubuntu 24.04 배포를 지원한다고 표시하지 않고 해당 환경의 격리 설정 검증을 6단계의 남은 항목으로 둡니다. 실행 어댑터도 네임스페이스·loopback 초기화 실패를 `unsupported_settings`로 분류하도록 보완했습니다. 모델이 그 뒤 보고서를 반환하더라도 성공으로 처리하지 않으며, 기존 설정 차단·종료 확인 절차를 따릅니다.
+**선택:** [Docker의 seccomp 정책 지정 방식](https://docs.docker.com/engine/security/seccomp/)을 사용해 검토한 고정 정책을 매 실행에 적용합니다. 원본의 기본 거부 규칙에 정확한 clone 플래그와 사용자 공간 생성, 중첩 파일 트리 구성에 필요한 호출을 추가합니다. AppArmor를 사용하는 호스트에는 Moby 기본 프로필을 바탕으로 한 전용 프로필도 설치합니다. 원본 버전·라이선스·변경 범위는 [보안 정책 폴더](../apps/server/security/README.md)에 기록했습니다.
+
+| 대안 | 판단 |
+| --- | --- |
+| 호스트 정책에 그대로 의존 | 개발 PC의 설정에 따라 검증 결과가 달라지고 일반 Linux에서는 실행하지 못해 미채택 |
+| seccomp·AppArmor 전체 해제 또는 특권 컨테이너 | 격리 조건을 크게 바꾸므로 미채택 |
+| 별도 VM·다른 컨테이너 런타임 | 대안이지만 새로운 운영 구성과 자원 측정이 필요해 현재 단위에서 도입하지 않음 |
+| 검토한 seccomp·AppArmor 정책 명시 | 호출 범위와 적용 버전을 재현할 수 있어 선택. 중첩 네임스페이스·마운트 관련 커널 기능을 허용하는 부담을 감수하고 업데이트마다 재검증 |
+
+일반 사용자·capability 전체 제거·권한 상승 금지·읽기 전용 루트·작업 폴더를 유지합니다. 정책의 capability 허용 문법 자체가 커널 권한을 부여하는 것은 아닙니다. 실제 테스트는 외부 seccomp 활성화와 capability 0, 독립 마운트·네트워크 공간 변경 거부, 준비한 파일 읽기, 작업 파일 쓰기·인증·외부 파일·통신 차단을 확인합니다. AppArmor 호스트에서는 적용 프로필도 커널 상태에서 대조합니다. 로컬 전체 테스트 319개(실제 Docker 14개)·타입 검사를 통과했고, 두 Ubuntu의 최종 결과는 해당 커밋의 CI로 확인합니다. AWS 운영 검증은 별도입니다.
+
+실행 어댑터는 네임스페이스·loopback 초기화 실패를 `unsupported_settings`로 분류합니다. 모델이 그 뒤 보고서를 반환하더라도 성공으로 처리하지 않으며, 기존 설정 차단·종료 확인 절차를 따릅니다.

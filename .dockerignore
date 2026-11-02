@@ -11,6 +11,8 @@
 !apps/server/tsconfig.build.json
 !apps/server/src/
 !apps/server/src/**
+!apps/server/security/
+!apps/server/security/**
 !packages/
 !packages/contracts/
 !packages/contracts/package.json

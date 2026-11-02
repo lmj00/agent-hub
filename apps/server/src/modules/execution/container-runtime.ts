@@ -1,10 +1,22 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import type { AnalysisRequest, ExecutionIdentity } from "./analysis.js";
 
 const exec = promisify(execFile);
 const tokenLabel = "io.agent-hub.execution-token";
+// Resolve from the module, so source and dist use the same versioned policy asset.
+export const containerSeccompProfilePath = fileURLToPath(new URL("../../../security/codex-seccomp.json", import.meta.url));
+
+export async function containerSecurityOptions(): Promise<string[]> {
+  const features: unknown = JSON.parse(await docker(["info", "--format", "{{json .SecurityOptions}}"]));
+  if (!Array.isArray(features) || features.some(value => typeof value !== "string")) throw new Error("Container security features unavailable");
+  return [
+    "--security-opt", `seccomp=${containerSeccompProfilePath}`,
+    ...(features.includes("name=apparmor") ? ["--security-opt", "apparmor=agent-hub-codex-v1"] : []),
+  ];
+}
 
 async function docker(args: string[]) {
   // Docker 오류 원문에는 호스트 경로가 포함될 수 있어 호출자에게 고정 오류만 전달합니다.
@@ -25,10 +37,12 @@ export async function prepareContainer(image: string, codexHome: string, request
   if (!uid || gid === undefined) throw new Error("Container execution requires a non-root Unix user");
   if ([codexHome, request.workspace].some(path => /[,\r\n]/.test(path))) throw new Error("Unsupported container mount path");
   const engine = await engineId();
+  const security = await containerSecurityOptions();
   const token = randomUUID();
   const id = await docker([
     "create", "--pull", "never", "--interactive", "--init", "--restart", "no", "--log-driver", "none",
     "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128",
+    ...security,
     "--memory", "768m", "--cpus", "1", "--user", `${uid}:${gid}`,
     "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
     "--tmpfs", `/home/runner:rw,nosuid,nodev,size=64m,uid=${uid},gid=${gid},mode=0700`,
