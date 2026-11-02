@@ -40,11 +40,27 @@ jobs:
           docker build -t agent-hub-execution-test:local apps/server/tests/fixtures/container-runner
       - name: Test with real container boundaries and synthetic credentials
         # Direct output preserves GitHub's ::error annotations (recursive scripts add prefixes).
+        shell: bash
         run: |
-          pnpm --filter @agent-hub/server exec vitest run --reporter=default --reporter=github-actions
-          pnpm --filter @agent-hub/web exec vitest run tests --reporter=default --reporter=github-actions
+          pnpm --filter @agent-hub/server exec vitest run --reporter=default --reporter=github-actions 2>&1 | tee "$RUNNER_TEMP/server-tests.log"
+          pnpm --filter @agent-hub/web exec vitest run tests --reporter=default --reporter=github-actions 2>&1 | tee "$RUNNER_TEMP/web-tests.log"
         env:
           RUN_CONTAINER_TESTS: "1"
+      - name: Annotate test startup and worker failures
+        if: failure()
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { existsSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          for (const name of ['server-tests.log', 'web-tests.log']) {
+            const file = join(process.env.RUNNER_TEMP, name);
+            if (!existsSync(file)) continue;
+            const tail = readFileSync(file, 'utf8').split('\n').slice(-100).join('\n').slice(-12000);
+            const escaped = tail.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+            process.stdout.write(`::error title=${name}::${escaped}\n`);
+          }
+          JS
       - name: Install Chromium
         run: pnpm --filter @agent-hub/web exec playwright install --with-deps chromium
       - name: Test browser flows with the fake AI executor
