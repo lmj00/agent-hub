@@ -53,12 +53,15 @@ jobs:
           node --input-type=module <<'JS'
           import { existsSync, readFileSync } from 'node:fs';
           import { join } from 'node:path';
+          import { stripVTControlCharacters } from 'node:util';
           for (const name of ['server-tests.log', 'web-tests.log']) {
             const file = join(process.env.RUNNER_TEMP, name);
             if (!existsSync(file)) continue;
-            const tail = readFileSync(file, 'utf8').split('\n').slice(-100).join('\n').slice(-12000);
-            const escaped = tail.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
-            process.stdout.write(`::error title=${name}::${escaped}\n`);
+            const tail = stripVTControlCharacters(readFileSync(file, 'utf8')).slice(-7500);
+            for (let offset = 0; offset < tail.length; offset += 2500) {
+              const escaped = tail.slice(offset, offset + 2500).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+              process.stdout.write(`::error title=${name} part ${offset / 2500 + 1}::${escaped}\n`);
+            }
           }
           JS
       - name: Install Chromium
