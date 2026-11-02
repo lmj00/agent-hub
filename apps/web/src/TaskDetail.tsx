@@ -25,12 +25,30 @@ const stopReasons = {
   timeout: "제한 시간 초과",
   unknown: "중단 이유 미확인",
 };
+const retryReasons: Record<string, string> = {
+  retry_scheduled: "일시적 오류로 기다린 뒤 자동으로 다시 시도합니다.",
+  retry_ready: "재시도 시각이 됐습니다. 배정 조건을 확인하고 있습니다.",
+  retry_limit:
+    "재시도 횟수 상한에 도달했습니다. 정책과 실패 원인을 검토해 주세요.",
+  repeated_error_limit: "같은 오류가 반복되어 자동 실행을 보류했습니다.",
+  task_time_limit: "작업의 누적 실행 시간 상한에 도달했습니다.",
+  termination_unconfirmed:
+    "이전 실행의 종료 근거가 부족합니다. 종료 확인이 필요합니다.",
+  capacity_manual_check:
+    "사용량 제한으로 보류했습니다. 현재 단계에서는 수동 확인 실행이 필요합니다.",
+  authentication_required: "AI 계정 로그인을 복구한 뒤 재개해 주세요.",
+  configuration_required: "AI 실행 설정을 확인해 주세요.",
+  not_retryable:
+    "자동 재시도 대상이 아닌 오류입니다. 실행 결과를 확인해 주세요.",
+  user_cancelled: "사용자가 취소하여 다시 실행하지 않습니다.",
+};
 const runErrors: Record<string, string> = {
   termination_unconfirmed:
     "결과가 있어도 전체 실행 종료를 확인하기 전까지 새 실행은 보류합니다.",
   owner_lost:
     "실행을 관리하던 서버가 중단됐습니다. 이전 실행의 종료를 확인해 주세요.",
   timeout: "정해진 실행 시간을 초과했습니다.",
+  transient: "AI 서비스와의 연결에 일시적인 오류가 발생했습니다.",
   server_shutdown: "서버 종료로 멈췄습니다. 종료 확인 후 재개할 수 있습니다.",
   cancel_requested:
     "취소 요청을 기록했습니다. 종료가 확인되면 취소가 완료됩니다.",
@@ -151,6 +169,12 @@ export function TaskDetail({
     queue.state !== "stopped" &&
     queue.state !== "stopping";
   const viewingLatest = run?.id === latest?.id;
+  const retryLimited = !!task.retryState && (
+    task.retryState.retries >= task.retryState.policy.maxRetries ||
+    task.retryState.consecutiveErrors >= task.retryState.policy.maxConsecutiveErrors ||
+    task.retryState.totalRunMs >= task.retryState.policy.maxTotalRunMs ||
+    (!!task.retryState.nextAttemptAt && Date.parse(task.retryState.nextAttemptAt) > Date.now())
+  );
   return (
     <section className="task-detail" aria-labelledby="detail-heading">
       <div className="detail-top">
@@ -161,6 +185,42 @@ export function TaskDetail({
         {task.instruction}
       </h2>
       <p className="detail-created">등록 {dateTime(task.createdAt)}</p>
+      {task.retryState ? (
+        <div className="notice retry-status" aria-label="자동 복구 정책">
+          <strong>
+            재시도 {task.retryState.retries} /{" "}
+            {task.retryState.policy.maxRetries}회 · 같은 오류{" "}
+            {task.retryState.consecutiveErrors} /{" "}
+            {task.retryState.policy.maxConsecutiveErrors}회
+          </strong>
+          <span>
+            누적 실행 {Math.ceil(task.retryState.totalRunMs / 1000)}초 /{" "}
+            {Math.ceil(task.retryState.policy.maxTotalRunMs / 1000)}초
+          </span>
+          {task.retryState.nextAttemptAt ? (
+            <span>
+              다음 시도 가능 시각 {dateTime(task.retryState.nextAttemptAt)}
+            </span>
+          ) : null}
+          {task.retryState.reason ? (
+            <span>
+              {retryReasons[task.retryState.reason] ??
+                "저장된 복구 조건을 확인하고 있습니다."}
+            </span>
+          ) : null}
+          {gate?.blocked && task.retryState.nextAttemptAt ? (
+            <small>
+              계정 차단이 해제되기 전에는 예정 시각이 지나도 실행하지 않습니다.
+            </small>
+          ) : null}
+          {!queue?.automaticRecoveryEnabled ? (
+            <small>
+              현재 자동 복구가 꺼져 있습니다. 저장된 예약은 자동 복구를 켠
+              서버에서 확인합니다.
+            </small>
+          ) : null}
+        </div>
+      ) : null}
       {records.error ? (
         <div className="notice error" role="alert">
           {errorMessage(records.error)}
@@ -176,6 +236,7 @@ export function TaskDetail({
             pending ||
             active ||
             terminal ||
+            retryLimited ||
             (task.status === "queued" && !gate?.blocked) ||
             !records.data
           }

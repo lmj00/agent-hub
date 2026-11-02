@@ -19,6 +19,10 @@ if (request.instruction === "wait" || (request.instruction === "wait-once" && !e
 } else if (request.instruction === "malformed") {
   console.log("invalid runner output");
   setInterval(() => {}, 1000);
+} else if (request.instruction === "transient-once" && !existsSync("/codex-home/transient-attempted")) {
+  writeFileSync("/codex-home/transient-attempted", "started");
+  console.log(JSON.stringify({ type: "error", code: "transient" }));
+  process.exit(0);
 } else if (request.instruction === "capacity") {
   console.log(JSON.stringify({ type: "error", code: "capacity", retryAt: "2030-01-01T00:00:00.000Z" }));
   process.exit(0);

@@ -157,7 +157,7 @@ test("a normal API server leaves execution disabled", async () => {
   const id = task("pending"); const app = buildApp({ databasePath }); cleanup.push(() => app.close());
   const response = await app.inject({ url: "/execution" });
   expect(response.statusCode).toBe(200);
-  expect(response.json()).toEqual({ state: "disabled", runId: null, taskId: null, reason: null, lastCheckedAt: null });
+  expect(response.json()).toEqual({ state: "disabled", runId: null, taskId: null, reason: null, lastCheckedAt: null, automaticRecoveryEnabled: false });
   expect(response.headers["cache-control"]).toBe("no-store"); expect(taskStatus(id)).toBe("queued");
 });
 

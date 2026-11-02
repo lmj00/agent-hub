@@ -5,7 +5,21 @@ async function login(page: Page) {
   await page
     .getByLabel("비밀번호", { exact: true })
     .fill("browser-fixture-password");
+  const response = page.waitForResponse(
+    (value) =>
+      value.url().endsWith("/auth/login") &&
+      value.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "작업 공간 열기" }).click();
+  const result = await response;
+  if (result.status() === 429) {
+    // 여러 시나리오가 같은 임시 서버를 사용합니다. 제품의 인증 제한을 끄지 않고 기다립니다.
+    const seconds = Number(result.headers()["retry-after"]);
+    expect(seconds).toBeGreaterThan(0);
+    expect(seconds).toBeLessThanOrEqual(60);
+    await page.waitForTimeout((seconds + 1) * 1000);
+    await page.getByRole("button", { name: "작업 공간 열기" }).click();
+  }
   await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
 }
 async function createProject(page: Page, name: string) {
@@ -172,4 +186,29 @@ test("reuses the task request key when the server accepted a write but its respo
   await expect(page.locator(".attempt")).toHaveCount(1);
   expect(keys).toHaveLength(2);
   expect(keys[0]).toBe(keys[1]);
+});
+
+test("shows an automatic retry reservation and its new attempt without a resume click", async ({
+  page,
+}, testInfo) => {
+  await login(page);
+  await createProject(page, "자동 복구 예제");
+  await createTask(page, "자동재시도 예제를 분석해 줘.");
+  const policy = page.getByLabel("자동 복구 정책");
+  await expect(policy).toContainText("다음 시도 가능 시각");
+  await expect(policy).toContainText("재시도 0 / 3회");
+  await page.screenshot({
+    path: testInfo.outputPath("automatic-retry.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("automatic-retry-mobile.png"), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(page.locator(".detail-top .status-succeeded")).toBeVisible({
+    timeout: 12000,
+  });
+  await expect(policy).toContainText("재시도 1 / 3회");
+  await expect(policy).not.toContainText("다음 시도 가능 시각");
+  await expect(page.locator(".attempt")).toHaveCount(2);
 });

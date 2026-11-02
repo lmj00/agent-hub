@@ -126,9 +126,12 @@ test("adds service observations to the authenticated task database without losin
   const journalPath = join(folder, "meta", "_journal.json"); const journal = JSON.parse(readFileSync(journalPath, "utf8"));
   journal.entries = journal.entries.slice(0, 10); writeFileSync(journalPath, JSON.stringify(journal));
   const old = connect(folder); old.db.insert(projects).values(project).run();
-  old.db.insert(tasks).values({ id: "retained-task", projectId: project.id, instruction: "Preserve me", requestKey: "retained", createdAt: new Date() }).run();
+  old.client.prepare("INSERT INTO tasks (id, project_id, instruction, request_key, created_at) VALUES (?, ?, ?, ?, ?)").run("retained-task", project.id, "Preserve me", "retained", Date.now());
+  old.client.prepare("INSERT INTO runs (id, task_id, instance_id, status, model, effort, started_at, last_activity_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run("retained-run", "retained-task", "old-owner", "succeeded", "fixture", "medium", Date.now(), Date.now());
   const session = { id: "retained-session", generation: "generation", data: "{}", expiresAt: new Date(2000000000000) }; old.db.insert(authSessions).values(session).run(); old.close();
   const upgraded = connect();
+  expect(upgraded.client.prepare("SELECT accounted_duration_ms FROM runs WHERE id = ?").get("retained-run")).toEqual({ accounted_duration_ms: 0 });
+  expect(upgraded.db.select().from(tasks).get()?.retryState).toBeNull();
   expect(upgraded.db.select().from(tasks).get()?.instruction).toBe("Preserve me"); expect(upgraded.db.select().from(authSessions).get()).toEqual(session);
   expect(upgraded.client.prepare("SELECT * FROM service_targets").all()).toEqual([]); expect(upgraded.client.prepare("SELECT * FROM service_observations").all()).toEqual([]);
   expect(upgraded.client.pragma("foreign_key_check")).toEqual([]); expect(() => upgraded.checkReady()).not.toThrow();
@@ -158,7 +161,7 @@ test("adds tasks to a projects-only database and preserves existing projects", (
   upgraded.close();
 
   const reopened = connect();
-  expect(reopened.db.select().from(tasks).all()).toEqual([{ ...task, cancelRequestedAt: null }]);
+  expect(reopened.db.select().from(tasks).all()).toEqual([{ ...task, cancelRequestedAt: null, retryState: null }]);
   expect(reopened.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: migrationCount });
 });
 
@@ -174,5 +177,5 @@ test("enforces task foreign keys, request uniqueness, and status in SQLite", () 
   expect(() => db.insert(tasks).values({ ...task, id: "duplicate-task" }).run()).toThrow();
   expect(() => client.prepare("UPDATE tasks SET status = ?").run("invalid")).toThrow();
   expect(() => client.prepare("DELETE FROM projects WHERE id = ?").run(project.id)).toThrow();
-  expect(db.select().from(tasks).all()).toEqual([{ ...task, status: "queued", cancelRequestedAt: null }]);
+  expect(db.select().from(tasks).all()).toEqual([{ ...task, status: "queued", cancelRequestedAt: null, retryState: null }]);
 });

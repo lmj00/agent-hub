@@ -213,7 +213,7 @@ test("upgrades a queued-task database without losing its deduplication key", () 
   legacy.close();
   database = openDatabase(databasePath);
   store = createDrizzleRunStore(database.db);
-  expect(database.db.select().from(tasks).all()).toEqual([{ ...task, cancelRequestedAt: null }]);
+  expect(database.db.select().from(tasks).all()).toEqual([{ ...task, cancelRequestedAt: null, retryState: null }]);
   const run = store.claim(taskId, "test-model");
   expect(store.findById(run.id)?.status).toBe("running");
   expect(database.client.pragma("foreign_key_check")).toEqual([]);

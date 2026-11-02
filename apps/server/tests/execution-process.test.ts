@@ -137,11 +137,29 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     } finally { host.kill("SIGKILL"); }
   }, 15000);
 
-  test("HTTP recovery after server SIGKILL stops the old container before creating a replacement attempt", async () => {
+  test("automatically retries a transient runner error after confirmed container termination", async () => {
+    database.client.exec("UPDATE tasks SET instruction = 'transient-once'");
+    writeFileSync(join(home, "auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
+    const configPath = join(directory, "execution.json");
+    writeFileSync(configPath, JSON.stringify({ model: "fixture", codexHome: home, containerImage: image, workspaces: { example: workspace }, automaticRecovery: { initialDelayMs: 1000, jitterRatio: 0 } }));
+    const server = buildApp({ databasePath: join(directory, "hub.sqlite"), execution: { config: loadExecutionConfig(configPath), pollIntervalMs: 5 } });
+    try {
+      await server.listen({ host: "127.0.0.1", port: 0 });
+      await vi.waitFor(() => expect(store.listByTask(taskId)).toMatchObject([{ attempt: 2, status: "succeeded" }, { attempt: 1, status: "failed" }]), { timeout: 10000 });
+      const first = store.findById(store.listByTask(taskId)[1]!.id)!;
+      expect(first).toMatchObject({ errorCode: "transient", terminationConfirmedAt: expect.any(Date) });
+      expect((await server.inject({ method: "GET", url: `/tasks/${taskId}` })).json().retryState.retries).toBe(1);
+    } finally {
+      await server.close();
+      for (const row of database.db.select().from(runs).all()) if (row.execution) identities.push(row.execution);
+    }
+  }, 15000);
+
+  test.each(["manual", "automatic"] as const)("%s recovery after server SIGKILL stops the old container before creating a replacement attempt", async (mode) => {
     database.client.exec("UPDATE tasks SET instruction = 'wait-once'");
     writeFileSync(join(home, "auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
     const configPath = join(directory, "execution.json");
-    writeFileSync(configPath, JSON.stringify({ model: "fixture", codexHome: home, containerImage: image, workspaces: { example: workspace } }));
+    writeFileSync(configPath, JSON.stringify({ model: "fixture", codexHome: home, containerImage: image, workspaces: { example: workspace }, ...(mode === "automatic" ? { automaticRecovery: { initialDelayMs: 1000, jitterRatio: 0 } } : {}) }));
     const host = fork(fileURLToPath(new URL("./fixtures/execution-server.ts", import.meta.url)), [join(directory, "hub.sqlite"), configPath], {
       execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "ignore", "ipc"],
     });
@@ -160,14 +178,22 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
       expect((await exec("docker", ["inspect", "--format", "{{.State.Running}}", original.execution!.containerId])).stdout.trim()).toBe("true");
       server = buildApp({ databasePath: join(directory, "hub.sqlite"), execution: { config: loadExecutionConfig(configPath), pollIntervalMs: 5 } });
       const base = await server.listen({ host: "127.0.0.1", port: 0 });
+      if (mode === "manual") {
       expect((await server.inject({ method: "GET", url: "/execution" })).json()).toMatchObject({ state: "held", runId: original.id });
       const response = await fetch(`${base}/tasks/${taskId}/recovery-requests`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ requestKey: "resume-after-crash", runId: original.id, action: "resume" }),
       });
       expect(response.status).toBe(202);
+      }
       await vi.waitFor(() => expect(store.listByTask(taskId)).toMatchObject([{ attempt: 2, status: "succeeded" }, { attempt: 1, status: "waiting_retry" }]), { timeout: 10000 });
       expect(store.findById(original.id)).toMatchObject({ errorCode: "owner_lost", terminationConfirmedAt: expect.any(Date) });
+      if (mode === "automatic") {
+        const view = (await server.inject({ method: "GET", url: `/tasks/${taskId}` })).json();
+        expect(view.retryState).toMatchObject({ retries: 1, reason: null, nextAttemptAt: null });
+        expect(view.retryState.totalRunMs).toBeGreaterThan(0);
+        expect(store.listByTask(taskId)[0]!.startedAt.getTime()).toBeGreaterThan(store.findById(original.id)!.terminationConfirmedAt!.getTime());
+      }
       expect(database.client.pragma("foreign_key_check")).toEqual([]);
       await expect(exec("docker", ["inspect", original.execution!.containerId])).rejects.toThrow();
     } finally {

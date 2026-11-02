@@ -32,6 +32,7 @@ writeFileSync(
     model: "fixture-model",
     codexHome: "codex",
     timeoutMs: 60000,
+    automaticRecovery: { initialDelayMs: 5000, jitterRatio: 0 },
     workspaces: { example: "workspace" },
   }),
 );
@@ -65,11 +66,15 @@ const executor = {
     });
     if (
       !seen.has(request.instruction) &&
-      /재개|한도/.test(request.instruction)
+      /재개|한도|자동재시도/.test(request.instruction)
     ) {
       seen.add(request.instruction);
       throw new AnalysisError(
-        request.instruction.includes("한도") ? "capacity" : "provider_error",
+        request.instruction.includes("한도")
+          ? "capacity"
+          : request.instruction.includes("자동재시도")
+            ? "transient"
+            : "provider_error",
       );
     }
     onEvent({ kind: "item.completed:agent_message" });

@@ -102,6 +102,8 @@ const messages: Record<string, string> = {
     "더 최근의 실행이 있습니다. 최신 기록을 확인한 뒤 다시 요청해 주세요.",
   GATE_CHANGED:
     "실행 제한 상태가 바뀌었습니다. 최신 상태를 확인한 뒤 다시 요청해 주세요.",
+  RECOVERY_LIMIT_REACHED:
+    "작업의 재시도 또는 누적 시간 상한에 도달했습니다. 실행 기록과 정책을 검토해 주세요.",
   RETRY_TOO_EARLY: "아직 다시 시도할 수 있는 시각이 아닙니다.",
   PROVIDER_CHECK_RESERVED: "이미 실행 제한을 확인하는 작업이 예약돼 있습니다.",
   TASK_CANCELLED:

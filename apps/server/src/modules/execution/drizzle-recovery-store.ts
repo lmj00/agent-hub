@@ -1,3 +1,5 @@
+import { retryLimitReason } from "./retry-policy.js";
+import { accountRunDuration } from "./retry-state-store.js";
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
@@ -41,6 +43,8 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         if (input.action !== "cancel" && run && run.id === activeRunId) throw new RecoveryError("RUN_ACTIVE");
         if (input.action === "reconcile" && !run) throw new RecoveryError("NO_RUN");
         if (input.action === "resume") {
+          if (task.retryState && retryLimitReason(task.retryState)) throw new RecoveryError("RECOVERY_LIMIT_REACHED");
+          if (task.retryState?.nextAttemptAt && Date.parse(task.retryState.nextAttemptAt) > Date.now()) throw new RecoveryError("RETRY_TOO_EARLY");
           if (!canTrackTermination) throw new RecoveryError("TERMINATION_TRACKING_REQUIRED");
           const gate = readProviderGate(tx);
           if ((gate?.blocked && input.providerGateVersion === null)
@@ -115,18 +119,22 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
           } else if (proof && !run.terminationConfirmedAt) {
             tx.update(runs).set({ terminationConfirmedAt: proof }).where(eq(runs.id, run.id)).run();
           }
+          accountRunDuration(tx, run.id, proof ?? run.finishedAt);
           proofSaved = proof !== null;
           if (!proof) return finish("TERMINATION_UNCONFIRMED");
         }
         if (request.action === "cancel") {
           if (finalStatus === "succeeded") return finish("TASK_ALREADY_COMPLETED");
-          tx.update(tasks).set({ status: "cancelled" }).where(eq(tasks.id, task.id)).run();
+          tx.update(tasks).set({ status: "cancelled", ...(task.retryState ? { retryState: { ...tx.select({ state: tasks.retryState }).from(tasks).where(eq(tasks.id, task.id)).get()!.state!, nextAttemptAt: null, reason: "user_cancelled" } } : {}) }).where(eq(tasks.id, task.id)).run();
           cancelPendingProbe(tx, task.id);
           finalStatus = "cancelled";
           return finish(null);
         }
         if (request.action === "reconcile" || finalStatus === "succeeded") return finish(null);
         if (finalStatus === "cancelled") return finish("TASK_CANCELLED");
+        const retryState = tx.select({ state: tasks.retryState }).from(tasks).where(eq(tasks.id, task.id)).get()?.state;
+        if (retryState && retryLimitReason(retryState)) return finish("RECOVERY_LIMIT_REACHED");
+        if (retryState?.nextAttemptAt && Date.parse(retryState.nextAttemptAt) > now.getTime()) return finish("RETRY_TOO_EARLY");
         if (run?.stopReason === "unknown") return finish("UNKNOWN_STOP_REASON");
         if (tx.select({ id: runs.id }).from(runs).where(unresolvedRun).get()) return finish("UNRESOLVED_RUN");
         const gate = readProviderGate(tx);

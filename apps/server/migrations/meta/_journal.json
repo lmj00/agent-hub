@@ -78,6 +78,13 @@
       "when": 1793653452693,
       "tag": "0010_service_observations",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793654769368,
+      "tag": "0011_automatic_recovery",
+      "breakpoints": true
     }
   ]
 }

@@ -19,9 +19,10 @@ export type AnalysisExecutor = {
   cleanup?(runId: string): Promise<void>;
 };
 
+export const analysisErrorCodes = ["authentication", "capacity", "unsupported_settings", "provider_error", "transient", "output_limit"] as const;
 export class AnalysisError extends Error {
   constructor(
-    public readonly code: "authentication" | "capacity" | "unsupported_settings" | "provider_error" | "output_limit",
+    public readonly code: (typeof analysisErrorCodes)[number],
     public readonly completionUncertain = false,
     public readonly retryAt: Date | null = null,
   ) {
@@ -41,6 +42,7 @@ export function classifyCodexError(message: string): AnalysisError {
   if (/usage limit|quota|rate.?limit|too many requests|\b429\b/i.test(message)) return new AnalysisError("capacity", false, providerRetryAt(message));
   if (/unauthori[sz]ed|\b401\b|authentication|not logged in|sign in|refresh.token/i.test(message)) return new AnalysisError("authentication");
   if (/unsupported|not supported|model.*not found|invalid.*model|invalid.*config/i.test(message)) return new AnalysisError("unsupported_settings");
+  if (/network|ECONNRESET|ECONNREFUSED|ETIMEDOUT|fetch failed|connection (?:reset|closed|timed out)|\b50[234]\b|temporarily unavailable|server error|overloaded/i.test(message)) return new AnalysisError("transient");
   return new AnalysisError("provider_error");
 }
 

@@ -1,3 +1,5 @@
+import { ensureRetryState } from "./retry-state-store.js";
+import { retryLimitReason, type RetryPolicy } from "./retry-policy.js";
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
@@ -10,7 +12,7 @@ import { saveRunCompletion } from "./run-completion-store.js";
 
 export const unresolvedRun = sql`${runs.status} = 'running' OR (${runs.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${runs.terminationConfirmedAt} IS NULL)`;
 
-export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string) {
+export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string, retryPolicy?: RetryPolicy) {
   const instanceId = ownerToken ?? randomUUID();
   type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -52,13 +54,23 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
       const id = randomUUID();
       const now = new Date();
       const attempt = (tx.select({ value: sql<number>`max(${runs.attempt})` }).from(runs).where(eq(runs.taskId, task.id)).get()?.value ?? 0) + 1;
+      const retryState = ensureRetryState(tx, task.id, retryPolicy);
+      if (retryState) {
+        const reason = attempt > 1 ? retryLimitReason(retryState) : retryState.totalRunMs >= retryState.policy.maxTotalRunMs ? "task_time_limit" : null;
+        if (reason) {
+          tx.update(tasks).set({ status: "blocked", retryState: { ...retryState, reason, nextAttemptAt: null } }).where(eq(tasks.id, task.id)).run();
+          return { kind: "idle" };
+        }
+        if (retryState.nextAttemptAt && Date.parse(retryState.nextAttemptAt) > now.getTime()) return { kind: "idle" };
+        tx.update(tasks).set({ retryState: { ...retryState, retries: retryState.retries + (attempt > 1 ? 1 : 0), nextAttemptAt: null, reason: null } }).where(eq(tasks.id, task.id)).run();
+      }
       tx.update(tasks).set({ status: "running" }).where(eq(tasks.id, task.id)).run();
       tx.insert(runs).values({ id, taskId: task.id, attempt, instanceId, status: "running", model, effort: "medium", startedAt: now, lastActivityAt: now,
         providerGateVersion: probing ? gate.version : null }).run();
       if (probing) tx.update(providerGates).set({ probeRunId: id }).where(eq(providerGates.scope, providerScope)).run();
       tx.insert(steps).values({ id: randomUUID(), runId: id, sequence: 1, status: "running", startedAt: now }).run();
       tx.insert(events).values({ id: randomUUID(), runId: id, sequence: 1, kind: "run.started", createdAt: now }).run();
-      return { kind: "claimed", run: { id, taskId: task.id, instruction: task.instruction, ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
+      return { kind: "claimed", run: { id, taskId: task.id, instruction: task.instruction, ...(retryState ? { remainingRunMs: Math.max(1, retryState.policy.maxTotalRunMs - retryState.totalRunMs) } : {}), ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
     }, { behavior: "immediate" });
   }
 

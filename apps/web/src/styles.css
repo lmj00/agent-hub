@@ -1213,3 +1213,8 @@ a {
     scroll-behavior: auto !important;
   }
 }
+
+.retry-status {
+  display: grid;
+  gap: 6px;
+}

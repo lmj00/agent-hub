@@ -1,3 +1,4 @@
+import type { RetryState } from "../execution/retry-policy.js";
 import { randomUUID } from "node:crypto";
 import type { TaskStatus } from "./task-state.js";
 
@@ -11,6 +12,7 @@ export type Task = CreateTaskInput & {
   projectId: string;
   status: TaskStatus;
   createdAt: Date;
+  retryState?: RetryState | null;
 };
 
 export type TaskRegistration = { task: Task; created: boolean };

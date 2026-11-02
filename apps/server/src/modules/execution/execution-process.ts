@@ -1,4 +1,4 @@
-import { AnalysisError, type AnalysisEvent, type AnalysisExecutor, type AnalysisResult, type ExecutionIdentity } from "./analysis.js";
+import { AnalysisError, analysisErrorCodes, type AnalysisEvent, type AnalysisExecutor, type AnalysisResult, type ExecutionIdentity } from "./analysis.js";
 import { createCodexExecutor } from "./codex-executor.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import { attachContainer, prepareContainer, removeFinishedContainer, stopAndConfirmContainer } from "./container-runtime.js";
@@ -54,7 +54,7 @@ export function createContainerExecutor(image: string, codexHome: string): Analy
                 onEvent({ kind: message.event.kind, ...(message.event.sessionId ? { sessionId: message.event.sessionId } : {}) });
               } else if (message.type === "result" && typeof message.result?.output === "string" && !result) {
                 result = message.result;
-              } else if (message.type === "error" && ["authentication", "capacity", "unsupported_settings", "provider_error", "output_limit"].includes(message.code)) {
+              } else if (message.type === "error" && analysisErrorCodes.includes(message.code)) {
                 const retryAt = message.code === "capacity" && typeof message.retryAt === "string" ? new Date(message.retryAt) : null;
                 if (retryAt && !Number.isFinite(retryAt.getTime())) throw new Error("Invalid provider retry time");
                 failure = new AnalysisError(message.code, false, retryAt);

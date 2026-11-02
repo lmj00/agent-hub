@@ -29,10 +29,12 @@ async function main() {
     const project = createDrizzleProjectStore(database.db).findById(task.projectId);
     const workspace = project && config.workspaces.get(project.workspaceKey);
     if (!workspace) throw new Error("No prepared workspace configured for this project");
-    const store = createDrizzleRunStore(database.db, owner.token);
+    const executor = createConfiguredExecutor(config);
+    if (config.automaticRecovery && !executor.confirmTermination) throw new Error("Automatic recovery requires execution termination tracking");
+    const store = createDrizzleRunStore(database.db, owner.token, config.automaticRecovery);
     const outcome = await runTask({
       taskId: task.id, workspace, model: config.model, timeoutMs: config.timeoutMs, signal: controller.signal,
-    }, store, createConfiguredExecutor(config));
+    }, store, executor);
     // 분석 원문은 DB에만 저장하고 CLI에는 조회용 ID와 상태를 표시합니다.
     console.log(JSON.stringify({ runId: outcome.runId, taskId: task.id, status: outcome.status, errorCode: outcome.errorCode }));
     if (outcome.status !== "succeeded") process.exitCode = 1;

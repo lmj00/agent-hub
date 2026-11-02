@@ -1,3 +1,4 @@
+import type { RetryState } from "../modules/execution/retry-policy.js";
 import { sql } from "drizzle-orm";
 import type { ServiceSnapshot } from "@agent-hub/contracts";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
@@ -28,6 +29,7 @@ export const tasks = sqliteTable(
     requestKey: text("request_key").notNull(),
     status: text("status", { enum: taskStatuses }).notNull().default("queued"),
     cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
+    retryState: text("retry_state", { mode: "json" }).$type<RetryState>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [
@@ -61,6 +63,7 @@ export const runs = sqliteTable("runs", {
   execution: text("execution", { mode: "json" }).$type<ExecutionIdentity>(),
   retryAt: integer("retry_at", { mode: "timestamp_ms" }),
   providerGateVersion: integer("provider_gate_version"),
+  accountedDurationMs: integer("accounted_duration_ms").notNull().default(0),
 }, (table) => [
   check("runs_slot_valid", sql`${table.slot} = 1`),
   uniqueIndex("runs_one_active").on(table.slot).where(sql`${table.status} = 'running' OR (${table.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${table.terminationConfirmedAt} IS NULL)`),

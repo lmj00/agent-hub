@@ -2,7 +2,7 @@ import { AnalysisError, redactOutput, signalStopReason, type AnalysisEvent, type
 import type { TaskStatus } from "../tasks/task-state.js";
 import type { ProviderGateView } from "./provider-gate.js";
 
-export type ClaimedRun = { id: string; taskId: string; instruction: string; providerCheck?: boolean };
+export type ClaimedRun = { id: string; taskId: string; instruction: string; providerCheck?: boolean; remainingRunMs?: number };
 export type RunCompletion = {
   status: Exclude<TaskStatus, "queued" | "running">;
   result: string | null;
@@ -98,7 +98,7 @@ export async function runClaimedTask(
   if (options.signal.aborted) abort();
   const timer = setTimeout(() => {
     requestAbort("timeout");
-  }, options.timeoutMs);
+  }, Math.min(options.timeoutMs, run.remainingRunMs ?? options.timeoutMs));
   let completion: RunCompletion;
   try {
     controller.signal.throwIfAborted();

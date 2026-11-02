@@ -90,12 +90,32 @@ export const createTaskSchema = object({
   instruction: Type.String({ minLength: 1, maxLength: 10000, pattern: "\\S" }),
   requestKey,
 });
+export const retryStateSchema = object({
+  policy: object({
+    version: Type.Literal(1),
+    initialDelayMs: Type.Integer(),
+    maxDelayMs: Type.Integer(),
+    jitterRatio: Type.Number(),
+    maxRetries: Type.Integer(),
+    maxConsecutiveErrors: Type.Integer(),
+    maxTotalRunMs: Type.Integer(),
+  }),
+  retries: Type.Integer(),
+  consecutiveErrors: Type.Integer(),
+  lastError: nullable(text),
+  decisionRunId: nullable(id),
+  nextAttemptAt: nullable(date),
+  reason: nullable(text),
+  totalRunMs: Type.Integer(),
+});
+export type RetryState = Static<typeof retryStateSchema>;
 export const taskSchema = object({
   id,
   projectId: id,
   instruction: text,
   requestKey: text,
   status,
+  retryState: nullable(retryStateSchema),
   createdAt: date,
 });
 export const tasksSchema = object({ tasks: Type.Array(taskSchema) });
@@ -159,6 +179,7 @@ export const queueSchema = object({
   taskId: nullable(text),
   reason: nullable(text),
   lastCheckedAt: nullable(date),
+  automaticRecoveryEnabled: Type.Boolean(),
 });
 export type Queue = Static<typeof queueSchema>;
 export const providerGateSchema = object({

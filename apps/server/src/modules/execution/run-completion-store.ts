@@ -1,3 +1,4 @@
+import { accountRunDuration, refreshRetryErrorStreak } from "./retry-state-store.js";
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
@@ -14,6 +15,8 @@ export function saveRunCompletion(db: CompletionDb, run: { id: string; taskId: s
     status: completion.status, result: completion.result, errorCode: completion.errorCode, finishedAt, lastActivityAt: now,
     terminationConfirmedAt: completion.terminationConfirmedAt ?? null, retryAt: completion.retryAt ?? null,
   }).where(eq(runs.id, run.id)).run();
+  accountRunDuration(db, run.id, completion.terminationConfirmedAt ?? finishedAt);
+  refreshRetryErrorStreak(db, run.taskId);
   db.update(steps).set({ status: completion.status, usage: completion.usage, finishedAt }).where(eq(steps.runId, run.id)).run();
   const last = db.select({ sequence: sql<number>`max(${events.sequence})` }).from(events).where(eq(events.runId, run.id)).get();
   db.insert(events).values({ id: randomUUID(), runId: run.id, sequence: (last?.sequence ?? 0) + 1, kind: `run.${completion.status}`, createdAt: now }).run();

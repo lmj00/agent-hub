@@ -14,6 +14,7 @@ function toResponse(task: Task) {
     instruction: task.instruction,
     requestKey: task.requestKey,
     status: task.status,
+    retryState: task.retryState ?? null,
     createdAt: task.createdAt.toISOString(),
   };
 }
