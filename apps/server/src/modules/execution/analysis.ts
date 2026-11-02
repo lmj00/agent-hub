@@ -1,6 +1,7 @@
 export type AnalysisUsage = { inputTokens: number; cachedInputTokens: number; outputTokens: number };
-export type AnalysisEvent = { kind: string; sessionId?: string };
-export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal };
+export type ExecutionIdentity = { kind: "docker"; containerId: string; token: string; engineId: string };
+export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity };
+export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string };
 export type AnalysisResult = { output: string; usage: AnalysisUsage | null };
 
 export const stopReasons = ["user_cancel", "server_shutdown", "timeout", "unknown"] as const;
@@ -13,6 +14,9 @@ export function signalStopReason(signal: AbortSignal): StopReason {
 
 export type AnalysisExecutor = {
   analyze(request: AnalysisRequest, onEvent: (event: AnalysisEvent) => void): Promise<AnalysisResult>;
+  // 신호 전송 여부가 아니라 이 실행의 모든 명령이 끝났는지 관측합니다. 확인 불가는 null입니다.
+  confirmTermination?(runId: string): Promise<Date | null>;
+  cleanup?(runId: string): Promise<void>;
 };
 
 export class AnalysisError extends Error {

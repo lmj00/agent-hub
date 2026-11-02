@@ -43,7 +43,11 @@ export function loadExecutionConfig(file: string) {
     validateWorkspace(workspace, codexHome);
     workspaces.set(key, workspace);
   }
-  return { model: config.model, codexHome, timeoutMs, workspaces };
+  const containerImage = config.containerImage;
+  if (containerImage !== undefined && (typeof containerImage !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9./_:@-]{0,199}$/.test(containerImage))) {
+    throw new Error("containerImage must be a local Docker image reference");
+  }
+  return { model: config.model, codexHome, timeoutMs, workspaces, ...(containerImage ? { containerImage: containerImage as string } : {}) };
 }
 
 export type ExecutionConfig = ReturnType<typeof loadExecutionConfig>;

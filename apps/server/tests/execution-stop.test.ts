@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
 import { projects, runs, tasks } from "../src/db/schema.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
@@ -22,6 +22,39 @@ beforeEach(() => {
   database.db.insert(tasks).values({ id: taskId, projectId, instruction: "Analyze", requestKey: "first", createdAt: new Date() }).run();
 });
 afterEach(() => { database.close(); rmSync(directory, { recursive: true, force: true }); });
+
+test("unavailable termination evidence keeps even a completed report held", async () => {
+  const cleanup = vi.fn();
+  const outcome = await runTask({ taskId, model: "test", workspace: directory, timeoutMs: 1000, signal: new AbortController().signal }, store, {
+    analyze: async () => ({ output: "Report", usage: null }),
+    confirmTermination: async () => null,
+    cleanup,
+  });
+  expect(outcome).toMatchObject({ status: "interrupted", errorCode: "termination_unconfirmed", result: "Report" });
+  expect(cleanup).not.toHaveBeenCalled();
+  expect(store.claimNext("test", ["example"])).toMatchObject({ kind: "held", runId: outcome.runId });
+});
+
+test("failed completion persistence preserves the execution identity and does not remove its container", async () => {
+  database.client.exec("CREATE TRIGGER reject_finish BEFORE UPDATE ON steps BEGIN SELECT RAISE(ABORT, 'fixture'); END;");
+  const cleanup = vi.fn();
+  const execution = { kind: "docker" as const, containerId: "a".repeat(64), token: randomUUID(), engineId: "fixture" };
+  await expect(runTask({ taskId, model: "test", workspace: directory, timeoutMs: 1000, signal: new AbortController().signal }, store, {
+    async analyze(_request, onEvent) { onEvent({ kind: "execution.prepared", execution }); return { output: "Report", usage: null }; },
+    confirmTermination: async () => new Date(), cleanup,
+  })).rejects.toThrow("fixture");
+  expect(database.db.select().from(runs).get()).toMatchObject({ status: "running", execution, terminationConfirmedAt: null });
+  expect(cleanup).not.toHaveBeenCalled();
+});
+
+test("execution identity is durable and cannot be replaced during a run", () => {
+  const run = store.claim(taskId, "test");
+  const execution = { kind: "docker" as const, containerId: "a".repeat(64), token: randomUUID(), engineId: "fixture" };
+  store.record(run.id, { kind: "execution.prepared", execution });
+  expect(() => store.record(run.id, { kind: "execution.prepared", execution: { ...execution, token: randomUUID() } })).toThrow("already assigned");
+  database.close(); database = openDatabase(join(directory, "hub.sqlite"));
+  expect(database.db.select().from(runs).get()?.execution).toEqual(execution);
+});
 
 test.each(["user_cancel", "server_shutdown"] as const)("persists %s before signaling the executor and preserves it across restart", async reason => {
   const controller = new AbortController();

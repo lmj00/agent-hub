@@ -1,0 +1,15 @@
+# 빌드에 필요한 공개 소스만 전달합니다. 인증·DB·작업 폴더는 포함하지 않습니다.
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.base.json
+!apps/
+!apps/server/
+!apps/server/package.json
+!apps/server/tsconfig.json
+!apps/server/tsconfig.build.json
+!apps/server/src/
+!apps/server/src/**
+!docker/
+!docker/analysis-runner.Dockerfile

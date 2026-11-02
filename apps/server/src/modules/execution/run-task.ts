@@ -7,6 +7,7 @@ export type RunCompletion = {
   result: string | null;
   errorCode: string | null;
   usage: AnalysisUsage | null;
+  terminationConfirmedAt?: Date | null;
 };
 export type RunStore = {
   claim(taskId: string, model: string): ClaimedRun;
@@ -83,7 +84,7 @@ export async function runClaimedTask(
     // 중단 신호에 응답하지 않는 실행도 기다림을 끝냅니다. Promise.race는 뒤늦은 실패도 처리합니다.
     const result = await Promise.race([
       executor.analyze({
-        instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal,
+        instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal, runId: run.id,
       }, (event) => {
         if (acceptingEvents && !controller.signal.aborted) store.record(run.id, event);
       }),
@@ -94,7 +95,7 @@ export async function runClaimedTask(
     completion = { status: "succeeded", result: redactOutput(result.output), errorCode: null, usage: result.usage };
   } catch (error) {
     if (controller.signal.aborted) {
-      // SDK는 자식 명령 전체의 종료를 보장하는 API가 없어 후속 실행을 보류합니다.
+      // 중단 사유를 먼저 보존하고, 컨테이너 실행의 실제 종료는 아래에서 따로 관측합니다.
       const errorCode = stopReason === "timeout" ? "timeout" : stopReason === "server_shutdown" ? "server_shutdown" : "cancel_requested";
       completion = { status: "interrupted", result: null, errorCode, usage: null };
     } else {
@@ -109,7 +110,22 @@ export async function runClaimedTask(
     clearTimeout(timer);
     options.signal.removeEventListener("abort", abort);
   }
+  if (executor.confirmTermination) {
+    // 외부 관측은 DB 트랜잭션 밖에서 제한 시간 안에 수행합니다.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      completion.terminationConfirmedAt = await Promise.race([
+        executor.confirmTermination(run.id).catch(() => null),
+        new Promise<null>(resolve => { deadline = setTimeout(() => resolve(null), 8000); }),
+      ]);
+    } finally { clearTimeout(deadline); }
+    if (!completion.terminationConfirmedAt) {
+      completion.status = "interrupted";
+      completion.errorCode ??= "termination_unconfirmed";
+    }
+  }
   if (stopWriteFailed) throw stopWriteError;
   store.finish(run.id, completion);
+  if (completion.terminationConfirmedAt) await executor.cleanup?.(run.id);
   return { runId: run.id, ...completion };
 }

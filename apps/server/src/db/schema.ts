@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { taskStatuses } from "../modules/tasks/task-state.js";
-import { stopReasons } from "../modules/execution/analysis.js";
+import { stopReasons, type ExecutionIdentity } from "../modules/execution/analysis.js";
 
 export const projects = sqliteTable(
   "projects",
@@ -55,6 +55,7 @@ export const runs = sqliteTable("runs", {
   stopRequestedAt: integer("stop_requested_at", { mode: "timestamp_ms" }),
   // SDK 응답 완료와 실제 자식 실행의 종료 확인은 별개의 사실입니다.
   terminationConfirmedAt: integer("termination_confirmed_at", { mode: "timestamp_ms" }),
+  execution: text("execution", { mode: "json" }).$type<ExecutionIdentity>(),
 }, (table) => [
   check("runs_slot_valid", sql`${table.slot} = 1`),
   uniqueIndex("runs_one_active").on(table.slot).where(sql`${table.status} IN ('running', 'interrupted')`),

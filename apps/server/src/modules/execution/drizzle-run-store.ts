@@ -70,6 +70,10 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         assertOwner(tx);
         const run = tx.select().from(runs).where(and(eq(runs.id, runId), eq(runs.instanceId, instanceId), eq(runs.status, "running"))).get();
         if (!run) throw new Error("Run is no longer active");
+        if (event.execution) {
+          if (run.execution) throw new Error("Execution identity is already assigned");
+          tx.update(runs).set({ execution: event.execution }).where(eq(runs.id, runId)).run();
+        }
         const now = new Date();
         tx.update(runs).set({ lastActivityAt: now }).where(eq(runs.id, runId)).run();
         if (event.sessionId) tx.update(steps).set({ sessionId: event.sessionId }).where(eq(steps.runId, runId)).run();
@@ -88,7 +92,8 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         const now = new Date();
         const finishedAt = completion.status === "interrupted" ? null : now;
         tx.update(tasks).set({ status: completion.status }).where(eq(tasks.id, run.taskId)).run();
-        tx.update(runs).set({ status: completion.status, result: completion.result, errorCode: completion.errorCode, finishedAt, lastActivityAt: now })
+        tx.update(runs).set({ status: completion.status, result: completion.result, errorCode: completion.errorCode, finishedAt, lastActivityAt: now,
+          terminationConfirmedAt: completion.terminationConfirmedAt ?? null })
           .where(eq(runs.id, runId)).run();
         tx.update(steps).set({ status: completion.status, usage: completion.usage, finishedAt }).where(eq(steps.runId, runId)).run();
         const last = tx.select({ sequence: sql<number>`max(${events.sequence})` }).from(events).where(eq(events.runId, runId)).get();

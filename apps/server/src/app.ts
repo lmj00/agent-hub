@@ -10,7 +10,7 @@ import { executionRoutes } from "./modules/execution/routes.js";
 import { acquireExecutionOwner } from "./modules/execution/execution-owner.js";
 import { createExecutionQueue } from "./modules/execution/execution-queue.js";
 import { validateExecutionEnvironment, type ExecutionConfig } from "./modules/execution/execution-config.js";
-import { createCodexExecutor } from "./modules/execution/codex-executor.js";
+import { createConfiguredExecutor } from "./modules/execution/execution-process.js";
 import type { AnalysisExecutor } from "./modules/execution/analysis.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
@@ -45,7 +45,7 @@ export function buildApp({ databasePath, execution, ...options }: AppOptions) {
         queue = createExecutionQueue({
           ...execution,
           store: createDrizzleRunStore(database.db, owner.token),
-          executor: execution.executor ?? createCodexExecutor(execution.config.codexHome),
+          executor: execution.executor ?? createConfiguredExecutor(execution.config),
           validate: () => validateExecutionEnvironment(execution.config, databasePath),
           reportDiagnostic: (diagnostic) => {
             if (diagnostic.event === "execution_queue.error") scope.log.error(diagnostic, "Execution queue check failed");

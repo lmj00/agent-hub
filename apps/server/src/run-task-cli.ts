@@ -4,7 +4,7 @@ import { openDatabase } from "./db/connection.js";
 import { createDrizzleProjectStore } from "./modules/projects/drizzle-project-store.js";
 import { createDrizzleTaskStore } from "./modules/tasks/drizzle-task-store.js";
 import { createDrizzleRunStore } from "./modules/execution/drizzle-run-store.js";
-import { createCodexExecutor } from "./modules/execution/codex-executor.js";
+import { createConfiguredExecutor } from "./modules/execution/execution-process.js";
 import { loadExecutionConfig, validateExecutionEnvironment } from "./modules/execution/execution-config.js";
 import { acquireExecutionOwner } from "./modules/execution/execution-owner.js";
 import { runTask } from "./modules/execution/run-task.js";
@@ -32,7 +32,7 @@ async function main() {
     const store = createDrizzleRunStore(database.db, owner.token);
     const outcome = await runTask({
       taskId: task.id, workspace, model: config.model, timeoutMs: config.timeoutMs, signal: controller.signal,
-    }, store, createCodexExecutor(config.codexHome));
+    }, store, createConfiguredExecutor(config));
     // 분석 원문은 DB에만 저장하고 CLI에는 조회용 ID와 상태를 표시합니다.
     console.log(JSON.stringify({ runId: outcome.runId, taskId: task.id, status: outcome.status, errorCode: outcome.errorCode }));
     if (outcome.status !== "succeeded") process.exitCode = 1;
