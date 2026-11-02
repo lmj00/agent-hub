@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install the repository's pinned pnpm
+        run: npm install --global "$(node -p "require('./package.json').packageManager")"
+      - name: Install without changing the lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Check types
+        run: pnpm typecheck
+      - name: Build
+        run: pnpm build
+      # Prebuild outside test timeouts so a cold image download is not a test failure.
+      - name: Prepare container test images
+        run: |
+          docker build -f docker/analysis-runner.Dockerfile -t agent-hub-sandbox-test:local .
+          docker build -t agent-hub-execution-test:local apps/server/tests/fixtures/container-runner
+      - name: Test with real container boundaries and synthetic credentials
+        run: pnpm test
+        env:
+          RUN_CONTAINER_TESTS: "1"
+      - name: Install Chromium
+        run: pnpm --filter @agent-hub/web exec playwright install --with-deps chromium
+      - name: Test browser flows with the fake AI executor
+        run: pnpm --filter @agent-hub/web test:browser
+      - name: Retain browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: browser-failure-evidence
+          path: apps/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

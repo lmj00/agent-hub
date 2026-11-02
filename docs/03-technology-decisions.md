@@ -512,3 +512,11 @@ DB가 중단 요청을 저장하지 못하면 신호 전송까지 막지 않습�
 개발 의존성에는 Drizzle Kit의 설정 로더가 사용하는 esbuild 0.18.20의 [개발 서버 CORS 문제](https://github.com/evanw/esbuild/security/advisories/GHSA-67mh-4wv8-2f99)도 있었습니다. 이 프로젝트의 DB 변경 파일 생성은 해당 개발 서버를 열지 않습니다. `@esbuild-kit/core-utils` 경로에만 esbuild 0.25.12를 적용하고, 실제 `pnpm db:generate`가 기존 스키마를 읽어 불필요한 마이그레이션 없이 끝나는지 확인했습니다.
 
 고정한 버전은 Node.js 24를 지원하며 `pnpm-workspace.yaml`의 제한적인 override와 잠금 파일에 기록했습니다. 상위 패키지가 수정된 버전을 공식 의존성으로 채택하면 override 제거를 검토합니다. 선언된 의존 범위를 바꾼 조치이므로 잠금 파일을 변경하지 않는 설치·타입 검사·테스트 317개(실제 Docker 14개)·화면 테스트 7개를 다시 검증했습니다. 수정 후 개발 도구를 포함한 `pnpm audit`의 보고된 취약점은 0개입니다. 알려지지 않은 취약점까지 없다는 뜻은 아닙니다.
+
+## 공개 저장소의 자동 검사 — 2026-11-03
+
+**선택:** GitHub가 제공하는 Ubuntu 24.04 실행 서버에서 기존 검증 명령을 실행합니다. 로컬 검사에만 의존하면 다른 환경의 실패와 PR의 회귀를 놓칠 수 있어 타입·빌드·SQLite·컨테이너·화면 검사를 연결했습니다. 별도의 테스트 프레임워크나 개인 서버는 추가하지 않습니다.
+
+Node.js는 `.nvmrc`, pnpm은 `packageManager` 값을 읽고 `--frozen-lockfile`로 설치합니다. [checkout](https://github.com/actions/checkout)·[setup-node](https://github.com/actions/setup-node) 등 외부 Action은 전체 커밋 ID로 고정하며 저장소 권한은 읽기만 허용합니다. [Playwright의 CI 안내](https://playwright.dev/docs/ci-intro)에 따라 Chromium과 OS 의존성을 설치하고, 이미 빌드한 앱에 가짜 AI 실행기를 연결합니다. Docker 이미지를 먼저 빌드해 첫 다운로드 시간을 개별 테스트의 제한 시간과 분리합니다.
+
+개인 인증을 가진 자체 실행 서버와 `pull_request_target`은 사용하지 않습니다. 컨테이너 테스트는 실제 CLI의 파일 권한 경계까지 검사하지만 모델을 호출하지 않습니다. 실제 계정·모델 품질·AWS 운영 검증은 계속 별도로 수행합니다. CI 구성 추가 자체를 원격 실행 성공으로 간주하지 않으며, 해당 커밋의 Actions 결과로 확인합니다.
