@@ -179,6 +179,7 @@ test("exposes execution records through read-only APIs without internal ownershi
     const response = await app.inject({ method: "GET", url: `/runs/${result.runId}` });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ id: result.runId, status: "succeeded", result: expect.stringContaining("[REDACTED]") });
+    expect(response.json()).toMatchObject({ stopReason: null, stopRequestedAt: null, terminationConfirmedAt: null });
     expect(response.json()).not.toHaveProperty("instanceId");
     expect(response.json()).not.toHaveProperty("slot");
     expect(response.headers["cache-control"]).toBe("no-store");
@@ -205,10 +206,14 @@ test("upgrades a queued-task database without losing its deduplication key", () 
   const legacy = openDatabase(databasePath, folder);
   const project = { id: randomUUID(), name: "Legacy", workspaceKey: "legacy", createdAt: new Date() };
   const task = { id: taskId, projectId: project.id, instruction: "Legacy task", requestKey: "old-key", status: "queued" as const, createdAt: new Date() };
-  legacy.db.insert(projects).values(project).run(); legacy.db.insert(tasks).values(task).run(); legacy.close();
+  legacy.db.insert(projects).values(project).run();
+  // 구버전 테이블에는 현재 스키마에 추가된 필드가 없으므로 당시의 저장 형식을 사용합니다.
+  legacy.client.prepare("INSERT INTO tasks (id, project_id, instruction, request_key, status, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(task.id, task.projectId, task.instruction, task.requestKey, task.status, task.createdAt.getTime());
+  legacy.close();
   database = openDatabase(databasePath);
   store = createDrizzleRunStore(database.db);
-  expect(database.db.select().from(tasks).all()).toEqual([task]);
+  expect(database.db.select().from(tasks).all()).toEqual([{ ...task, cancelRequestedAt: null }]);
   const run = store.claim(taskId, "test-model");
   expect(store.findById(run.id)?.status).toBe("running");
   expect(database.client.pragma("foreign_key_check")).toEqual([]);

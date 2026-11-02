@@ -3,6 +3,14 @@ export type AnalysisEvent = { kind: string; sessionId?: string };
 export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal };
 export type AnalysisResult = { output: string; usage: AnalysisUsage | null };
 
+export const stopReasons = ["user_cancel", "server_shutdown", "timeout", "unknown"] as const;
+export type StopReason = typeof stopReasons[number];
+
+// 이유가 없는 외부 중단 신호는 재실행하지 않는 사용자 취소로 취급합니다.
+export function signalStopReason(signal: AbortSignal): StopReason {
+  return signal.reason === "server_shutdown" ? "server_shutdown" : "user_cancel";
+}
+
 export type AnalysisExecutor = {
   analyze(request: AnalysisRequest, onEvent: (event: AnalysisEvent) => void): Promise<AnalysisResult>;
 };

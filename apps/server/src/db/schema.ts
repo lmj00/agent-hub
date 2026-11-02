@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { taskStatuses } from "../modules/tasks/task-state.js";
+import { stopReasons } from "../modules/execution/analysis.js";
 
 export const projects = sqliteTable(
   "projects",
@@ -24,6 +25,7 @@ export const tasks = sqliteTable(
     instruction: text("instruction").notNull(),
     requestKey: text("request_key").notNull(),
     status: text("status", { enum: taskStatuses }).notNull().default("queued"),
+    cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [
@@ -49,6 +51,10 @@ export const runs = sqliteTable("runs", {
   lastActivityAt: integer("last_activity_at", { mode: "timestamp_ms" }).notNull(),
   result: text("result"),
   errorCode: text("error_code"),
+  stopReason: text("stop_reason", { enum: stopReasons }),
+  stopRequestedAt: integer("stop_requested_at", { mode: "timestamp_ms" }),
+  // SDK 응답 완료와 실제 자식 실행의 종료 확인은 별개의 사실입니다.
+  terminationConfirmedAt: integer("termination_confirmed_at", { mode: "timestamp_ms" }),
 }, (table) => [
   check("runs_slot_valid", sql`${table.slot} = 1`),
   uniqueIndex("runs_one_active").on(table.slot).where(sql`${table.status} IN ('running', 'interrupted')`),

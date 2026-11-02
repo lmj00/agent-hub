@@ -1,4 +1,4 @@
-import { AnalysisError, redactOutput, type AnalysisEvent, type AnalysisExecutor, type AnalysisUsage } from "./analysis.js";
+import { AnalysisError, redactOutput, signalStopReason, type AnalysisEvent, type AnalysisExecutor, type AnalysisUsage, type StopReason } from "./analysis.js";
 import type { TaskStatus } from "../tasks/task-state.js";
 
 export type ClaimedRun = { id: string; taskId: string; instruction: string };
@@ -11,6 +11,7 @@ export type RunCompletion = {
 export type RunStore = {
   claim(taskId: string, model: string): ClaimedRun;
   record(runId: string, event: AnalysisEvent): void;
+  requestStop(runId: string, reason: StopReason): StopReason;
   finish(runId: string, completion: RunCompletion): void;
 };
 
@@ -28,6 +29,7 @@ export type RunSummary = {
 };
 export type RunDetails = RunSummary & {
   lastActivityAt: Date; result: string | null; errorCode: string | null;
+  stopReason: StopReason | null; stopRequestedAt: Date | null; terminationConfirmedAt: Date | null;
   steps: { sequence: number; status: TaskStatus; sessionId: string | null; usage: AnalysisUsage | null; startedAt: Date; finishedAt: Date | null }[];
   events: { sequence: number; kind: string; createdAt: Date }[];
 };
@@ -54,17 +56,26 @@ export async function runClaimedTask(
 ) {
   const controller = new AbortController();
   let acceptingEvents = true;
+  let stopReason: StopReason | null = null;
+  let stopWriteError: unknown;
+  let stopWriteFailed = false;
   const { promise: interrupted, resolve: stopWaiting } = Promise.withResolvers<null>();
-  const abort = () => {
+  const requestAbort = (reason: StopReason) => {
+    if (controller.signal.aborted) return;
     acceptingEvents = false;
+    stopReason = reason;
+    try {
+      // 요청을 먼저 보존합니다. 저장 실패 시에도 실행 중단은 요청하되 보류 기록을 해제하지 않습니다.
+      stopReason = store.requestStop(run.id, reason);
+    } catch (error) { stopWriteFailed = true; stopWriteError = error; }
     stopWaiting(null);
-    controller.abort();
+    controller.abort(stopReason);
   };
+  const abort = () => requestAbort(signalStopReason(options.signal));
   options.signal.addEventListener("abort", abort, { once: true });
   if (options.signal.aborted) abort();
-  let timedOut = false;
   const timer = setTimeout(() => {
-    if (!controller.signal.aborted) { timedOut = true; abort(); }
+    requestAbort("timeout");
   }, options.timeoutMs);
   let completion: RunCompletion;
   try {
@@ -84,7 +95,8 @@ export async function runClaimedTask(
   } catch (error) {
     if (controller.signal.aborted) {
       // SDK는 자식 명령 전체의 종료를 보장하는 API가 없어 후속 실행을 보류합니다.
-      completion = { status: "interrupted", result: null, errorCode: timedOut ? "timeout" : "cancel_requested", usage: null };
+      const errorCode = stopReason === "timeout" ? "timeout" : stopReason === "server_shutdown" ? "server_shutdown" : "cancel_requested";
+      completion = { status: "interrupted", result: null, errorCode, usage: null };
     } else {
       const code = error instanceof AnalysisError ? error.code : "execution_error";
       const status = !(error instanceof AnalysisError) || error.completionUncertain ? "interrupted"
@@ -97,6 +109,7 @@ export async function runClaimedTask(
     clearTimeout(timer);
     options.signal.removeEventListener("abort", abort);
   }
+  if (stopWriteFailed) throw stopWriteError;
   store.finish(run.id, completion);
   return { runId: run.id, ...completion };
 }

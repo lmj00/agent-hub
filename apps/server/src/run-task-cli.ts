@@ -16,9 +16,10 @@ async function main() {
   const { databasePath } = loadConfig(process.env);
   const database = openDatabase(databasePath);
   const controller = new AbortController();
-  const stop = () => controller.abort();
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
+  const cancel = () => controller.abort("user_cancel");
+  const shutdown = () => controller.abort("server_shutdown");
+  process.once("SIGINT", cancel);
+  process.once("SIGTERM", shutdown);
   let owner: ReturnType<typeof acquireExecutionOwner> | undefined;
   try {
     validateExecutionEnvironment(config, databasePath);
@@ -42,8 +43,8 @@ async function main() {
       console.error("CLI shutdown deadline exceeded; inspect execution records");
       process.exit(1);
     }, 10000).unref();
-    process.removeListener("SIGINT", stop);
-    process.removeListener("SIGTERM", stop);
+    process.removeListener("SIGINT", cancel);
+    process.removeListener("SIGTERM", shutdown);
     try { owner?.release(); } finally { database.close(); }
   }
 }

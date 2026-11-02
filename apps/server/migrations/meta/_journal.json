@@ -29,6 +29,13 @@
       "when": 1793635726314,
       "tag": "0003_execution_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793644568056,
+      "tag": "0004_execution_stop_evidence",
+      "breakpoints": true
     }
   ]
 }

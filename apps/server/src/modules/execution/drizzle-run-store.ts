@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { events, executionOwner, projects, runs, steps, tasks } from "../../db/schema.js";
-import type { AnalysisEvent } from "./analysis.js";
+import type { AnalysisEvent, StopReason } from "./analysis.js";
 import type { QueueClaim, RunCompletion } from "./run-task.js";
 
 export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string) {
@@ -53,6 +53,18 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
     claimNext(model: string, workspaceKeys: string[]) {
       return claim(model, { workspaceKeys });
     },
+    requestStop(runId: string, reason: StopReason): StopReason {
+      return db.transaction((tx) => {
+        assertOwner(tx);
+        const run = tx.select().from(runs).where(and(eq(runs.id, runId), eq(runs.instanceId, instanceId), eq(runs.status, "running"))).get();
+        if (!run) throw new Error("Cannot stop a run not owned by this executor");
+        if (run.stopReason) return run.stopReason;
+        const now = new Date();
+        tx.update(runs).set({ stopReason: reason, stopRequestedAt: now }).where(eq(runs.id, runId)).run();
+        if (reason === "user_cancel") tx.update(tasks).set({ cancelRequestedAt: now }).where(eq(tasks.id, run.taskId)).run();
+        return reason;
+      }, { behavior: "immediate" });
+    },
     record(runId: string, event: AnalysisEvent) {
       db.transaction((tx) => {
         assertOwner(tx);
@@ -94,6 +106,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         id: run.id, taskId: run.taskId, status: run.status, model: run.model, effort: run.effort,
         startedAt: run.startedAt, finishedAt: run.finishedAt, lastActivityAt: run.lastActivityAt,
         result: run.result, errorCode: run.errorCode,
+        stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt, terminationConfirmedAt: run.terminationConfirmedAt,
         steps: db.select({ sequence: steps.sequence, status: steps.status, sessionId: steps.sessionId, usage: steps.usage, startedAt: steps.startedAt, finishedAt: steps.finishedAt })
           .from(steps).where(eq(steps.runId, id)).orderBy(asc(steps.sequence)).all(),
         events: db.select({ sequence: events.sequence, kind: events.kind, createdAt: events.createdAt })

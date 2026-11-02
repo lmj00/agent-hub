@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { taskStatuses } from "../tasks/task-state.js";
 import type { RunQueries, RunSummary } from "./run-task.js";
 import type { QueueStatus } from "./execution-queue.js";
+import { stopReasons } from "./analysis.js";
 
 const date = { type: "string", format: "date-time" };
 const nullableDate = { anyOf: [date, { type: "null" }] };
@@ -14,9 +15,11 @@ const summaryProperties = {
 const summarySchema = { type: "object", additionalProperties: false, required: Object.keys(summaryProperties), properties: summaryProperties };
 const detailsSchema = {
   type: "object", additionalProperties: false,
-  required: [...Object.keys(summaryProperties), "lastActivityAt", "result", "errorCode", "steps", "events"],
+  required: [...Object.keys(summaryProperties), "lastActivityAt", "result", "errorCode", "stopReason", "stopRequestedAt", "terminationConfirmedAt", "steps", "events"],
   properties: {
     ...summaryProperties, lastActivityAt: date, result: nullableText, errorCode: nullableText,
+    stopReason: { anyOf: [{ type: "string", enum: stopReasons }, { type: "null" }] },
+    stopRequestedAt: nullableDate, terminationConfirmedAt: nullableDate,
     steps: { type: "array", items: {
       type: "object", additionalProperties: false,
       required: ["sequence", "status", "sessionId", "usage", "startedAt", "finishedAt"],
@@ -74,6 +77,8 @@ export const executionRoutes: FastifyPluginAsync<{
     if (!run) return reply.code(404).send({ error: "RUN_NOT_FOUND", message: "Run not found" });
     return {
       ...summary(run), result: run.result, errorCode: run.errorCode, lastActivityAt: run.lastActivityAt.toISOString(),
+      stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt?.toISOString() ?? null,
+      terminationConfirmedAt: run.terminationConfirmedAt?.toISOString() ?? null,
       steps: run.steps.map(step => ({ ...step, startedAt: step.startedAt.toISOString(), finishedAt: step.finishedAt?.toISOString() ?? null })),
       events: run.events.map(event => ({ ...event, createdAt: event.createdAt.toISOString() })),
     };

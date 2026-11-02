@@ -81,7 +81,7 @@ export function createExecutionQueue(options: {
     async stop() {
       if (!controller.signal.aborted) {
         status = { ...status, state: "stopping" };
-        controller.abort();
+        controller.abort("server_shutdown");
       }
       await loop;
       status = { ...status, state: "stopped" };
