@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { taskStatuses } from "../modules/tasks/task-state.js";
 
 export const projects = sqliteTable(
   "projects",
@@ -22,7 +23,7 @@ export const tasks = sqliteTable(
     projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "restrict" }),
     instruction: text("instruction").notNull(),
     requestKey: text("request_key").notNull(),
-    status: text("status", { enum: ["queued"] }).notNull().default("queued"),
+    status: text("status", { enum: taskStatuses }).notNull().default("queued"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [
@@ -30,6 +31,44 @@ export const tasks = sqliteTable(
     index("tasks_project_created_at_idx").on(table.projectId, table.createdAt, table.id),
     check("tasks_instruction_not_blank", sql`length(trim(${table.instruction})) > 0`),
     check("tasks_request_key_not_blank", sql`length(trim(${table.requestKey})) > 0`),
-    check("tasks_status_valid", sql`${table.status} = 'queued'`),
+    check("tasks_status_valid", sql`${table.status} IN ('queued', 'running', 'succeeded', 'failed', 'interrupted', 'blocked', 'waiting_capacity', 'waiting_retry')`),
   ],
 );
+
+export const runs = sqliteTable("runs", {
+  id: text("id").primaryKey().notNull(),
+  taskId: text("task_id").notNull().references(() => tasks.id, { onDelete: "restrict" }),
+  instanceId: text("instance_id").notNull(),
+  slot: integer("slot").notNull().default(1),
+  status: text("status", { enum: taskStatuses }).notNull(),
+  model: text("model").notNull(),
+  effort: text("effort").notNull(),
+  startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+  finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+  lastActivityAt: integer("last_activity_at", { mode: "timestamp_ms" }).notNull(),
+  result: text("result"),
+  errorCode: text("error_code"),
+}, (table) => [
+  check("runs_slot_valid", sql`${table.slot} = 1`),
+  uniqueIndex("runs_one_active").on(table.slot).where(sql`${table.status} IN ('running', 'interrupted')`),
+  index("runs_task_started_at_idx").on(table.taskId, table.startedAt),
+]);
+
+export const steps = sqliteTable("steps", {
+  id: text("id").primaryKey().notNull(),
+  runId: text("run_id").notNull().references(() => runs.id, { onDelete: "restrict" }),
+  sequence: integer("sequence").notNull(),
+  status: text("status", { enum: taskStatuses }).notNull(),
+  sessionId: text("session_id"),
+  startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+  finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+  usage: text("usage", { mode: "json" }).$type<{ inputTokens: number; cachedInputTokens: number; outputTokens: number }>(),
+}, (table) => [uniqueIndex("steps_run_sequence_unique").on(table.runId, table.sequence)]);
+
+export const events = sqliteTable("events", {
+  id: text("id").primaryKey().notNull(),
+  runId: text("run_id").notNull().references(() => runs.id, { onDelete: "restrict" }),
+  sequence: integer("sequence").notNull(),
+  kind: text("kind").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [uniqueIndex("events_run_sequence_unique").on(table.runId, table.sequence)]);

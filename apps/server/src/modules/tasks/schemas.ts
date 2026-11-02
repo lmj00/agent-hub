@@ -34,7 +34,7 @@ export const taskResponseSchema = {
     projectId: { type: "string", format: "uuid" },
     instruction: { type: "string" },
     requestKey: { type: "string" },
-    status: { type: "string", enum: ["queued"] },
+    status: { type: "string", enum: taskStatuses },
     createdAt: { type: "string", format: "date-time" },
   },
 };
@@ -54,3 +54,4 @@ const errorResponseSchema = {
 };
 
 export const taskErrorResponses = { "4xx": errorResponseSchema, "5xx": errorResponseSchema };
+import { taskStatuses } from "./task-state.js";

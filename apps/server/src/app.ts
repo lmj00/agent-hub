@@ -5,6 +5,8 @@ import { createDrizzleProjectStore } from "./modules/projects/drizzle-project-st
 import { projectRoutes } from "./modules/projects/routes.js";
 import { createDrizzleTaskStore } from "./modules/tasks/drizzle-task-store.js";
 import { taskRoutes } from "./modules/tasks/routes.js";
+import { createDrizzleRunStore } from "./modules/execution/drizzle-run-store.js";
+import { executionRoutes } from "./modules/execution/routes.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & { databasePath: string };
 
@@ -25,9 +27,14 @@ export function buildApp({ databasePath, ...options }: AppOptions) {
     scope.register(healthRoutes, { checkDatabase: () => database.checkReady() });
     const projectStore = createDrizzleProjectStore(database.db);
     scope.register(projectRoutes, { store: projectStore });
+    const taskStore = createDrizzleTaskStore(database.db);
     scope.register(taskRoutes, {
-      store: createDrizzleTaskStore(database.db),
+      store: taskStore,
       projectExists: (id) => projectStore.findById(id) !== undefined,
+    });
+    scope.register(executionRoutes, {
+      store: createDrizzleRunStore(database.db),
+      taskExists: (id) => taskStore.findById(id) !== undefined,
     });
   });
 

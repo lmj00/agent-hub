@@ -1,0 +1,8 @@
+{
+  "model": "gpt-6.1-sol",
+  "codexHome": "./codex",
+  "timeoutMs": 300000,
+  "workspaces": {
+    "example-project": "../examples/analysis-project"
+  }
+}

@@ -1,0 +1,46 @@
+import { parseArgs } from "node:util";
+import { realpathSync } from "node:fs";
+import { loadConfig } from "./config.js";
+import { openDatabase } from "./db/connection.js";
+import { createDrizzleProjectStore } from "./modules/projects/drizzle-project-store.js";
+import { createDrizzleTaskStore } from "./modules/tasks/drizzle-task-store.js";
+import { createDrizzleRunStore } from "./modules/execution/drizzle-run-store.js";
+import { createCodexExecutor } from "./modules/execution/codex-executor.js";
+import { isWithin, loadExecutionConfig } from "./modules/execution/execution-config.js";
+import { runTask } from "./modules/execution/run-task.js";
+
+async function main() {
+  const { values } = parseArgs({ options: { task: { type: "string" }, config: { type: "string" } } });
+  if (!values.task || !values.config) throw new Error("Usage: pnpm task:run --task TASK_ID --config /path/to/execution.json");
+  const config = loadExecutionConfig(values.config);
+  const { databasePath } = loadConfig(process.env);
+  const database = openDatabase(databasePath);
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  try {
+    const task = createDrizzleTaskStore(database.db).findById(values.task);
+    if (!task) throw new Error("Task not found");
+    const project = createDrizzleProjectStore(database.db).findById(task.projectId);
+    const workspace = project && config.workspaces.get(project.workspaceKey);
+    if (!workspace) throw new Error("No prepared workspace configured for this project");
+    if (isWithin(workspace, realpathSync(databasePath))) throw new Error("Application database must be outside the analysis workspace");
+    const store = createDrizzleRunStore(database.db);
+    const outcome = await runTask({
+      taskId: task.id, workspace, model: config.model, timeoutMs: config.timeoutMs, signal: controller.signal,
+    }, store, createCodexExecutor(config.codexHome));
+    // 분석 원문은 DB에만 저장하고 CLI에는 조회용 ID와 상태를 표시합니다.
+    console.log(JSON.stringify({ runId: outcome.runId, taskId: task.id, status: outcome.status, errorCode: outcome.errorCode }));
+    if (outcome.status !== "succeeded") process.exitCode = 1;
+  } finally {
+    process.removeListener("SIGINT", stop);
+    process.removeListener("SIGTERM", stop);
+    database.close();
+  }
+}
+
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : "Execution failed");
+  process.exitCode = 1;
+});

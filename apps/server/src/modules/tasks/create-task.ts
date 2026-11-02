@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { TaskStatus } from "./task-state.js";
 
 export type CreateTaskInput = {
   instruction: string;
@@ -8,7 +9,7 @@ export type CreateTaskInput = {
 export type Task = CreateTaskInput & {
   id: string;
   projectId: string;
-  status: "queued";
+  status: TaskStatus;
   createdAt: Date;
 };
 

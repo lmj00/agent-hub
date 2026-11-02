@@ -4,7 +4,7 @@
 
 사용자는 프로젝트별 목표·우선순위·허용 범위를 설정합니다. 총괄은 현재 코드와 작업 이력을 바탕으로 다음 작업을 만들고, 개발·검증 역할의 에이전트가 결과와 피드백을 주고받습니다. 작업이 끝나면 다음 작업을 선택하므로 매번 사용자의 새 지시가 필요하지 않습니다. 사용자는 진행 상황을 확인하고 목표를 바꾸거나 실행을 멈출 수 있습니다.
 
-현재는 **1단계의 서버 등록·조회 기능을 구현한 상태**입니다. 서버 실행 환경, SQLite·마이그레이션, 상태 확인, 프로젝트·작업(Task) 등록·조회와 작업 등록 중복 방지를 구현했습니다. 다음 작업은 2단계의 실제 AI 연결입니다. AI 실행·관리 화면·배포는 아직 구현하지 않았습니다.
+현재는 **2단계의 실제 AI 연결을 진행 중**입니다. 프로젝트·작업 등록·조회에 이어, 지정한 작업 한 건을 CLI에서 Codex로 분석하고 실행 이력·결과를 DB에 저장하는 기능을 구현했습니다. 자동 대기열 처리·중단 후 복구·관리 화면·배포는 아직 구현하지 않았습니다.
 
 ## 문서를 읽는 순서
 
@@ -54,7 +54,7 @@ MVP는 핵심 목적을 실제로 수행할 수 있는 첫 운영 버전입니�
 | 테스트 | Vitest + Playwright | 상태 전이와 주요 사용자 흐름 검증 |
 | 배포 | Docker Compose | 서비스 실행 환경과 재시작해도 데이터가 남는 저장 공간 구성 |
 
-개발 환경은 Node.js 24 LTS와 pnpm을 사용합니다. SQLite는 better-sqlite3와 Drizzle ORM·Kit으로 연결합니다. 의존성은 `package.json`과 `pnpm-lock.yaml`에 고정했으며, macOS arm64와 Linux arm64에서 설치·타입 검사·빌드·실제 SQLite 테스트를 확인했습니다. [대안 비교와 선택 이유](docs/03-technology-decisions.md)를 기록합니다.
+개발 환경은 Node.js 24 LTS와 pnpm을 사용합니다. SQLite는 better-sqlite3와 Drizzle ORM·Kit으로 연결합니다. 의존성은 `package.json`과 `pnpm-lock.yaml`에 고정했습니다. 초기 SQLite 기반은 macOS arm64·Linux arm64에서, 현재 Codex 연동은 macOS arm64에서 검증했습니다. [대안 비교와 선택 이유](docs/03-technology-decisions.md)를 기록합니다.
 
 ## 로컬 실행
 
@@ -95,7 +95,7 @@ DB 준비 상태(`/health/ready`) 예시:
 | API | 확인하는 범위 |
 | --- | --- |
 | `/health/live` | 서버가 HTTP 요청에 응답하는지 확인 |
-| `/health/ready` | 현재 DB 연결로 프로젝트·작업 테이블을 조회하는지 확인. 성공하면 200, 실패하면 503 |
+| `/health/ready` | 프로젝트·작업·실행·호출 단계·이벤트 테이블을 조회하는지 확인. 성공하면 200, 실패하면 503 |
 
 두 응답 모두 `checkedAt`에 UTC 관측 시각을 담고 `Cache-Control: no-store`를 지정합니다. 실행 중 DB 조회가 실패해도 서버 응답 여부는 별도로 확인할 수 있습니다. DB 준비 상태는 조회 기준이며, AI 실행 준비 상태는 해당 단계에서 추가합니다.
 
@@ -109,12 +109,13 @@ DB 준비 상태(`/health/ready`) 예시:
 | `pnpm build` | 서버 코드를 `apps/server/dist`에 JavaScript로 빌드 |
 | `pnpm start` | 빌드한 서버 실행. 먼저 `pnpm build` 필요 |
 | `pnpm db:generate --name=변경이름` | 스키마와 이전 기록을 비교해 SQL 마이그레이션 생성 |
+| `pnpm task:run --task 작업ID --config 설정파일절대경로` | 등록된 대기 작업 한 건을 실제 Codex로 분석하고 결과 저장 |
 
-현재 코드는 `apps/server`에 있습니다. `main.ts`는 설정을 읽고 서버를 시작·종료하며, `app.ts`는 DB와 기능을 연결합니다. `config.ts`는 환경 변수를 확인하고, DB 연결·테이블 정의는 `db/`, 상태 확인 API는 `modules/health/routes.ts`, 프로젝트·작업 등록·조회는 각각 `modules/projects/`, `modules/tasks/`에 둡니다. 화면과 공통 요청·응답 패키지는 사용하는 기능을 구현할 때 추가합니다.
+현재 코드는 `apps/server`에 있습니다. `main.ts`는 서버를 시작·종료하고, `app.ts`는 DB와 기능을 연결합니다. `config.ts`는 환경 변수를 확인합니다. DB 코드는 `db/`, 기능별 코드는 `modules/health/`, `modules/projects/`, `modules/tasks/`, `modules/execution/`에 둡니다. `run-task-cli.ts`는 실행 모듈을 호출하는 CLI 진입점입니다. 화면과 공통 요청·응답 패키지는 사용하는 기능을 구현할 때 추가합니다.
 
 ## 프로젝트 등록·조회
 
-서버를 실행한 뒤 프로젝트 이름과 작업 공간 식별자를 JSON으로 전송합니다. 식별자는 실제 폴더 경로 대신 사용할 이름이며, 폴더 연결과 AI 실행은 후속 단계입니다.
+서버를 실행한 뒤 프로젝트 이름과 작업 공간 식별자를 JSON으로 전송합니다. 식별자는 실제 폴더 경로 대신 사용할 이름이며, 아래 실행 설정에서 분석할 폴더에 연결합니다.
 
 ```sh
 curl -i -X POST http://127.0.0.1:3000/projects \
@@ -151,7 +152,54 @@ curl "http://127.0.0.1:3000/projects/$PROJECT_ID/tasks"
 - 요청 키는 1~100자이며 영문·숫자로 시작하고 영문·숫자·점·밑줄·하이픈을 허용합니다. UUID도 사용할 수 있습니다.
 - 없는 프로젝트·작업은 `404`, 잘못된 입력은 `400`, JSON 이외의 등록 요청은 `415`입니다.
 
-**현재 작업은 `queued`(대기) 상태로 저장되며 AI가 실행하지 않습니다.** 실제 실행·취소·제한 시간은 2단계에서 연결합니다. [작업 API의 상세 기준](docs/01-architecture.md#1단계-작업-api)을 참고합니다.
+작업은 `queued`(대기) 상태로 등록됩니다. 등록만으로 실행하지 않으며, 아래 CLI에서 실행할 작업 ID를 지정합니다. [작업 API의 상세 기준](docs/01-architecture.md#1단계-작업-api)을 참고합니다.
+
+## Codex로 작업 한 건 분석하기
+
+먼저 비밀 정보가 없는 프로젝트 사본을 준비합니다. 첫 확인에는 저장소의 [예제 프로젝트](examples/analysis-project/README.md)를 사용할 수 있습니다. 지정한 폴더만 읽도록 권한을 설정하며, 코드 수정·웹 검색·외부 도구 연결은 허용하지 않습니다. 런타임 동작에 필요한 시스템 파일은 읽을 수 있습니다. 원본 프로젝트를 자동 복사하거나 비밀 파일을 찾아 제거하는 기능은 아직 없습니다.
+
+agent-hub 전용 인증 폴더에서 ChatGPT 계정으로 로그인합니다. 아래 로그인 명령에는 별도로 설치된 Codex CLI가 필요하며, 분석 실행에는 SDK에 포함된 CLI를 사용합니다. 인증 파일은 Git에서 제외된 `.local/`에 두고 공개하지 않습니다.
+
+```sh
+mkdir -p .local/codex
+chmod 700 .local/codex
+CODEX_HOME="$PWD/.local/codex" codex -c 'cli_auth_credentials_store="file"' login
+cp examples/execution.json .local/execution.json
+```
+
+[설정 예시](examples/execution.json)는 `.local/execution.json`에 복사해 사용하는 기준입니다. `codexHome`과 작업 폴더의 상대 경로는 이 설정 파일을 기준으로 해석합니다.
+
+```json
+{
+  "model": "gpt-6.1-sol",
+  "codexHome": "./codex",
+  "timeoutMs": 300000,
+  "workspaces": {
+    "example-project": "../examples/analysis-project"
+  }
+}
+```
+
+`model`은 사용하는 계정에서 지원하는 모델을 명시합니다. 위 모델은 실제 예제 분석에 사용한 값이며 모든 계정의 사용 가능 여부를 보장하지 않습니다. 현재 effort는 `medium`으로 고정합니다. `timeoutMs`는 실행 제한 시간으로 기본 5분, 허용 범위는 1초~30분입니다. 전용 인증 폴더의 개인 설정·사용자 스킬·플러그인과 작업 폴더가 상속하는 `.codex/config.toml`은 실행 전에 거부합니다. Codex가 자동 생성하는 기본 스킬 폴더(`skills/.system`)는 허용하지만 호스트 스킬 탐색은 끕니다. API 키 인증으로 자동 전환하지 않습니다.
+
+앞서 `workspaceKey`를 `example-project`로 등록했다면, 해당 프로젝트의 작업 ID로 실행합니다. CLI와 서버는 같은 DB를 사용해야 합니다. `DATABASE_PATH`를 바꿨다면 양쪽에 같은 값을 지정합니다.
+
+```sh
+TASK_ID="작업 등록 응답의 id"
+pnpm task:run --task "$TASK_ID" --config "$PWD/.local/execution.json"
+curl "http://127.0.0.1:3000/tasks/$TASK_ID/runs"
+```
+
+CLI는 `runId`와 상태를 출력합니다. 실행 상세에는 분석 결과, 오류 분류, 호출 단계(Step), 제공된 토큰 사용량, 이벤트 종류·시각이 포함됩니다.
+
+```sh
+RUN_ID="CLI가 출력한 runId"
+curl "http://127.0.0.1:3000/runs/$RUN_ID"
+```
+
+현재는 같은 DB에서 한 번에 실행 하나만 허용합니다. 인증·설정 오류는 `blocked`, 확인된 사용 한도 오류는 `waiting_capacity`로 보존하고 다른 작업의 실행도 보류합니다. `Ctrl+C`·제한 시간 초과 때는 중단을 요청하지만 자식 명령 전체의 종료까지 확인하지 못하므로 `interrupted`로 남깁니다. 프로세스가 강제 종료되면 DB에 `running`이 남을 수 있으며 이 경우도 후속 실행을 막습니다.
+
+**보류·중단 상태를 해제하는 재개 기능은 아직 없습니다.** 자동 대기열·기존 실행 종료 확인·수동 복구를 다음 구현 단위에서 연결합니다. DB의 `running` 표시는 현재 프로세스가 살아 있다는 확인 결과가 아닙니다. 이 버전은 준비된 예제의 실행 연결을 확인하는 단계이며 24시간 운영 버전은 아닙니다.
 
 ## 로컬 DB와 테이블 변경
 
@@ -172,7 +220,7 @@ DATABASE_PATH=data/dev.sqlite pnpm dev
 3. 생성된 SQL을 검토하고, 빈 DB 적용·기존 데이터 보존·실패 시 되돌리기를 테스트합니다.
 4. 스키마와 `migrations/`를 함께 커밋합니다. 검토한 변경은 다음 서버 시작 때 적용됩니다.
 
-이미 적용한 마이그레이션은 수정하지 않고 새 변경을 추가합니다. 빌드한 서버를 실행할 때도 `apps/server/migrations/`가 함께 있어야 합니다. `0000_projects.sql`은 프로젝트 기본 정보, `0001_tasks.sql`은 작업 테이블·프로젝트 연결·등록 요청 중복 방지 조건을 생성합니다. 기존 프로젝트 데이터는 유지됩니다.
+이미 적용한 마이그레이션은 수정하지 않고 새 변경을 추가합니다. 빌드한 서버를 실행할 때도 `apps/server/migrations/`가 함께 있어야 합니다. `0000_projects.sql`은 프로젝트, `0001_tasks.sql`은 작업과 등록 중복 방지 조건을 생성합니다. `0002_execution.sql`은 기존 작업을 보존하며 상태를 확장하고 실행·호출 단계·이벤트 테이블을 추가합니다.
 
 ## 구성
 
@@ -196,6 +244,8 @@ flowchart TD
 ```
 
 첫 배포에서는 빌드한 관리 화면과 API를 같은 백엔드에서 제공합니다. 내부 모듈끼리는 함수 호출로 연결하며 별도 HTTP 통신을 만들지 않습니다. AI 모델 연산은 외부 서비스에서 수행하고, 코드 읽기·명령 실행 등은 서버의 Codex 실행 환경에서 수행합니다. 여러 서버가 필요해지면 실행 모듈을 별도 프로그램으로 분리합니다.
+
+위 그림은 목표 구조입니다. 현재는 같은 서버 패키지의 CLI로 실행 모듈을 호출하고, API 서버와 SQLite를 공유해 결과를 조회합니다. 백엔드 내부의 자동 실행 루프는 후속 구현입니다.
 
 ## 문서와 구현 상태
 
