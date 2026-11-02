@@ -16,13 +16,17 @@ import { createDrizzleRecoveryStore } from "./modules/execution/drizzle-recovery
 import { createRecoveryProcessor, RecoveryError, type ExecutionObserver, type RecoveryStore } from "./modules/execution/recover-task.js";
 import { recoveryRoutes } from "./modules/execution/recovery-routes.js";
 import { removeFinishedContainer, stopAndConfirmContainer } from "./modules/execution/container-runtime.js";
+import type { AuthConfig } from "./modules/auth/auth-config.js";
+import { createDrizzleSessionStore } from "./modules/auth/drizzle-session-store.js";
+import { installAuthentication } from "./modules/auth/authentication.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
   databasePath: string;
+  auth?: AuthConfig;
   execution?: { config: ExecutionConfig; executor?: AnalysisExecutor; observer?: ExecutionObserver; pollIntervalMs?: number };
 };
 
-export function buildApp({ databasePath, execution, ...options }: AppOptions) {
+export function buildApp({ databasePath, execution, auth, ...options }: AppOptions) {
   const app = Fastify({
     ...options,
     // 잘못된 타입과 알 수 없는 필드를 자동 보정하지 않고 요청 오류로 알립니다.
@@ -46,7 +50,7 @@ export function buildApp({ databasePath, execution, ...options }: AppOptions) {
 
     if (execution) {
       try {
-        validateExecutionEnvironment(execution.config, databasePath);
+        validateExecutionEnvironment(execution.config, databasePath, auth ? [auth.sourcePath] : []);
         owner = acquireExecutionOwner(database.db);
         const executor = execution.executor ?? createConfiguredExecutor(execution.config);
         canTrackTermination = typeof executor.confirmTermination === "function";
@@ -56,7 +60,7 @@ export function buildApp({ databasePath, execution, ...options }: AppOptions) {
           store: createDrizzleRunStore(database.db, owner.token),
           executor,
           recovery: createRecoveryProcessor(recovery, execution.observer ?? { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }),
-          validate: () => validateExecutionEnvironment(execution.config, databasePath),
+          validate: () => validateExecutionEnvironment(execution.config, databasePath, auth ? [auth.sourcePath] : []),
           reportDiagnostic: (diagnostic) => {
             if (diagnostic.event === "execution_queue.error") scope.log.error(diagnostic, "Execution queue check failed");
             else scope.log.info(diagnostic, "Execution queue check recovered");
@@ -70,6 +74,7 @@ export function buildApp({ databasePath, execution, ...options }: AppOptions) {
       scope.addHook("onListen", async () => { queue?.start(); });
     }
 
+    if (auth) await installAuthentication(scope, auth, createDrizzleSessionStore(database.db));
     scope.register(healthRoutes, { checkDatabase: () => database.checkReady() });
     const projectStore = createDrizzleProjectStore(database.db);
     scope.register(projectRoutes, { store: projectStore });

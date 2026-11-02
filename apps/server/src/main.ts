@@ -1,12 +1,24 @@
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { loadExecutionConfig } from "./modules/execution/execution-config.js";
+import { loadAuthConfig } from "./modules/auth/auth-config.js";
 
 async function startServer() {
-  const { databasePath, executionConfigPath, ...listenOptions } = loadConfig(process.env);
+  const { databasePath, executionConfigPath, authConfigPath, localApiOnly, ...listenOptions } = loadConfig(process.env);
+  if (!authConfigPath && !localApiOnly) throw new Error("Set AUTH_CONFIG after pnpm auth:setup, or explicitly use LOCAL_API_ONLY=1 for local API development");
+  const auth = authConfigPath ? loadAuthConfig(authConfigPath) : undefined;
   const app = buildApp({
     databasePath, logger: true,
+    ...(auth ? { auth, trustProxy: auth.origin.startsWith("https:") ? "loopback" : false } : {}),
     ...(executionConfigPath ? { execution: { config: loadExecutionConfig(executionConfigPath) } } : {}),
+  });
+  if (localApiOnly) app.addHook("onRequest", async (request, reply) => {
+    const host = request.headers.host ?? "";
+    const origin = request.headers.origin;
+    if (!/^(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(host) || request.headers["sec-fetch-site"] === "cross-site"
+      || (origin !== undefined && origin !== `http://${host}`)) {
+      return reply.code(403).send({ error: "ORIGIN_NOT_ALLOWED", message: "Local API requests must use a loopback host and matching origin" });
+    }
   });
   let closing = false;
 

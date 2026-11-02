@@ -5,6 +5,7 @@ export const executionConfigErrors = {
   AUTH_DIRECTORY_CHANGED: "Authentication directory changed; restart with reviewed configuration",
   WORKSPACE_CHANGED: "Workspace directory changed; restart with reviewed configuration",
   DATABASE_IN_WORKSPACE: "Application database must be outside the analysis workspace",
+  SERVER_SECRET_IN_WORKSPACE: "Server authentication config must be outside the analysis workspace",
   CODEX_CONFIG_NOT_ALLOWED: "Use a dedicated Codex home with ChatGPT login only; user config, skills, plugins and hooks are not supported yet",
   CHATGPT_LOGIN_REQUIRED: "Log in with ChatGPT in the dedicated Codex home first",
   WORKSPACE_NOT_ALLOWED: "Workspace must be a prepared directory separate from authentication storage",
@@ -53,7 +54,7 @@ export function loadExecutionConfig(file: string) {
 export type ExecutionConfig = ReturnType<typeof loadExecutionConfig>;
 
 // 오래 켜둔 서버에서도 호출 직전의 인증·폴더 상태를 다시 확인합니다. 설정 값 변경은 재시작 시 적용합니다.
-export function validateExecutionEnvironment(config: ExecutionConfig, databasePath: string) {
+export function validateExecutionEnvironment(config: ExecutionConfig, databasePath: string, protectedFiles: string[] = []) {
   const currentHome = realpathSync(config.codexHome);
   if (currentHome !== config.codexHome) throw new ExecutionConfigError("AUTH_DIRECTORY_CHANGED");
   validateCodexHome(config.codexHome);
@@ -62,6 +63,7 @@ export function validateExecutionEnvironment(config: ExecutionConfig, databasePa
     if (realpathSync(workspace) !== workspace) throw new ExecutionConfigError("WORKSPACE_CHANGED");
     validateWorkspace(workspace, config.codexHome);
     if (isWithin(workspace, database)) throw new ExecutionConfigError("DATABASE_IN_WORKSPACE");
+    if (protectedFiles.some(file => isWithin(workspace, realpathSync(file)))) throw new ExecutionConfigError("SERVER_SECRET_IN_WORKSPACE");
   }
 }
 

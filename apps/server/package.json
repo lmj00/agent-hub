@@ -8,11 +8,16 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "task:run": "tsx src/run-task-cli.ts",
+    "auth:setup": "tsx src/auth-setup-cli.ts",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/cookie": "11.1.5",
+    "@fastify/csrf-protection": "8.0.2",
+    "@fastify/rate-limit": "11.2.1",
+    "@fastify/session": "11.1.6",
     "@openai/codex-sdk": "0.166.0",
     "better-sqlite3": "13.0.3",
     "drizzle-orm": "0.45.4",

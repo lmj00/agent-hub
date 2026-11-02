@@ -117,6 +117,13 @@ export const events = sqliteTable("events", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 }, (table) => [uniqueIndex("events_run_sequence_unique").on(table.runId, table.sequence)]);
 
+export const authSessions = sqliteTable("auth_sessions", {
+  id: text("id").primaryKey().notNull(),
+  generation: text("generation").notNull(),
+  data: text("data").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+}, table => [index("auth_sessions_expiry_idx").on(table.expiresAt)]);
+
 // 실행 루프의 소유권입니다. Run의 활성 상태와 별도로 유지하며 시간만으로 만료시키지 않습니다.
 export const executionOwner = sqliteTable("execution_owner", {
   slot: integer("slot").primaryKey().notNull(),

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { isWithin, loadExecutionConfig } from "../src/modules/execution/execution-config.js";
+import { isWithin, loadExecutionConfig, validateExecutionEnvironment } from "../src/modules/execution/execution-config.js";
 
 let directory: string;
 let file: string;
@@ -57,4 +57,13 @@ test("rejects authentication inside the analyzed workspace and project-level ove
   mkdirSync(join(directory, "workspace", ".codex"));
   writeFileSync(join(directory, "workspace", ".codex", "config.toml"), "");
   expect(() => loadExecutionConfig(file)).toThrow("project Codex config");
+});
+
+test("server login secrets cannot be placed inside an AI workspace", () => {
+  const config = loadExecutionConfig(file);
+  const databasePath = join(directory, "hub.sqlite"); writeFileSync(databasePath, "");
+  const secret = join(config.workspaces.get("example")!, "server-auth.json"); writeFileSync(secret, "{}");
+  expect(() => validateExecutionEnvironment(config, databasePath, [secret])).toThrow("Server authentication config");
+  const outside = join(directory, "server-auth.json"); writeFileSync(outside, "{}");
+  expect(() => validateExecutionEnvironment(config, databasePath, [outside])).not.toThrow();
 });

@@ -3,9 +3,17 @@ import { describe, expect, test } from "vitest";
 import { loadConfig } from "../src/config.js";
 
 describe("server configuration", () => {
+  test("authentication and explicit local-only access cannot be configured ambiguously", () => {
+    expect(loadConfig({ AUTH_CONFIG: ".local/auth.json" }).authConfigPath).toBe(fileURLToPath(new URL("../../../.local/auth.json", import.meta.url)));
+    expect(loadConfig({ LOCAL_API_ONLY: "1" }).localApiOnly).toBe(true);
+    expect(() => loadConfig({ AUTH_CONFIG: "" })).toThrow("AUTH_CONFIG");
+    expect(() => loadConfig({ LOCAL_API_ONLY: "true" })).toThrow("LOCAL_API_ONLY");
+    expect(() => loadConfig({ AUTH_CONFIG: ".local/auth.json", LOCAL_API_ONLY: "1" })).toThrow("cannot be used together");
+  });
   test("uses a local address and the default port", () => {
     expect(loadConfig({})).toEqual({
       host: "127.0.0.1",
+      localApiOnly: false,
       port: 3000,
       databasePath: fileURLToPath(new URL("../../../data/agent-hub.sqlite", import.meta.url)),
     });

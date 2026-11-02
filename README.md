@@ -4,7 +4,7 @@
 
 사용자는 프로젝트별 목표·우선순위·허용 범위를 설정합니다. 총괄은 현재 코드와 작업 이력을 바탕으로 다음 작업을 만들고, 개발·검증 역할의 에이전트가 결과와 피드백을 주고받습니다. 작업이 끝나면 다음 작업을 선택하므로 매번 사용자의 새 지시가 필요하지 않습니다. 사용자는 진행 상황을 확인하고 목표를 바꾸거나 실행을 멈출 수 있습니다.
 
-현재는 **2단계의 실제 AI 연결과 수동 복구를 구현한 상태**입니다. 프로젝트·작업 등록·조회, Codex 읽기 전용 분석, 자동 대기열과 종료 확인 후 재개·취소 API가 동작합니다. 실행 설정을 지정해 서버를 켜면 등록된 작업을 하나씩 분석합니다. 다음은 3단계 관리 화면·인증이며, 자동 복구·자율 작업 생성·배포는 후속 단계입니다.
+현재는 **2단계의 실제 AI 연결과 수동 복구를 구현한 상태**입니다. 프로젝트·작업 등록·조회, Codex 읽기 전용 분석, 자동 대기열과 종료 확인 후 재개·취소 API가 동작합니다. 실행 설정을 지정해 서버를 켜면 등록된 작업을 하나씩 분석합니다. 3단계의 단일 사용자 로그인·세션 보호를 추가했고, 관리 화면·서비스 관측을 이어 구현합니다. 자동 복구·자율 작업 생성·배포는 후속 단계입니다.
 
 ## 문서를 읽는 순서
 
@@ -70,7 +70,7 @@ npm install --global pnpm@12.16.1
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm dev
+LOCAL_API_ONLY=1 pnpm dev
 ```
 
 다른 터미널에서 응답을 확인합니다.
@@ -79,6 +79,8 @@ pnpm dev
 curl http://127.0.0.1:3000/health/live
 curl http://127.0.0.1:3000/health/ready
 ```
+
+위 명령은 인증 없는 로컬 API 개발 모드를 명시적으로 켭니다. 이 README의 curl 예제는 이 모드를 기준으로 합니다. 로그인 기능을 사용할 때는 아래 `AUTH_CONFIG` 방식으로 실행하며, `/health/live` 외 데이터 API에는 로그인 세션이 필요합니다. 둘 중 하나를 정하지 않은 서버는 시작하지 않습니다.
 
 서버 응답 확인(`/health/live`) 예시:
 
@@ -95,23 +97,47 @@ DB 준비 상태(`/health/ready`) 예시:
 | API | 확인하는 범위 |
 | --- | --- |
 | `/health/live` | 서버가 HTTP 요청에 응답하는지 확인 |
-| `/health/ready` | 프로젝트·작업·실행·호출 단계·이벤트·실행 소유권·제공자 차단·복구 요청 테이블을 조회하는지 확인. 성공하면 200, 실패하면 503 |
+| `/health/ready` | 프로젝트·작업·실행·호출 단계·이벤트·실행 소유권·제공자 차단·복구 요청·로그인 세션 테이블을 조회하는지 확인. 성공하면 200, 실패하면 503 |
 
 두 응답 모두 `checkedAt`에 UTC 관측 시각을 담고 `Cache-Control: no-store`를 지정합니다. 실행 중 DB 조회가 실패해도 서버 응답 여부는 별도로 확인할 수 있습니다. DB 준비 상태는 조회 기준이며, AI 실행 준비 상태는 해당 단계에서 추가합니다.
 
-현재 서버는 같은 컴퓨터에서 접속하는 `127.0.0.1`에 바인딩합니다. 포트의 기본값은 3000이며, `PORT=4000 pnpm dev`처럼 셸 환경 변수로 바꿀 수 있습니다. `PORT`는 1~65535의 정수여야 합니다. 종료할 때는 `Ctrl+C`를 누릅니다.
+현재 서버는 같은 컴퓨터에서 접속하는 `127.0.0.1`에 바인딩합니다. 포트의 기본값은 3000이며, `LOCAL_API_ONLY=1 PORT=4000 pnpm dev`처럼 셸 환경 변수로 바꿀 수 있습니다. `PORT`는 1~65535의 정수여야 합니다. 종료할 때는 `Ctrl+C`를 누릅니다.
 
 | 명령 | 하는 일 |
 | --- | --- |
-| `pnpm dev` | TypeScript 소스로 개발 서버 실행·변경 감지 |
+| `pnpm dev` | TypeScript 소스로 개발 서버 실행·변경 감지. AUTH_CONFIG 또는 LOCAL_API_ONLY 지정 필요 |
 | `pnpm typecheck` | 서버 코드와 테스트의 타입 검사 |
 | `pnpm test` | 자동 테스트 한 번 실행 |
 | `pnpm build` | 서버 코드를 `apps/server/dist`에 JavaScript로 빌드 |
-| `pnpm start` | 빌드한 서버 실행. 먼저 `pnpm build` 필요 |
+| `pnpm start` | 빌드한 서버 실행. 먼저 `pnpm build` 및 접근 모드 설정 필요 |
+| `pnpm auth:setup --config .local/auth.json --origin http://127.0.0.1:3000` | 비공개 로그인 설정과 무작위 비밀번호 생성 |
 | `pnpm db:generate --name=변경이름` | 스키마와 이전 기록을 비교해 SQL 마이그레이션 생성 |
 | `pnpm task:run --task 작업ID --config 설정파일절대경로` | 등록된 대기 작업 한 건을 실제 Codex로 분석하고 결과 저장 |
 
 현재 코드는 `apps/server`에 있습니다. `main.ts`는 서버를 시작·종료하고, `app.ts`는 DB와 기능을 연결합니다. `config.ts`는 환경 변수를 확인합니다. DB 코드는 `db/`, 기능별 코드는 `modules/health/`, `modules/projects/`, `modules/tasks/`, `modules/execution/`에 둡니다. `run-task-cli.ts`는 실행 모듈을 호출하는 CLI 진입점입니다. 화면과 공통 요청·응답 패키지는 사용하는 기능을 구현할 때 추가합니다.
+
+## 단일 사용자 로그인 설정
+
+기본 비밀번호는 없습니다. 다음 명령은 로그인 설정 파일을 소유자만 읽을 수 있는 권한으로 만들고, 생성한 비밀번호를 한 번 출력합니다. 비밀번호는 따로 저장하고 설정 파일은 Git에 넣지 않습니다. 저장 파일에는 비밀번호 해시·세션 서명 키·접속 주소만 남습니다.
+
+```sh
+pnpm auth:setup --config .local/auth.json --origin http://127.0.0.1:3000
+AUTH_CONFIG=.local/auth.json pnpm dev
+```
+
+`origin`은 브라우저에서 접속할 정확한 주소이며 경로·끝의 슬래시는 넣지 않습니다. HTTP는 `127.0.0.1`·`localhost`·`[::1]`만 허용합니다. 원격 주소는 HTTPS를 지정하며 실제 원격 배포·프록시 구성은 6단계입니다. 서버 자체는 계속 루프백 주소에 연결합니다.
+
+직접 정한 비밀번호를 쓰려면 `--password-stdin`을 추가하고 표준 입력으로 전달합니다. 비밀번호는 12자 이상·1024바이트 이하여야 하며 명령 인자로 받지 않습니다. 기존 설정 파일은 덮어쓰지 않습니다. 비밀번호를 바꿀 때는 새 파일을 만들고 `AUTH_CONFIG`를 변경해 서버를 다시 시작합니다. 새 서명 키를 사용하므로 이전 로그인 쿠키도 무효가 됩니다.
+
+| API | 사용 방법 |
+| --- | --- |
+| `GET /auth/session` | 로그인 여부·변경 요청용 `csrfToken`·로그인 만료 시각 조회. 처음에는 임시 쿠키 발급 |
+| `POST /auth/login` | 임시 쿠키와 `X-CSRF-Token` 헤더, JSON `{ "password": "입력한 비밀번호" }` 전송. 성공 시 새 쿠키·새 토큰 발급 |
+| `POST /auth/logout` | 로그인 쿠키와 현재 토큰으로 세션 삭제. 204 응답 |
+
+로그인한 뒤 데이터 API에는 쿠키를 보내고 등록·취소·재개 같은 변경 요청에는 `X-CSRF-Token`도 보냅니다. 잘못된 비밀번호는 401, 요청 위조·접속 주소 불일치는 403, 반복 로그인 제한은 429입니다. 로그인 세션은 8시간 뒤 만료되며 상태를 계속 조회해도 늘어나지 않습니다. 로그인 전 임시 세션은 10분입니다. 세션은 SQLite에 저장하므로 서버 재시작 후에도 유효 기간 안에서 유지되고, 로그아웃한 쿠키를 복사해 다시 보내도 인증되지 않습니다.
+
+`AUTH_CONFIG`와 `LOCAL_API_ONLY=1`은 함께 사용할 수 없습니다. 로컬 API 모드도 외부 Origin·잘못된 Host의 요청은 거부합니다. 로그인 설정과 DB를 분석 작업 폴더 안에 두면 AI 배정을 거부합니다. 자동 분석까지 켤 때는 `AUTH_CONFIG=.local/auth.json EXECUTION_CONFIG=.local/execution.json pnpm start`로 실행합니다.
 
 ## 프로젝트 등록·조회
 
@@ -275,7 +301,7 @@ curl -i -X POST "http://127.0.0.1:3000/tasks/$TASK_ID/recovery-requests" \
 
 ```sh
 pnpm build
-EXECUTION_CONFIG=.local/execution.json pnpm start
+LOCAL_API_ONLY=1 EXECUTION_CONFIG=.local/execution.json pnpm start
 ```
 
 `EXECUTION_CONFIG`를 지정해야 자동 실행을 켭니다. 상대 경로는 저장소 루트 기준이며, 설정 값 변경은 서버를 재시작하면 적용됩니다. 기본 `pnpm dev`·`pnpm start`는 이 변수가 없으면 AI를 호출하지 않습니다.

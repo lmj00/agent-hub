@@ -12,6 +12,7 @@
     "build": "pnpm -r build",
     "start": "pnpm --filter @agent-hub/server start",
     "task:run": "pnpm --filter @agent-hub/server task:run",
+    "auth:setup": "pnpm --filter @agent-hub/server auth:setup",
     "db:generate": "pnpm --filter @agent-hub/server db:generate",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test"
