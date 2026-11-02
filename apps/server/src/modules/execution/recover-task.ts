@@ -1,9 +1,9 @@
+import { recoveryActions, type RecoveryAction } from "@agent-hub/contracts";
+export { recoveryActions, type RecoveryAction };
 import type { AnalysisUsage, ExecutionIdentity, StopReason } from "./analysis.js";
 import type { TaskStatus } from "../tasks/task-state.js";
 import { settleStoppedCompletion, type RunCompletion } from "./run-task.js";
 
-export const recoveryActions = ["resume", "reconcile", "cancel"] as const;
-export type RecoveryAction = typeof recoveryActions[number];
 export type RecoveryInput = { taskId: string; runId: string | null; requestKey: string; action: RecoveryAction; providerGateVersion: number | null };
 export type RecoveryRequest = RecoveryInput & {
   id: string; status: "pending" | "completed" | "rejected"; resultStatus: TaskStatus | null;

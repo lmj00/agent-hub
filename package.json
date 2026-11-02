@@ -8,14 +8,16 @@
     "pnpm": "12.16.1"
   },
   "scripts": {
-    "dev": "pnpm --filter @agent-hub/server dev",
+    "dev": "pnpm --filter @agent-hub/contracts build && pnpm --filter @agent-hub/server dev",
+    "dev:web": "pnpm --filter @agent-hub/contracts build && pnpm --filter @agent-hub/web dev",
     "build": "pnpm -r build",
     "start": "pnpm --filter @agent-hub/server start",
-    "task:run": "pnpm --filter @agent-hub/server task:run",
+    "task:run": "pnpm --filter @agent-hub/contracts build && pnpm --filter @agent-hub/server task:run",
     "auth:setup": "pnpm --filter @agent-hub/server auth:setup",
-    "db:generate": "pnpm --filter @agent-hub/server db:generate",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "db:generate": "pnpm --filter @agent-hub/contracts build && pnpm --filter @agent-hub/server db:generate",
+    "typecheck": "pnpm --filter @agent-hub/contracts build && pnpm -r typecheck",
+    "test": "pnpm --filter @agent-hub/contracts build && pnpm -r test",
+    "test:browser": "pnpm build && pnpm --filter @agent-hub/web test:browser"
   },
   "devDependencies": {
     "typescript": "7.0.2"

@@ -1,0 +1,204 @@
+import {
+  Type,
+  FormatRegistry,
+  type Static,
+  type TSchema,
+} from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
+
+// 서버는 같은 JSON Schema를 Fastify에 전달하고, 화면은 응답을 받은 뒤 검사합니다.
+FormatRegistry.Set("uuid", (value) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
+);
+FormatRegistry.Set(
+  "date-time",
+  (value) =>
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      value,
+    ) && Number.isFinite(Date.parse(value)),
+);
+export function parseResponse<T extends TSchema>(
+  schema: T,
+  value: unknown,
+): Static<T> {
+  if (!Value.Check(schema, value))
+    throw new Error("API response does not match its contract");
+  return value;
+}
+export type { Static, TSchema };
+const object = <T extends Record<string, TSchema>>(properties: T) =>
+  Type.Object(properties, { additionalProperties: false });
+const nullable = <T extends TSchema>(schema: T) =>
+  Type.Union([schema, Type.Null()]);
+const enumeration = <T extends readonly string[]>(values: T) =>
+  Type.Union(values.map((value) => Type.Literal(value as T[number])));
+const text = Type.String();
+const id = Type.String({ format: "uuid" });
+const date = Type.String({ format: "date-time" });
+const requestKey = Type.String({
+  minLength: 1,
+  maxLength: 100,
+  pattern: "^[A-Za-z0-9]",
+  not: { pattern: "[^A-Za-z0-9._-]" },
+});
+export const taskStatuses = [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "interrupted",
+  "blocked",
+  "waiting_capacity",
+  "waiting_retry",
+] as const;
+export type TaskStatus = (typeof taskStatuses)[number];
+export const stopReasons = [
+  "user_cancel",
+  "server_shutdown",
+  "timeout",
+  "unknown",
+] as const;
+export type StopReason = (typeof stopReasons)[number];
+export const recoveryActions = ["resume", "reconcile", "cancel"] as const;
+export type RecoveryAction = (typeof recoveryActions)[number];
+const status = enumeration(taskStatuses);
+
+export const errorSchema = object({ error: text, message: text });
+export const errorResponses = { "4xx": errorSchema, "5xx": errorSchema };
+export const idParamsSchema = object({ id });
+export const projectParamsSchema = object({ projectId: id });
+export const createProjectSchema = object({
+  name: Type.String({ minLength: 1, maxLength: 100, pattern: "\\S" }),
+  workspaceKey: requestKey,
+});
+export const projectSchema = object({
+  id,
+  name: text,
+  workspaceKey: text,
+  createdAt: date,
+});
+export const projectsSchema = object({ projects: Type.Array(projectSchema) });
+export type Project = Static<typeof projectSchema>;
+export type CreateProject = Static<typeof createProjectSchema>;
+
+export const createTaskSchema = object({
+  instruction: Type.String({ minLength: 1, maxLength: 10000, pattern: "\\S" }),
+  requestKey,
+});
+export const taskSchema = object({
+  id,
+  projectId: id,
+  instruction: text,
+  requestKey: text,
+  status,
+  createdAt: date,
+});
+export const tasksSchema = object({ tasks: Type.Array(taskSchema) });
+export type Task = Static<typeof taskSchema>;
+export type CreateTask = Static<typeof createTaskSchema>;
+
+export const runSchema = object({
+  id: text,
+  taskId: text,
+  attempt: Type.Integer({ minimum: 1 }),
+  status,
+  model: text,
+  effort: text,
+  startedAt: date,
+  finishedAt: nullable(date),
+});
+export const runsSchema = object({ runs: Type.Array(runSchema) });
+export const runDetailsSchema = object({
+  ...runSchema.properties,
+  lastActivityAt: date,
+  result: nullable(text),
+  errorCode: nullable(text),
+  stopReason: nullable(enumeration(stopReasons)),
+  stopRequestedAt: nullable(date),
+  terminationConfirmedAt: nullable(date),
+  retryAt: nullable(date),
+  steps: Type.Array(
+    object({
+      sequence: Type.Integer(),
+      status,
+      sessionId: nullable(text),
+      usage: nullable(
+        object({
+          inputTokens: Type.Integer(),
+          cachedInputTokens: Type.Integer(),
+          outputTokens: Type.Integer(),
+        }),
+      ),
+      startedAt: date,
+      finishedAt: nullable(date),
+    }),
+  ),
+  events: Type.Array(
+    object({ sequence: Type.Integer(), kind: text, createdAt: date }),
+  ),
+});
+export type Run = Static<typeof runSchema>;
+export type RunDetails = Static<typeof runDetailsSchema>;
+export const queueSchema = object({
+  state: enumeration([
+    "disabled",
+    "idle",
+    "running",
+    "recovering",
+    "held",
+    "error",
+    "stopping",
+    "stopped",
+  ] as const),
+  runId: nullable(text),
+  taskId: nullable(text),
+  reason: nullable(text),
+  lastCheckedAt: nullable(date),
+});
+export type Queue = Static<typeof queueSchema>;
+export const providerGateSchema = object({
+  version: Type.Integer({ minimum: 0 }),
+  blocked: Type.Boolean(),
+  reason: nullable(
+    enumeration(["authentication", "capacity", "configuration"] as const),
+  ),
+  blockedAt: nullable(date),
+  retryAt: nullable(date),
+  sourceRunId: nullable(text),
+  probeTaskId: nullable(text),
+  probeRunId: nullable(text),
+});
+export type ProviderGate = Static<typeof providerGateSchema>;
+
+export const recoveryInputSchema = object({
+  requestKey,
+  runId: nullable(id),
+  action: enumeration(recoveryActions),
+  providerGateVersion: Type.Optional(nullable(Type.Integer({ minimum: 0 }))),
+});
+export const recoverySchema = object({
+  id,
+  taskId: id,
+  runId: nullable(id),
+  requestKey: text,
+  action: enumeration(recoveryActions),
+  providerGateVersion: nullable(Type.Integer()),
+  status: enumeration(["pending", "completed", "rejected"] as const),
+  resultStatus: nullable(status),
+  errorCode: nullable(text),
+  createdAt: date,
+  finishedAt: nullable(date),
+});
+export type RecoveryInput = Static<typeof recoveryInputSchema>;
+export type Recovery = Static<typeof recoverySchema>;
+
+export const sessionSchema = object({
+  authenticated: Type.Boolean(),
+  csrfToken: text,
+  expiresAt: nullable(date),
+});
+export type Session = Static<typeof sessionSchema>;
+export const loginSchema = object({
+  password: Type.String({ minLength: 1, maxLength: 1024 }),
+});

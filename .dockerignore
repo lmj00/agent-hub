@@ -11,5 +11,11 @@
 !apps/server/tsconfig.build.json
 !apps/server/src/
 !apps/server/src/**
+!packages/
+!packages/contracts/
+!packages/contracts/package.json
+!packages/contracts/tsconfig.json
+!packages/contracts/src/
+!packages/contracts/src/**
 !docker/
 !docker/analysis-runner.Dockerfile

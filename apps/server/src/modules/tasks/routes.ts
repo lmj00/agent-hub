@@ -1,9 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
 import { createTask, TaskRegistrationError, type CreateTaskInput, type Task, type TaskStore } from "./create-task.js";
 import {
-  createTaskSchema, taskErrorResponses, taskListResponseSchema,
-  taskParamsSchema, taskProjectParamsSchema, taskResponseSchema,
-} from "./schemas.js";
+  createTaskSchema, errorResponses as taskErrorResponses, tasksSchema as taskListResponseSchema,
+  idParamsSchema as taskParamsSchema, projectParamsSchema as taskProjectParamsSchema, taskSchema as taskResponseSchema,
+} from "@agent-hub/contracts";
 
 type TaskOptions = { store: TaskStore; projectExists: (id: string) => boolean };
 

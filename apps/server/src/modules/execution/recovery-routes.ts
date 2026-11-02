@@ -1,19 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
-import { recoveryActions, RecoveryError, type RecoveryInput, type RecoveryRequest, type RecoveryStore } from "./recover-task.js";
-import { taskStatuses } from "../tasks/task-state.js";
-
-const id = { type: "string", format: "uuid" };
-const nullableId = { anyOf: [id, { type: "null" }] };
-const date = { type: "string", format: "date-time" };
-const properties = {
-  id, taskId: id, runId: nullableId, requestKey: { type: "string" }, action: { type: "string", enum: recoveryActions },
-  providerGateVersion: { type: ["integer", "null"] }, status: { type: "string", enum: ["pending", "completed", "rejected"] },
-  resultStatus: { anyOf: [{ type: "string", enum: taskStatuses }, { type: "null" }] }, errorCode: { type: ["string", "null"] },
-  createdAt: date, finishedAt: { anyOf: [date, { type: "null" }] },
-};
-const responseSchema = { type: "object", additionalProperties: false, required: Object.keys(properties), properties };
-const errorSchema = { type: "object", additionalProperties: false, required: ["error", "message"], properties: { error: { type: "string" }, message: { type: "string" } } };
-const params = { type: "object", additionalProperties: false, required: ["id"], properties: { id } };
+import { RecoveryError, type RecoveryInput, type RecoveryRequest, type RecoveryStore } from "./recover-task.js";
+import { errorSchema, idParamsSchema as params, recoveryInputSchema, recoverySchema as responseSchema } from "@agent-hub/contracts";
 
 function response(request: RecoveryRequest) {
   return { ...request, createdAt: request.createdAt.toISOString(), finishedAt: request.finishedAt?.toISOString() ?? null };
@@ -43,14 +30,7 @@ export const recoveryRoutes: FastifyPluginAsync<{
     },
     schema: {
       params,
-      body: {
-        type: "object", additionalProperties: false, required: ["requestKey", "runId", "action"],
-        properties: {
-          requestKey: { type: "string", minLength: 1, maxLength: 100, pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$" },
-          runId: nullableId, action: { type: "string", enum: recoveryActions },
-          providerGateVersion: { anyOf: [{ type: "integer", minimum: 0 }, { type: "null" }] },
-        },
-      },
+      body: recoveryInputSchema,
       response: { 200: responseSchema, 202: responseSchema, "4xx": errorSchema, "5xx": errorSchema },
     },
   }, async (request, reply) => {

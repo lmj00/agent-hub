@@ -19,14 +19,17 @@ import { removeFinishedContainer, stopAndConfirmContainer } from "./modules/exec
 import type { AuthConfig } from "./modules/auth/auth-config.js";
 import { createDrizzleSessionStore } from "./modules/auth/drizzle-session-store.js";
 import { installAuthentication } from "./modules/auth/authentication.js";
+import { webRoutes } from "./modules/web/routes.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
   databasePath: string;
   auth?: AuthConfig;
+  webDirectory?: string;
   execution?: { config: ExecutionConfig; executor?: AnalysisExecutor; observer?: ExecutionObserver; pollIntervalMs?: number };
 };
 
-export function buildApp({ databasePath, execution, auth, ...options }: AppOptions) {
+export function buildApp({ databasePath, execution, auth, webDirectory, ...options }: AppOptions) {
+  if (webDirectory && !auth) throw new Error("The management UI requires authentication");
   const app = Fastify({
     ...options,
     // 잘못된 타입과 알 수 없는 필드를 자동 보정하지 않고 요청 오류로 알립니다.
@@ -75,6 +78,7 @@ export function buildApp({ databasePath, execution, auth, ...options }: AppOptio
     }
 
     if (auth) await installAuthentication(scope, auth, createDrizzleSessionStore(database.db));
+    if (webDirectory) scope.register(webRoutes, { directory: webDirectory });
     scope.register(healthRoutes, { checkDatabase: () => database.checkReady() });
     const projectStore = createDrizzleProjectStore(database.db);
     scope.register(projectRoutes, { store: projectStore });

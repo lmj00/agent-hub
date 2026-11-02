@@ -1,45 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
-import { taskStatuses } from "../tasks/task-state.js";
+import { errorResponses, idParamsSchema, providerGateSchema, queueSchema, runDetailsSchema, runsSchema } from "@agent-hub/contracts";
 import type { RunQueries, RunSummary } from "./run-task.js";
 import type { QueueStatus } from "./execution-queue.js";
-import { stopReasons } from "./analysis.js";
-
-const date = { type: "string", format: "date-time" };
-const nullableDate = { anyOf: [date, { type: "null" }] };
-const nullableText = { type: ["string", "null"] };
-const status = { type: "string", enum: taskStatuses };
-const summaryProperties = {
-  id: { type: "string" }, taskId: { type: "string" }, attempt: { type: "integer", minimum: 1 }, status,
-  model: { type: "string" }, effort: { type: "string" }, startedAt: date, finishedAt: nullableDate,
-};
-const summarySchema = { type: "object", additionalProperties: false, required: Object.keys(summaryProperties), properties: summaryProperties };
-const detailsSchema = {
-  type: "object", additionalProperties: false,
-  required: [...Object.keys(summaryProperties), "lastActivityAt", "result", "errorCode", "stopReason", "stopRequestedAt", "terminationConfirmedAt", "retryAt", "steps", "events"],
-  properties: {
-    ...summaryProperties, lastActivityAt: date, result: nullableText, errorCode: nullableText,
-    stopReason: { anyOf: [{ type: "string", enum: stopReasons }, { type: "null" }] },
-    stopRequestedAt: nullableDate, terminationConfirmedAt: nullableDate, retryAt: nullableDate,
-    steps: { type: "array", items: {
-      type: "object", additionalProperties: false,
-      required: ["sequence", "status", "sessionId", "usage", "startedAt", "finishedAt"],
-      properties: {
-        sequence: { type: "integer" }, status, sessionId: nullableText, startedAt: date, finishedAt: nullableDate,
-        usage: { anyOf: [{ type: "null" }, {
-          type: "object", additionalProperties: false, required: ["inputTokens", "cachedInputTokens", "outputTokens"],
-          properties: { inputTokens: { type: "integer" }, cachedInputTokens: { type: "integer" }, outputTokens: { type: "integer" } },
-        }] },
-      },
-    } },
-    events: { type: "array", items: {
-      type: "object", additionalProperties: false, required: ["sequence", "kind", "createdAt"],
-      properties: { sequence: { type: "integer" }, kind: { type: "string" }, createdAt: date },
-    } },
-  },
-};
-const params = { type: "object", required: ["id"], additionalProperties: false, properties: { id: { type: "string", format: "uuid" } } };
-const errorSchema = { type: "object", additionalProperties: false, required: ["error", "message"], properties: { error: { type: "string" }, message: { type: "string" } } };
-const errors = { "4xx": errorSchema, "5xx": errorSchema };
 
 function summary(run: RunSummary) {
   return { ...run, startedAt: run.startedAt.toISOString(), finishedAt: run.finishedAt?.toISOString() ?? null };
@@ -56,38 +18,18 @@ export const executionRoutes: FastifyPluginAsync<{
     request.log.error({ err: error }, "Execution query failed");
     return reply.code(500).send({ error: "INTERNAL_ERROR", message: "Unable to query execution" });
   });
-  app.get("/execution", {
-    schema: { response: { 200: {
-      type: "object", additionalProperties: false,
-      required: ["state", "runId", "taskId", "reason", "lastCheckedAt"],
-      properties: {
-        state: { type: "string", enum: ["disabled", "idle", "running", "recovering", "held", "error", "stopping", "stopped"] },
-        runId: nullableText, taskId: nullableText, reason: nullableText, lastCheckedAt: nullableDate,
-      },
-    }, ...errors } },
-  }, async () => getQueueStatus());
-  app.get("/execution/provider-gate", {
-    schema: { response: { 200: {
-      type: "object", additionalProperties: false,
-      required: ["version", "blocked", "reason", "blockedAt", "retryAt", "sourceRunId", "probeTaskId", "probeRunId"],
-      properties: {
-        version: { type: "integer", minimum: 0 }, blocked: { type: "boolean" },
-        reason: { anyOf: [{ type: "string", enum: ["authentication", "capacity", "configuration"] }, { type: "null" }] },
-        blockedAt: nullableDate, retryAt: nullableDate,
-        sourceRunId: nullableText, probeTaskId: nullableText, probeRunId: nullableText,
-      },
-    }, ...errors } },
-  }, async () => {
+  app.get("/execution", { schema: { response: { 200: queueSchema, ...errorResponses } } }, async () => getQueueStatus());
+  app.get("/execution/provider-gate", { schema: { response: { 200: providerGateSchema, ...errorResponses } } }, async () => {
     const gate = store.getProviderGate();
     return { ...gate, blockedAt: gate.blockedAt?.toISOString() ?? null, retryAt: gate.retryAt?.toISOString() ?? null };
   });
   app.get<{ Params: { id: string } }>("/tasks/:id/runs", {
-    schema: { params, response: { 200: { type: "object", required: ["runs"], additionalProperties: false, properties: { runs: { type: "array", items: summarySchema } } }, ...errors } },
+    schema: { params: idParamsSchema, response: { 200: runsSchema, ...errorResponses } },
   }, async (request, reply) => {
     if (!taskExists(request.params.id)) return reply.code(404).send({ error: "TASK_NOT_FOUND", message: "Task not found" });
     return { runs: store.listByTask(request.params.id).map(summary) };
   });
-  app.get<{ Params: { id: string } }>("/runs/:id", { schema: { params, response: { 200: detailsSchema, ...errors } } }, async (request, reply) => {
+  app.get<{ Params: { id: string } }>("/runs/:id", { schema: { params: idParamsSchema, response: { 200: runDetailsSchema, ...errorResponses } } }, async (request, reply) => {
     const run = store.findById(request.params.id);
     if (!run) return reply.code(404).send({ error: "RUN_NOT_FOUND", message: "Run not found" });
     return {

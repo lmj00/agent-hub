@@ -1,3 +1,4 @@
+import { errorSchema, sessionSchema, loginSchema } from "@agent-hub/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
 import session, { type SessionStore } from "@fastify/session";
@@ -12,7 +13,7 @@ declare module "fastify" {
 const anonymousTtl = 10 * 60 * 1000;
 const authenticatedTtl = 8 * 60 * 60 * 1000;
 const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
-const publicRoutes = new Set(["/health/live", "/auth/session", "/auth/login"]);
+const publicRoutes = new Set(["/health/live", "/auth/session", "/auth/login", "/", "/favicon.svg", "/assets/*"]);
 function matchesHost(host: string | undefined, origin: URL) {
   if (!host) return false;
   try {
@@ -20,11 +21,6 @@ function matchesHost(host: string | undefined, origin: URL) {
     return url.origin === origin.origin && !url.username && !url.password && url.pathname === "/" && !url.search && !url.hash;
   } catch { return false; }
 }
-const errorSchema = { type: "object", additionalProperties: false, required: ["error", "message"], properties: { error: { type: "string" }, message: { type: "string" } } };
-const sessionSchema = {
-  type: "object", additionalProperties: false, required: ["authenticated", "csrfToken", "expiresAt"],
-  properties: { authenticated: { type: "boolean" }, csrfToken: { type: "string" }, expiresAt: { type: ["string", "null"], format: "date-time" } },
-};
 
 export async function installAuthentication(app: FastifyInstance, config: AuthConfig, store: SessionStore) {
   const origin = new URL(config.origin);
@@ -71,7 +67,7 @@ export async function installAuthentication(app: FastifyInstance, config: AuthCo
     let verifying = false;
     routes.post<{ Body: { password: string } }>("/auth/login", {
       config: { rateLimit: { max: 5 } }, bodyLimit: 4096,
-      schema: { body: { type: "object", additionalProperties: false, required: ["password"], properties: { password: { type: "string", minLength: 1, maxLength: 1024 } } }, response: { 200: sessionSchema, "4xx": errorSchema, "5xx": errorSchema } },
+      schema: { body: loginSchema, response: { 200: sessionSchema, "4xx": errorSchema, "5xx": errorSchema } },
     }, async (request, reply) => {
       if (verifying) return reply.code(429).send({ error: "TOO_MANY_REQUESTS", message: "A sign-in attempt is already being checked" });
       verifying = true;

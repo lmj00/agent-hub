@@ -2,11 +2,11 @@ import type { FastifyPluginAsync } from "fastify";
 import { createProject, type CreateProjectInput, type Project, type ProjectStore } from "./create-project.js";
 import {
   createProjectSchema,
-  projectErrorResponses,
-  projectListResponseSchema,
-  projectParamsSchema,
-  projectResponseSchema,
-} from "./schemas.js";
+  errorResponses as projectErrorResponses,
+  projectsSchema as projectListResponseSchema,
+  idParamsSchema as projectParamsSchema,
+  projectSchema as projectResponseSchema,
+} from "@agent-hub/contracts";
 
 function toResponse(project: Project) {
   return {
