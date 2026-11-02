@@ -39,7 +39,10 @@ jobs:
           docker build -f docker/analysis-runner.Dockerfile -t agent-hub-sandbox-test:local .
           docker build -t agent-hub-execution-test:local apps/server/tests/fixtures/container-runner
       - name: Test with real container boundaries and synthetic credentials
-        run: pnpm test
+        # Direct output preserves GitHub's ::error annotations (recursive scripts add prefixes).
+        run: |
+          pnpm --filter @agent-hub/server exec vitest run --reporter=default --reporter=github-actions
+          pnpm --filter @agent-hub/web exec vitest run tests --reporter=default --reporter=github-actions
         env:
           RUN_CONTAINER_TESTS: "1"
       - name: Install Chromium
