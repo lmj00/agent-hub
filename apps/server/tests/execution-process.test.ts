@@ -1,4 +1,5 @@
 import { parseEffortPolicy } from "../src/modules/execution/effort-policy.js";
+import { parseAnalysisWorkflow } from "../src/modules/execution/analysis-workflow.js";
 import { execFile, fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
@@ -68,6 +69,27 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
       }
     } finally { for (const row of database.db.select().from(runs).all()) if (row.execution) identities.push(row.execution); }
   }, 20000);
+
+  test("acknowledges persisted workflow steps before the child starts each next call", async () => {
+    database.client.prepare("UPDATE tasks SET instruction = 'workflow-protocol 보안 검토'").run();
+    store = createDrizzleRunStore(database.db, undefined, { effortPolicy: parseEffortPolicy({}), analysisWorkflow: parseAnalysisWorkflow({}) });
+    const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, createContainerExecutor(image, home));
+    expect(result).toMatchObject({ status: "succeeded", terminationConfirmedAt: expect.any(Date) });
+    expect(readFileSync(join(home, "calls"), "utf8")).toBe("123");
+    expect(store.findById(result.runId)!.steps.map(step => [step.effort, step.sessionId, step.usage?.inputTokens])).toEqual([
+      ["high", "fixture-1", 1], ["xhigh", "fixture-2", 2], ["medium", "fixture-3", 3],
+    ]);
+  }, 15000);
+
+  test("does not acknowledge a failed step write or allow the child to start its next call", async () => {
+    database.client.prepare("UPDATE tasks SET instruction = 'workflow-protocol'").run();
+    database.client.exec("CREATE TRIGGER fail_next_step BEFORE INSERT ON steps WHEN NEW.sequence = 2 BEGIN SELECT RAISE(ABORT, 'injected failure'); END");
+    store = createDrizzleRunStore(database.db, undefined, { effortPolicy: parseEffortPolicy({}), analysisWorkflow: parseAnalysisWorkflow({}) });
+    const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, createContainerExecutor(image, home));
+    expect(result).toMatchObject({ status: "interrupted", terminationConfirmedAt: expect.any(Date) });
+    expect(readFileSync(join(home, "calls"), "utf8")).toBe("1");
+    expect(store.findById(result.runId)!.steps).toHaveLength(1);
+  }, 15000);
 
   test("records termination only after detached descendants stop, then removes the container", async () => {
     const outcome = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, createContainerExecutor(image, home));

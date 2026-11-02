@@ -1,5 +1,6 @@
 import { AnalysisError, analysisErrorCodes, type AnalysisEvent, type AnalysisExecutor, type AnalysisResult, type ExecutionIdentity } from "./analysis.js";
 import { createCodexExecutor } from "./codex-executor.js";
+import { createAnalysisWorkflow, parseStepUpdate } from "./analysis-workflow.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import { attachContainer, prepareContainer, removeFinishedContainer, stopAndConfirmContainer } from "./container-runtime.js";
 
@@ -9,7 +10,7 @@ type RunnerMessage =
   | { type: "error"; code: AnalysisError["code"]; retryAt?: string | null };
 
 export function createConfiguredExecutor(config: ExecutionConfig): AnalysisExecutor {
-  if (!config.containerImage) return createCodexExecutor(config.codexHome);
+  if (!config.containerImage) return createAnalysisWorkflow(createCodexExecutor(config.codexHome));
   return createContainerExecutor(config.containerImage, config.codexHome);
 }
 
@@ -33,6 +34,7 @@ export function createContainerExecutor(image: string, codexHome: string): Analy
         let bytes = 0;
         let result: AnalysisResult | undefined;
         let failure: AnalysisError | undefined;
+        let processing = Promise.resolve();
         const fail = () => {
           failure = new AnalysisError("provider_error", true);
           reject(failure);
@@ -47,19 +49,29 @@ export function createContainerExecutor(image: string, codexHome: string): Analy
           while ((newline = buffer.indexOf("\n")) >= 0) {
             const line = buffer.slice(0, newline);
             buffer = buffer.slice(newline + 1);
-            try {
+            processing = processing.then(async () => {
+              if (failure) return;
               const message = JSON.parse(line) as RunnerMessage;
               if (message.type === "event" && typeof message.event?.kind === "string") {
                 // 자식이 보낸 실행 ID는 신뢰하지 않고 SDK 이벤트만 전달합니다.
-                onEvent({ kind: message.event.kind, ...(message.event.sessionId ? { sessionId: message.event.sessionId } : {}) });
+                const step = message.event.step ? parseStepUpdate(message.event.step) : undefined;
+                if (message.event.sessionId !== undefined && (typeof message.event.sessionId !== "string" || message.event.sessionId.length > 200)) throw new Error("Invalid session ID");
+                if (step && message.event.kind !== (step.type === "start" ? "step.started" : "step.completed")) throw new Error("Invalid step event");
+                request.signal.throwIfAborted();
+                await onEvent({ kind: message.event.kind, ...(message.event.sessionId ? { sessionId: message.event.sessionId } : {}), ...(step ? { step } : {}) });
+                if (step) {
+                  request.signal.throwIfAborted();
+                  child.stdin!.write(JSON.stringify({ type: "step.saved", sequence: step.sequence, phase: step.type }) + "\n");
+                }
               } else if (message.type === "result" && typeof message.result?.output === "string" && !result) {
                 result = message.result;
+                child.stdin!.end();
               } else if (message.type === "error" && analysisErrorCodes.includes(message.code)) {
                 const retryAt = message.code === "capacity" && typeof message.retryAt === "string" ? new Date(message.retryAt) : null;
                 if (retryAt && !Number.isFinite(retryAt.getTime())) throw new Error("Invalid provider retry time");
                 failure = new AnalysisError(message.code, false, retryAt);
               } else throw new Error("Invalid runner message");
-            } catch { fail(); return; }
+            }).catch(fail);
           }
           if (buffer.length > 512 * 1024) fail();
         });
@@ -67,12 +79,13 @@ export function createContainerExecutor(image: string, codexHome: string): Analy
         child.stderr!.resume();
         child.once("error", fail);
         child.stdin!.on("error", fail);
-        child.once("close", (code) => {
+        child.once("close", async (code) => {
+          await processing;
           if (failure) reject(failure);
           else if (code !== 0 || buffer || !result) reject(new AnalysisError("provider_error", true));
           else resolve(result);
         });
-        child.stdin!.end(JSON.stringify({ instruction: request.instruction, model: request.model, effort: request.effort ?? "medium" }) + "\n");
+        child.stdin!.write(JSON.stringify({ instruction: request.instruction, model: request.model, effort: request.effort ?? "medium", effortPolicy: request.effortPolicy, workflow: request.workflow }) + "\n");
       });
     },
     async confirmTermination(runId) {

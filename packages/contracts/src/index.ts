@@ -59,6 +59,24 @@ export const taskStatuses = [
 export type TaskStatus = (typeof taskStatuses)[number];
 export const efforts = ["medium", "high", "xhigh"] as const;
 export type Effort = (typeof efforts)[number];
+export const analysisAssessmentSchema = object({
+  report: Type.String({ minLength: 1, maxLength: 16000 }),
+  evidence: Type.Array(Type.String({ minLength: 1, maxLength: 500 }), {
+    maxItems: 8,
+  }),
+  unresolved: Type.Array(Type.String({ minLength: 1, maxLength: 500 }), {
+    maxItems: 8,
+  }),
+  complete: Type.Boolean(),
+  next: nullable(
+    object({
+      purpose: Type.String({ minLength: 1, maxLength: 1000 }),
+      effort: Type.String({ minLength: 1, maxLength: 20 }),
+      reason: Type.String({ minLength: 1, maxLength: 500 }),
+    }),
+  ),
+});
+export type AnalysisAssessment = Static<typeof analysisAssessmentSchema>;
 export const stopReasons = [
   "user_cancel",
   "server_shutdown",
@@ -152,6 +170,10 @@ export const runDetailsSchema = object({
       effort: nullable(enumeration(efforts)),
       effortReason: nullable(text),
       effortPolicyVersion: nullable(Type.Integer()),
+      proposedEffort: nullable(text),
+      purpose: nullable(text),
+      model: nullable(text),
+      assessment: nullable(analysisAssessmentSchema),
       usage: nullable(
         object({
           inputTokens: Type.Integer(),

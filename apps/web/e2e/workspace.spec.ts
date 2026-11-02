@@ -55,7 +55,9 @@ test("registers projects and tasks, escapes model output, and separates waiting,
   await expect(page.locator(".run-facts")).toContainText(
     "여러 시스템의 복잡한 원인 분석",
   );
-  await expect(page.locator(".analysis-result")).toContainText("<script>");
+  await expect(page.locator(".run-record > .analysis-result")).toContainText(
+    "<script>",
+  );
   await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
   expect(await page.evaluate(() => "unwanted" in window)).toBe(false);
   await page.setViewportSize({ width: 375, height: 812 });
@@ -64,7 +66,7 @@ test("registers projects and tasks, escapes model output, and separates waiting,
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await expect(page.locator(".analysis-result")).toBeVisible();
+  await expect(page.locator(".run-record > .analysis-result")).toBeVisible();
   expect(errors).toEqual([]);
   await page.getByRole("button", { name: /관측 예제/ }).click();
   await expect(page.locator(".services-panel")).toHaveCount(1);
@@ -109,7 +111,7 @@ test("retries a failed task, cancels active analysis, and waits for automatic ac
   await createTask(page, "재개 흐름을 확인해 줘.");
   await expect(page.locator(".detail-top .status-failed")).toBeVisible();
   await page.getByRole("button", { name: "작업 재개", exact: true }).click();
-  await expect(page.locator(".analysis-result")).toBeVisible();
+  await expect(page.locator(".run-record > .analysis-result")).toBeVisible();
   await expect(page.locator(".attempt")).toHaveCount(2);
   await page.locator(".attempt").last().click();
   await expect(
@@ -234,4 +236,38 @@ test("shows an automatic retry reservation and its new attempt without a resume 
   await expect(policy).toContainText("재시도 1 / 3회");
   await expect(policy).not.toContainText("다음 시도 가능 시각");
   await expect(page.locator(".attempt")).toHaveCount(2);
+});
+
+test("shows sequential analysis steps and effort changes in one execution attempt", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(90000);
+  await login(page);
+  await createProject(page, "단계별 분석 예제");
+  await createTask(page, "다단계 보안 검토");
+  await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
+  await expect(page.locator(".attempts .attempt")).toHaveCount(1);
+  const history = page.getByRole("region", { name: "단계별 분석 기록" });
+  await expect(history.locator("details")).toHaveCount(3);
+  await expect(history.locator("summary").nth(0)).toContainText("high");
+  await expect(history.locator("summary").nth(1)).toContainText("xhigh");
+  await expect(history.locator("summary").nth(2)).toContainText("medium");
+  await history.locator("summary").nth(0).click();
+  await expect(history).toContainText("단계 1의 부분 분석입니다.");
+  await expect(history).toContainText("추가 원인 확인");
+  await expect(history).toContainText("제공된 토큰");
+  await page.screenshot({
+    path: testInfo.outputPath("workflow-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("workflow-mobile.png"),
+    fullPage: true,
+  });
 });

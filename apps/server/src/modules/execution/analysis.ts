@@ -1,10 +1,12 @@
 import { stopReasons, type StopReason, type Effort } from "@agent-hub/contracts";
+import type { AnalysisWorkflowPolicy, StepUpdate } from "./analysis-workflow.js";
+import type { EffortPolicy } from "./effort-policy.js";
 export { stopReasons, type StopReason };
 
 export type AnalysisUsage = { inputTokens: number; cachedInputTokens: number; outputTokens: number };
 export type ExecutionIdentity = { kind: "docker"; containerId: string; token: string; engineId: string };
-export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity };
-export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort };
+export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity; step?: StepUpdate };
+export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; outputSchema?: unknown };
 export type AnalysisResult = { output: string; usage: AnalysisUsage | null };
 
 // 이유가 없는 외부 중단 신호는 재실행하지 않는 사용자 취소로 취급합니다.
@@ -13,13 +15,13 @@ export function signalStopReason(signal: AbortSignal): StopReason {
 }
 
 export type AnalysisExecutor = {
-  analyze(request: AnalysisRequest, onEvent: (event: AnalysisEvent) => void): Promise<AnalysisResult>;
+  analyze(request: AnalysisRequest, onEvent: (event: AnalysisEvent) => void | Promise<void>): Promise<AnalysisResult>;
   // 신호 전송 여부가 아니라 이 실행의 모든 명령이 끝났는지 관측합니다. 확인 불가는 null입니다.
   confirmTermination?(runId: string): Promise<Date | null>;
   cleanup?(runId: string): Promise<void>;
 };
 
-export const analysisErrorCodes = ["authentication", "capacity", "unsupported_settings", "provider_error", "transient", "output_limit"] as const;
+export const analysisErrorCodes = ["authentication", "capacity", "unsupported_settings", "provider_error", "transient", "output_limit", "invalid_plan", "workflow_limit", "analysis_incomplete"] as const;
 export class AnalysisError extends Error {
   constructor(
     public readonly code: (typeof analysisErrorCodes)[number],

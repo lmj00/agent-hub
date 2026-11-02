@@ -1,3 +1,4 @@
+import { saveWorkflowStep } from "./workflow-step-store.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import { defaultEffortPolicy, selectInitialEffort } from "./effort-policy.js";
 import { ensureRetryState } from "./retry-state-store.js";
@@ -14,7 +15,7 @@ import { saveRunCompletion } from "./run-completion-store.js";
 
 export const unresolvedRun = sql`${runs.status} = 'running' OR (${runs.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${runs.terminationConfirmedAt} IS NULL)`;
 
-export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string, policies: Pick<ExecutionConfig, "automaticRecovery" | "capacityRecovery" | "effortPolicy"> = {}) {
+export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string, policies: Pick<ExecutionConfig, "automaticRecovery" | "capacityRecovery" | "effortPolicy" | "analysisWorkflow"> = {}) {
   const instanceId = ownerToken ?? randomUUID();
   type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -73,12 +74,12 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
       tx.update(tasks).set({ status: "running" }).where(eq(tasks.id, task.id)).run();
       const effortPolicy = policies.effortPolicy ?? defaultEffortPolicy;
       const effortSelection = selectInitialEffort(task.instruction, effortPolicy);
-      tx.insert(runs).values({ id, taskId: task.id, attempt, instanceId, status: "running", model, effort: effortSelection.effort, effortPolicy, startedAt: now, lastActivityAt: now,
+      tx.insert(runs).values({ id, taskId: task.id, attempt, instanceId, status: "running", model, effort: effortSelection.effort, effortPolicy, workflowPolicy: policies.analysisWorkflow, startedAt: now, lastActivityAt: now,
         providerGateVersion: probing ? gate.version : null }).run();
       if (probing) tx.update(providerGates).set({ probeRunId: id, ...(gate.reason === "capacity" && gate.capacityState ? { capacityState: { ...gate.capacityState, checks: gate.capacityState.checks + 1, nextCheckAt: null, reason: "checking" } } : {}) }).where(eq(providerGates.scope, providerScope)).run();
       tx.insert(steps).values({ id: randomUUID(), runId: id, sequence: 1, status: "running", startedAt: now, effort: effortSelection.effort, effortReason: effortSelection.reason, effortPolicyVersion: effortSelection.policyVersion }).run();
       tx.insert(events).values({ id: randomUUID(), runId: id, sequence: 1, kind: "run.started", createdAt: now }).run();
-      return { kind: "claimed", run: { id, taskId: task.id, instruction: task.instruction, effort: effortSelection.effort, ...(retryState ? { remainingRunMs: Math.max(1, retryState.policy.maxTotalRunMs - retryState.totalRunMs) } : {}), ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
+      return { kind: "claimed", run: { id, taskId: task.id, instruction: task.instruction, effort: effortSelection.effort, effortPolicy, ...(policies.analysisWorkflow ? { workflow: policies.analysisWorkflow } : {}), ...(retryState ? { remainingRunMs: Math.max(1, retryState.policy.maxTotalRunMs - retryState.totalRunMs) } : {}), ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
     }, { behavior: "immediate" });
   }
 
@@ -124,7 +125,8 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         }
         const now = new Date();
         tx.update(runs).set({ lastActivityAt: now }).where(eq(runs.id, runId)).run();
-        if (event.sessionId) tx.update(steps).set({ sessionId: event.sessionId }).where(eq(steps.runId, runId)).run();
+        if (event.step) saveWorkflowStep(tx, run, event.step, now);
+        if (event.sessionId) tx.update(steps).set({ sessionId: event.sessionId }).where(and(eq(steps.runId, runId), eq(steps.status, "running"))).run();
         const last = tx.select({ sequence: sql<number>`max(${events.sequence})` }).from(events).where(eq(events.runId, runId)).get();
         const sequence = (last?.sequence ?? 0) + 1;
         if (sequence <= 1000) tx.insert(events).values({
@@ -137,6 +139,10 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         assertOwner(tx);
         const run = tx.select().from(runs).where(and(eq(runs.id, runId), eq(runs.instanceId, instanceId), eq(runs.status, "running"))).get();
         if (!run) throw new Error("Cannot finish a run not owned by this executor");
+        if (run.workflowPolicy && completion.status === "succeeded") {
+          const lastStep = tx.select().from(steps).where(eq(steps.runId, runId)).orderBy(desc(steps.sequence)).get();
+          if (!lastStep?.assessment?.complete || lastStep.assessment.report !== completion.result) completion = { ...completion, status: "blocked", result: null, errorCode: "invalid_plan" };
+        }
         if (run.providerGateVersion !== null) completion = requireTermination(completion);
         const task = tx.select({ cancelRequestedAt: tasks.cancelRequestedAt }).from(tasks).where(eq(tasks.id, run.taskId)).get()!;
         completion = settleStoppedCompletion(completion, run.stopReason, task.cancelRequestedAt !== null);
@@ -158,7 +164,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         startedAt: run.startedAt, finishedAt: run.finishedAt, lastActivityAt: run.lastActivityAt,
         result: run.result, errorCode: run.errorCode,
         stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt, terminationConfirmedAt: run.terminationConfirmedAt, retryAt: run.retryAt,
-        steps: db.select({ sequence: steps.sequence, status: steps.status, sessionId: steps.sessionId, effort: steps.effort, effortReason: steps.effortReason, effortPolicyVersion: steps.effortPolicyVersion, usage: steps.usage, startedAt: steps.startedAt, finishedAt: steps.finishedAt })
+        steps: db.select({ sequence: steps.sequence, status: steps.status, sessionId: steps.sessionId, effort: steps.effort, effortReason: steps.effortReason, effortPolicyVersion: steps.effortPolicyVersion, proposedEffort: steps.proposedEffort, purpose: steps.purpose, model: steps.model, assessment: steps.assessment, usage: steps.usage, startedAt: steps.startedAt, finishedAt: steps.finishedAt })
           .from(steps).where(eq(steps.runId, id)).orderBy(asc(steps.sequence)).all(),
         events: db.select({ sequence: events.sequence, kind: events.kind, createdAt: events.createdAt })
           .from(events).where(eq(events.runId, id)).orderBy(asc(events.sequence)).all(),

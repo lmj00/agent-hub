@@ -39,7 +39,7 @@ test("maps progress without saving command arguments or reasoning and waits for 
     { type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: 5 } },
   ];
   const events: AnalysisEvent[] = [];
-  const result = await createCodexExecutor("/tmp/private-auth").analyze(request, event => events.push(event));
+  const result = await createCodexExecutor("/tmp/private-auth").analyze(request, event => { events.push(event); });
   expect(result).toEqual({ output: "Result [REDACTED]", usage: { inputTokens: 10, cachedInputTokens: 2, outputTokens: 5 } });
   expect(JSON.stringify(events)).not.toContain("secret command");
   expect(events[0]).toEqual({ kind: "thread.started", sessionId: "session" });

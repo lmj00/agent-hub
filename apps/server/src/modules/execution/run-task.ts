@@ -1,9 +1,11 @@
+import type { AnalysisWorkflowPolicy } from "./analysis-workflow.js";
+import type { EffortPolicy } from "./effort-policy.js";
 import type { Effort } from "@agent-hub/contracts";
 import { AnalysisError, redactOutput, signalStopReason, type AnalysisEvent, type AnalysisExecutor, type AnalysisUsage, type StopReason } from "./analysis.js";
 import type { TaskStatus } from "../tasks/task-state.js";
 import type { ProviderGateView } from "./provider-gate.js";
 
-export type ClaimedRun = { id: string; taskId: string; instruction: string; effort?: Effort; providerCheck?: boolean; remainingRunMs?: number };
+export type ClaimedRun = { id: string; taskId: string; instruction: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; providerCheck?: boolean; remainingRunMs?: number };
 export type RunCompletion = {
   status: Exclude<TaskStatus, "queued" | "running">;
   result: string | null;
@@ -52,7 +54,7 @@ export type RunDetails = RunSummary & {
   lastActivityAt: Date; result: string | null; errorCode: string | null;
   stopReason: StopReason | null; stopRequestedAt: Date | null; terminationConfirmedAt: Date | null;
   retryAt: Date | null;
-  steps: { sequence: number; status: TaskStatus; sessionId: string | null; effort: Effort | null; effortReason: string | null; effortPolicyVersion: number | null; usage: AnalysisUsage | null; startedAt: Date; finishedAt: Date | null }[];
+  steps: { sequence: number; status: TaskStatus; sessionId: string | null; effort: Effort | null; effortReason: string | null; effortPolicyVersion: number | null; proposedEffort: string | null; purpose: string | null; model: string | null; assessment: import("@agent-hub/contracts").AnalysisAssessment | null; usage: AnalysisUsage | null; startedAt: Date; finishedAt: Date | null }[];
   events: { sequence: number; kind: string; createdAt: Date }[];
 };
 export type RunQueries = {
@@ -106,7 +108,7 @@ export async function runClaimedTask(
     // 중단 신호에 응답하지 않는 실행도 기다림을 끝냅니다. Promise.race는 뒤늦은 실패도 처리합니다.
     const result = await Promise.race([
       executor.analyze({
-        instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal, runId: run.id, effort: run.effort ?? "medium",
+        instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal, runId: run.id, effort: run.effort ?? "medium", ...(run.effortPolicy ? { effortPolicy: run.effortPolicy } : {}), ...(run.workflow ? { workflow: run.workflow } : {}),
       }, (event) => {
         if (acceptingEvents && !controller.signal.aborted) store.record(run.id, event);
       }),
@@ -123,7 +125,7 @@ export async function runClaimedTask(
     } else {
       const code = error instanceof AnalysisError ? error.code : "execution_error";
       const status = !(error instanceof AnalysisError) || error.completionUncertain ? "interrupted"
-        : code === "authentication" || code === "unsupported_settings" ? "blocked"
+        : ["authentication", "unsupported_settings", "invalid_plan", "workflow_limit", "analysis_incomplete"].includes(code) ? "blocked"
         : code === "capacity" ? "waiting_capacity" : "failed";
       completion = { status, result: null, errorCode: code, usage: null, retryAt: error instanceof AnalysisError ? error.retryAt : null };
     }

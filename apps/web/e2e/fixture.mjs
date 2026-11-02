@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { buildApp } from "../../server/dist/app.js";
 import { hashPassword } from "../../server/dist/modules/auth/password.js";
 import { loadExecutionConfig } from "../../server/dist/modules/execution/execution-config.js";
+import { createAnalysisWorkflow } from "../../server/dist/modules/execution/analysis-workflow.js";
 import { AnalysisError } from "../../server/dist/modules/execution/analysis.js";
 import { createServer } from "node:http";
 import { openDatabase } from "../../server/dist/db/connection.js";
@@ -33,6 +34,7 @@ writeFileSync(
     codexHome: "codex",
     timeoutMs: 60000,
     effortPolicy: { mode: "adaptive", maxEffort: "xhigh" },
+    analysisWorkflow: {},
     automaticRecovery: {
       initialDelayMs: 5000,
       jitterRatio: 0,
@@ -84,9 +86,27 @@ const executor = {
     }
     onEvent({ kind: "item.completed:agent_message" });
     onEvent({ kind: "turn.completed" });
+    const sequence = Number(
+      /Analysis step (\d+)/.exec(request.instruction)?.[1] ?? 1,
+    );
+    const continuing =
+      request.instruction.includes("다단계 보안 검토") && sequence < 3;
     return {
-      output:
-        "테스트 분석 결과입니다. <script>window.unwanted=true</script>는 텍스트로 표시합니다.",
+      output: JSON.stringify({
+        report: continuing
+          ? `단계 ${sequence}의 부분 분석입니다.`
+          : "테스트 분석 결과입니다. <script>window.unwanted=true</script>는 텍스트로 표시합니다.",
+        evidence: ["example.ts:1"],
+        unresolved: continuing ? ["추가 원인 확인"] : [],
+        complete: !continuing,
+        next: continuing
+          ? {
+              purpose: sequence === 1 ? "복잡한 원인 분석" : "최종 요약",
+              effort: sequence === 1 ? "xhigh" : "medium",
+              reason: "앞 단계의 분석 근거",
+            }
+          : null,
+      }),
       usage: { inputTokens: 120, cachedInputTokens: 0, outputTokens: 80 },
     };
   },
@@ -168,7 +188,7 @@ const app = buildApp({
   webDirectory: fileURLToPath(new URL("../dist/", import.meta.url)),
   execution: {
     config: loadExecutionConfig(join(directory, "execution.json")),
-    executor,
+    executor: createAnalysisWorkflow(executor),
     pollIntervalMs: 100,
   },
 });

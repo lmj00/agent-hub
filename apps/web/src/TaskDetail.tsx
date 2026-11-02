@@ -62,6 +62,11 @@ const runErrors: Record<string, string> = {
   capacity: "AI 계정의 사용량 제한으로 실행을 보류했습니다.",
   authentication: "AI 계정 로그인을 확인해 주세요.",
   configuration: "AI 실행 설정을 확인해 주세요.",
+  invalid_plan: "다음 단계의 제안 형식이 올바르지 않아 분석을 보류했습니다.",
+  workflow_limit:
+    "호출 수 또는 전달할 맥락의 상한에 도달했습니다. 저장된 단계 결과를 확인해 주세요.",
+  analysis_incomplete:
+    "분석에 필요한 정보가 부족해 완료하지 못했습니다. 남은 질문을 확인해 주세요.",
 };
 
 export function TaskDetail({
@@ -481,6 +486,64 @@ function RunRecord({
             : "저장된 분석 결과가 없습니다."}
         </p>
       )}
+      {run.steps.some((step) => step.purpose) ? (
+        <section className="step-history" aria-label="단계별 분석 기록">
+          <div className="section-heading">
+            <h3>단계별 분석 기록</h3>
+            <span className="count">{run.steps.length}</span>
+          </div>
+          {run.steps.map((step) => (
+            <details key={step.sequence} className="event-details">
+              <summary>
+                {step.sequence}. {step.purpose ?? "분석"} ·{" "}
+                {step.effort ?? run.effort} · {statusLabels[step.status]}
+              </summary>
+              <p className="subtle-note">
+                {step.effortReason} · {elapsed(step.startedAt, step.finishedAt)}{" "}
+                · {step.model ?? run.model}
+              </p>
+              {step.assessment ? (
+                <>
+                  <pre className="analysis-result">
+                    {step.assessment.report}
+                  </pre>
+                  {step.assessment.evidence.length ? (
+                    <p>
+                      <strong>근거</strong>{" "}
+                      {step.assessment.evidence.join(" · ")}
+                    </p>
+                  ) : null}
+                  {step.assessment.unresolved.length ? (
+                    <p>
+                      <strong>남은 질문</strong>{" "}
+                      {step.assessment.unresolved.join(" · ")}
+                    </p>
+                  ) : null}
+                  {step.assessment.next ? (
+                    <p>
+                      <strong>다음 단계 제안</strong>{" "}
+                      {step.assessment.next.purpose} ·{" "}
+                      {step.assessment.next.effort}:{" "}
+                      {step.assessment.next.reason}
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <p className="empty-list">
+                  이 호출의 결과가 아직 저장되지 않았습니다.
+                </p>
+              )}
+              {step.usage ? (
+                <p className="subtle-note">
+                  제공된 토큰: 입력 {step.usage.inputTokens} · 캐시{" "}
+                  {step.usage.cachedInputTokens} · 출력{" "}
+                  {step.usage.outputTokens}
+                </p>
+              ) : null}
+            </details>
+          ))}
+        </section>
+      ) : null}
       <details className="event-details">
         <summary>
           활동 기록 <span>{run.events.length}건</span>

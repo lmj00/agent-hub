@@ -1,9 +1,26 @@
 import { spawn } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 const input = createInterface({ input: process.stdin });
-let request;
-for await (const line of input) { request = JSON.parse(line); break; }
+const lines = input[Symbol.asyncIterator]();
+const request = JSON.parse((await lines.next()).value);
+if (request.instruction.includes("workflow-protocol")) {
+  async function step(event) {
+    console.log(JSON.stringify({ type: "event", event }));
+    const ack = JSON.parse((await lines.next()).value);
+    if (ack.type !== "step.saved" || ack.sequence !== event.step.sequence || ack.phase !== event.step.type) throw new Error("Invalid acknowledgement");
+  }
+  for (let sequence = 1; sequence <= 3; sequence++) {
+    await step({ kind: "step.started", step: { type: "start", sequence } });
+    appendFileSync("/codex-home/calls", String(sequence));
+    console.log(JSON.stringify({ type: "event", event: { kind: "thread.started", sessionId: `fixture-${sequence}` } }));
+    const assessment = { report: sequence === 3 ? "Final report" : "Partial finding", evidence: ["fixture"], unresolved: sequence === 3 ? [] : ["Need next"], complete: sequence === 3,
+      next: sequence === 3 ? null : { purpose: "Next analysis", effort: sequence === 1 ? "xhigh" : "medium", reason: "Fixture reason" } };
+    await step({ kind: "step.completed", step: { type: "complete", sequence, assessment, usage: { inputTokens: sequence, cachedInputTokens: 0, outputTokens: 1 } } });
+  }
+  console.log(JSON.stringify({ type: "result", result: { output: "Final report", usage: { inputTokens: 6, cachedInputTokens: 0, outputTokens: 3 } } }));
+  process.exit(0);
+}
 const child = spawn(process.execPath, ["-e", `
 const fs = require('node:fs');
 fs.appendFileSync('/codex-home/heartbeat', 'x');

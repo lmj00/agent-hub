@@ -1,4 +1,5 @@
 import { parseEffortPolicy } from "./effort-policy.js";
+import { parseAnalysisWorkflow } from "./analysis-workflow.js";
 import { parseCapacityPolicy } from "./capacity-policy.js";
 import { parseRetryPolicy } from "./retry-policy.js";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
@@ -53,7 +54,7 @@ export function loadExecutionConfig(file: string) {
   }
   const automaticRecovery = config.automaticRecovery === undefined ? undefined : parseRetryPolicy(config.automaticRecovery);
   const capacity = automaticRecovery ? (config.automaticRecovery as Record<string, unknown>).capacity : false;
-  return { model: config.model, codexHome, timeoutMs, workspaces, ...(config.effortPolicy !== undefined ? { effortPolicy: parseEffortPolicy(config.effortPolicy) } : {}), ...(automaticRecovery ? { automaticRecovery, ...(capacity === false ? {} : { capacityRecovery: parseCapacityPolicy(capacity === undefined ? {} : capacity) }) } : {}), ...(containerImage ? { containerImage: containerImage as string } : {}) };
+  return { model: config.model, codexHome, timeoutMs, workspaces, ...(config.analysisWorkflow !== undefined ? { analysisWorkflow: parseAnalysisWorkflow(config.analysisWorkflow) } : {}), ...(config.effortPolicy !== undefined ? { effortPolicy: parseEffortPolicy(config.effortPolicy) } : {}), ...(automaticRecovery ? { automaticRecovery, ...(capacity === false ? {} : { capacityRecovery: parseCapacityPolicy(capacity === undefined ? {} : capacity) }) } : {}), ...(containerImage ? { containerImage: containerImage as string } : {}) };
 }
 
 export type ExecutionConfig = ReturnType<typeof loadExecutionConfig>;

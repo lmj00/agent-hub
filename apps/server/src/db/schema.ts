@@ -1,7 +1,8 @@
+import type { AnalysisWorkflowPolicy } from "../modules/execution/analysis-workflow.js";
 import type { EffortPolicy } from "../modules/execution/effort-policy.js";
 import type { RetryState } from "../modules/execution/retry-policy.js";
 import { sql } from "drizzle-orm";
-import type { ServiceSnapshot, CapacityState } from "@agent-hub/contracts";
+import type { ServiceSnapshot, CapacityState, AnalysisAssessment } from "@agent-hub/contracts";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { taskStatuses } from "../modules/tasks/task-state.js";
 import { stopReasons, type ExecutionIdentity } from "../modules/execution/analysis.js";
@@ -53,6 +54,7 @@ export const runs = sqliteTable("runs", {
   model: text("model").notNull(),
   effort: text("effort").notNull(),
   effortPolicy: text("effort_policy", { mode: "json" }).$type<EffortPolicy>(),
+  workflowPolicy: text("workflow_policy", { mode: "json" }).$type<AnalysisWorkflowPolicy>(),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   lastActivityAt: integer("last_activity_at", { mode: "timestamp_ms" }).notNull(),
@@ -96,6 +98,10 @@ export const steps = sqliteTable("steps", {
   effort: text("effort", { enum: ["medium", "high", "xhigh"] }),
   effortReason: text("effort_reason"),
   effortPolicyVersion: integer("effort_policy_version"),
+  proposedEffort: text("proposed_effort"),
+  purpose: text("purpose"),
+  model: text("model"),
+  assessment: text("assessment", { mode: "json" }).$type<AnalysisAssessment>(),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   usage: text("usage", { mode: "json" }).$type<{ inputTokens: number; cachedInputTokens: number; outputTokens: number }>(),
