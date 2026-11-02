@@ -88,7 +88,7 @@ test("time passing does not unlock the provider; only one explicitly reserved su
 test("a successful response without termination proof cannot clear the gate", () => {
   block(); const run = probe(task());
   store.finish(run.id, { status: "succeeded", result: "Report", errorCode: null, usage: null });
-  expect(store.getProviderGate()).toMatchObject({ blocked: true, version: 2, probeTaskId: null, probeRunId: null });
+  expect(store.getProviderGate()).toMatchObject({ blocked: true, version: 1, probeTaskId: run.taskId, probeRunId: run.id });
   expect(store.findById(run.id)).toMatchObject({ status: "interrupted", errorCode: "termination_unconfirmed" });
   expect(() => store.reserveProviderCheck(task(), 2)).toThrow("termination");
   expect(store.claimNext("fixture", ["example"]).kind).toBe("held");

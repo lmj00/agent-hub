@@ -85,6 +85,13 @@
       "when": 1793654769368,
       "tag": "0011_automatic_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793655842300,
+      "tag": "0012_capacity_recovery",
+      "breakpoints": true
     }
   ]
 }

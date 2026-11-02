@@ -181,3 +181,45 @@ test("automatic recovery cannot start with an executor that cannot prove termina
   });
   await expect(app.ready()).rejects.toThrow("termination tracking");
 });
+
+test("capacity recovery waits for provided time, reserves one check and reopens the queue only after success", async () => {
+  config.capacityRecovery = {
+    version: 1,
+    initialDelayMs: 1000,
+    maxDelayMs: 2000,
+    jitterRatio: 0,
+    maxChecks: 3,
+  };
+  const retryAt = new Date(Date.now() + 1500);
+  const analyze = vi
+    .fn<AnalysisExecutor["analyze"]>()
+    .mockRejectedValueOnce(new AnalysisError("capacity", false, retryAt))
+    .mockResolvedValue({ output: "Recovered account", usage: null });
+  const id = await start({
+    analyze,
+    confirmTermination: async () => new Date(),
+  });
+  await vi.waitFor(async () =>
+    expect((await view(id)).status).toBe("waiting_capacity"),
+  );
+  const before = (
+    await app!.inject({ method: "GET", url: "/execution/provider-gate" })
+  ).json();
+  expect(before).toMatchObject({
+    blocked: true,
+    retryAt: retryAt.toISOString(),
+    capacityState: { checks: 0, nextCheckAt: retryAt.toISOString() },
+  });
+  expect(analyze).toHaveBeenCalledTimes(1);
+  await vi.waitFor(
+    async () => expect((await view(id)).status).toBe("succeeded"),
+    { timeout: 4000 },
+  );
+  expect(analyze).toHaveBeenCalledTimes(2);
+  expect(
+    (
+      await app!.inject({ method: "GET", url: "/execution/provider-gate" })
+    ).json(),
+  ).toMatchObject({ blocked: false, capacityState: null });
+  expect((await view(id)).retryState?.retries).toBe(1);
+});

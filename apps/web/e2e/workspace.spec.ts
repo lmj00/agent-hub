@@ -97,9 +97,9 @@ test("registers projects and tasks, escapes model output, and separates waiting,
   expect(errors).toEqual([]);
 });
 
-test("retries a failed task with a new attempt, cancels active analysis, and resumes a queued provider probe", async ({
+test("retries a failed task, cancels active analysis, and waits for automatic account recovery", async ({
   page,
-}) => {
+}, testInfo) => {
   await login(page);
   await createProject(page, "실행 상태 확인");
   await createTask(page, "재개 흐름을 확인해 줘.");
@@ -122,12 +122,24 @@ test("retries a failed task with a new attempt, cancels active analysis, and res
   await expect(page.locator(".execution-bar")).toContainText(
     "계정 사용량 제한",
   );
+  await expect(page.getByLabel("계정 사용량 확인")).toContainText(
+    "계정 확인 0 / 3회",
+  );
+  await expect(page.getByLabel("계정 사용량 확인")).toContainText(
+    "다음 확인 가능 시각",
+  );
+  await expect(page.locator(".execution-bar")).toContainText(
+    "제공자 재시도 시각 미제공",
+  );
+  await page.screenshot({
+    path: testInfo.outputPath("capacity-wait.png"),
+    fullPage: true,
+  });
   await createTask(page, "회복 확인용 새 작업입니다.");
   await expect(page.locator(".detail-top .status-queued")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "작업 재개", exact: true }),
-  ).toBeEnabled();
-  await page.getByRole("button", { name: "작업 재개", exact: true }).click();
+  ).toBeDisabled();
   await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
   await expect(page.locator(".execution-bar")).not.toContainText(
     "계정 사용량 제한",
@@ -202,8 +214,15 @@ test("shows an automatic retry reservation and its new attempt without a resume 
     fullPage: true,
   });
   await page.setViewportSize({ width: 375, height: 812 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath("automatic-retry-mobile.png"), fullPage: true });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("automatic-retry-mobile.png"),
+    fullPage: true,
+  });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page.locator(".detail-top .status-succeeded")).toBeVisible({
     timeout: 12000,

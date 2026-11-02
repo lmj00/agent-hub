@@ -1,0 +1,1 @@
+ALTER TABLE `provider_gates` ADD `capacity_state` text;

@@ -12,6 +12,7 @@ export type QueueStatus = {
   reason: string | null;
   lastCheckedAt: string | null;
   automaticRecoveryEnabled: boolean;
+  capacityRecoveryEnabled: boolean;
 };
 
 export function createExecutionQueue(options: {
@@ -23,12 +24,13 @@ export function createExecutionQueue(options: {
   pollIntervalMs?: number;
   recovery?: ReturnType<typeof createRecoveryProcessor>;
   automaticRecovery?: { tick(): boolean };
+  capacityRecovery?: { tick(): boolean };
 }) {
   const controller = new AbortController();
   let started = false;
   let loop = Promise.resolve();
   let active: { runId: string; controller: AbortController } | undefined;
-  let status: QueueStatus = { state: "idle", runId: null, taskId: null, reason: null, lastCheckedAt: null, automaticRecoveryEnabled: false };
+  let status: QueueStatus = { state: "idle", runId: null, taskId: null, reason: null, lastCheckedAt: null, automaticRecoveryEnabled: false, capacityRecoveryEnabled: false };
   const diagnostics = createQueueDiagnostics(options.reportDiagnostic);
 
   async function poll() {
@@ -47,6 +49,7 @@ export function createExecutionQueue(options: {
           continue;
         }
         if (options.automaticRecovery?.tick()) continue;
+        if (options.capacityRecovery?.tick()) continue;
         diagnostics.recovered("recovery");
         phase = "validation";
         options.validate();
@@ -96,7 +99,7 @@ export function createExecutionQueue(options: {
       started = true;
       loop = poll();
     },
-    getStatus(): QueueStatus { return { ...status, automaticRecoveryEnabled: !!options.automaticRecovery && started && !controller.signal.aborted }; },
+    getStatus(): QueueStatus { return { ...status, automaticRecoveryEnabled: !!options.automaticRecovery && started && !controller.signal.aborted, capacityRecoveryEnabled: !!options.capacityRecovery && started && !controller.signal.aborted }; },
     getActiveRunId() { return active?.runId ?? null; },
     cancel(runId: string | null) { if (active && active.runId === runId) active.controller.abort("user_cancel"); },
     async stop() {

@@ -1,6 +1,6 @@
 import type { RetryState } from "../modules/execution/retry-policy.js";
 import { sql } from "drizzle-orm";
-import type { ServiceSnapshot } from "@agent-hub/contracts";
+import type { ServiceSnapshot, CapacityState } from "@agent-hub/contracts";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { taskStatuses } from "../modules/tasks/task-state.js";
 import { stopReasons, type ExecutionIdentity } from "../modules/execution/analysis.js";
@@ -82,6 +82,7 @@ export const providerGates = sqliteTable("provider_gates", {
   sourceRunId: text("source_run_id").references(() => runs.id, { onDelete: "restrict" }),
   probeTaskId: text("probe_task_id").references(() => tasks.id, { onDelete: "restrict" }),
   probeRunId: text("probe_run_id").references(() => runs.id, { onDelete: "restrict" }),
+  capacityState: text("capacity_state", { mode: "json" }).$type<CapacityState>(),
 }, table => [check("provider_gate_version_positive", sql`${table.version} > 0`)]);
 
 export const steps = sqliteTable("steps", {

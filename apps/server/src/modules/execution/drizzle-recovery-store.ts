@@ -50,6 +50,10 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
           if ((gate?.blocked && input.providerGateVersion === null)
             || (input.providerGateVersion !== null && input.providerGateVersion !== (gate?.version ?? 0))) throw new RecoveryError("GATE_CHANGED");
           if (gate?.blocked && gate.retryAt && gate.retryAt > new Date()) throw new RecoveryError("RETRY_TOO_EARLY");
+          if (gate?.blocked && gate.reason === "capacity" && gate.capacityState) {
+            if (gate.capacityState.checks >= gate.capacityState.policy.maxChecks) throw new RecoveryError("RECOVERY_LIMIT_REACHED");
+            if (gate.capacityState.nextCheckAt && Date.parse(gate.capacityState.nextCheckAt) > Date.now()) throw new RecoveryError("RETRY_TOO_EARLY");
+          }
           if (gate?.probeTaskId && gate.probeRunId !== run?.id) throw new RecoveryError("PROVIDER_CHECK_RESERVED");
           if (task.status === "queued" && !gate?.blocked) throw new RecoveryError("TASK_ALREADY_QUEUED");
         }

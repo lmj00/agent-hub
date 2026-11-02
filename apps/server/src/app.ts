@@ -1,3 +1,4 @@
+import { createCapacityRecovery } from "./modules/execution/capacity-recovery.js";
 import { createAutomaticRecovery } from "./modules/execution/automatic-recovery.js";
 import Fastify, { type FastifyServerOptions } from "fastify";
 import { openDatabase } from "./db/connection.js";
@@ -78,9 +79,10 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
           recovery = createDrizzleRecoveryStore(database.db, owner.token);
           queue = createExecutionQueue({
             ...execution,
-            store: createDrizzleRunStore(database.db, owner.token, execution.config.automaticRecovery),
+            store: createDrizzleRunStore(database.db, owner.token, execution.config.automaticRecovery, execution.config.capacityRecovery),
             executor,
             ...(execution.config.automaticRecovery ? { automaticRecovery: createAutomaticRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()], recovery }) } : {}),
+            ...(execution.config.automaticRecovery && execution.config.capacityRecovery ? { capacityRecovery: createCapacityRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.capacityRecovery, retryPolicy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()] }) } : {}),
             recovery: createRecoveryProcessor(recovery, execution.observer ?? { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }),
             validate: () => validateExecutionEnvironment(execution.config, databasePath, protectedFiles),
             reportDiagnostic: (diagnostic) => {
@@ -116,7 +118,7 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
       store: createDrizzleRunStore(database.db),
       taskExists: (id) => taskStore.findById(id) !== undefined,
       getQueueStatus: () => queue?.getStatus() ?? {
-        state: "disabled", runId: null, taskId: null, reason: null, lastCheckedAt: null, automaticRecoveryEnabled: false,
+        state: "disabled", runId: null, taskId: null, reason: null, lastCheckedAt: null, automaticRecoveryEnabled: false, capacityRecoveryEnabled: false,
       },
     });
     scope.register(recoveryRoutes, {

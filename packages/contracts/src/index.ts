@@ -180,8 +180,23 @@ export const queueSchema = object({
   reason: nullable(text),
   lastCheckedAt: nullable(date),
   automaticRecoveryEnabled: Type.Boolean(),
+  capacityRecoveryEnabled: Type.Boolean(),
 });
 export type Queue = Static<typeof queueSchema>;
+export const capacityStateSchema = object({
+  policy: object({
+    version: Type.Literal(1),
+    initialDelayMs: Type.Integer(),
+    maxDelayMs: Type.Integer(),
+    jitterRatio: Type.Number(),
+    maxChecks: Type.Integer(),
+  }),
+  checks: Type.Integer(),
+  nextCheckAt: nullable(date),
+  decisionVersion: Type.Integer(),
+  reason: text,
+});
+export type CapacityState = Static<typeof capacityStateSchema>;
 export const providerGateSchema = object({
   version: Type.Integer({ minimum: 0 }),
   blocked: Type.Boolean(),
@@ -193,6 +208,7 @@ export const providerGateSchema = object({
   sourceRunId: nullable(text),
   probeTaskId: nullable(text),
   probeRunId: nullable(text),
+  capacityState: nullable(capacityStateSchema),
 });
 export type ProviderGate = Static<typeof providerGateSchema>;
 

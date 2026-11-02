@@ -31,7 +31,7 @@ async function main() {
     if (!workspace) throw new Error("No prepared workspace configured for this project");
     const executor = createConfiguredExecutor(config);
     if (config.automaticRecovery && !executor.confirmTermination) throw new Error("Automatic recovery requires execution termination tracking");
-    const store = createDrizzleRunStore(database.db, owner.token, config.automaticRecovery);
+    const store = createDrizzleRunStore(database.db, owner.token, config.automaticRecovery, config.capacityRecovery);
     const outcome = await runTask({
       taskId: task.id, workspace, model: config.model, timeoutMs: config.timeoutMs, signal: controller.signal,
     }, store, executor);

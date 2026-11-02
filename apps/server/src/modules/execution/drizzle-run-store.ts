@@ -1,3 +1,4 @@
+import type { CapacityPolicy } from "./capacity-policy.js";
 import { ensureRetryState } from "./retry-state-store.js";
 import { retryLimitReason, type RetryPolicy } from "./retry-policy.js";
 import { randomUUID } from "node:crypto";
@@ -12,7 +13,7 @@ import { saveRunCompletion } from "./run-completion-store.js";
 
 export const unresolvedRun = sql`${runs.status} = 'running' OR (${runs.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${runs.terminationConfirmedAt} IS NULL)`;
 
-export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string, retryPolicy?: RetryPolicy) {
+export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string, retryPolicy?: RetryPolicy, capacityPolicy?: CapacityPolicy) {
   const instanceId = ownerToken ?? randomUUID();
   type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -32,6 +33,10 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
       if (probing && (!gate.probeTaskId || gate.probeRunId || (gate.retryAt && gate.retryAt > new Date())
         || ("taskId" in selection && selection.taskId !== gate.probeTaskId))) {
         return { kind: "held", runId: gate.sourceRunId!, reason: `provider_${gate.reason}` };
+      }
+      if (probing && gate.reason === "capacity" && gate.capacityState &&
+        (gate.capacityState.checks >= gate.capacityState.policy.maxChecks || (gate.capacityState.nextCheckAt && Date.parse(gate.capacityState.nextCheckAt) > Date.now()))) {
+        return { kind: "held", runId: gate.sourceRunId!, reason: "provider_capacity" };
       }
       if ("workspaceKeys" in selection && selection.workspaceKeys.length === 0) {
         return probing ? { kind: "held", runId: gate.sourceRunId!, reason: "provider_check_unavailable" } : { kind: "idle" };
@@ -67,7 +72,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
       tx.update(tasks).set({ status: "running" }).where(eq(tasks.id, task.id)).run();
       tx.insert(runs).values({ id, taskId: task.id, attempt, instanceId, status: "running", model, effort: "medium", startedAt: now, lastActivityAt: now,
         providerGateVersion: probing ? gate.version : null }).run();
-      if (probing) tx.update(providerGates).set({ probeRunId: id }).where(eq(providerGates.scope, providerScope)).run();
+      if (probing) tx.update(providerGates).set({ probeRunId: id, ...(gate.reason === "capacity" && gate.capacityState ? { capacityState: { ...gate.capacityState, checks: gate.capacityState.checks + 1, nextCheckAt: null, reason: "checking" } } : {}) }).where(eq(providerGates.scope, providerScope)).run();
       tx.insert(steps).values({ id: randomUUID(), runId: id, sequence: 1, status: "running", startedAt: now }).run();
       tx.insert(events).values({ id: randomUUID(), runId: id, sequence: 1, kind: "run.started", createdAt: now }).run();
       return { kind: "claimed", run: { id, taskId: task.id, instruction: task.instruction, ...(retryState ? { remainingRunMs: Math.max(1, retryState.policy.maxTotalRunMs - retryState.totalRunMs) } : {}), ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
@@ -134,7 +139,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         completion = settleStoppedCompletion(completion, run.stopReason, task.cancelRequestedAt !== null);
         const now = new Date();
         saveRunCompletion(tx, run, completion, now);
-        recordProviderOutcome(tx, run, completion, now);
+        recordProviderOutcome(tx, run, completion, now, capacityPolicy);
         return completion;
       }, { behavior: "immediate" });
     },

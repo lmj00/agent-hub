@@ -32,7 +32,11 @@ writeFileSync(
     model: "fixture-model",
     codexHome: "codex",
     timeoutMs: 60000,
-    automaticRecovery: { initialDelayMs: 5000, jitterRatio: 0 },
+    automaticRecovery: {
+      initialDelayMs: 5000,
+      jitterRatio: 0,
+      capacity: { initialDelayMs: 5000, maxDelayMs: 10000, jitterRatio: 0 },
+    },
     workspaces: { example: "workspace" },
   }),
 );

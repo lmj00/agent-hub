@@ -1218,3 +1218,13 @@ a {
   display: grid;
   gap: 6px;
 }
+
+.execution-bar > .capacity-summary {
+  display: grid;
+  flex-basis: 100%;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--amber);
+  border-top: 1px solid #ecddc4;
+  padding-top: 10px;
+}

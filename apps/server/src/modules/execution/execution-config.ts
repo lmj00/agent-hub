@@ -1,3 +1,4 @@
+import { parseCapacityPolicy } from "./capacity-policy.js";
 import { parseRetryPolicy } from "./retry-policy.js";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -49,7 +50,9 @@ export function loadExecutionConfig(file: string) {
   if (containerImage !== undefined && (typeof containerImage !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9./_:@-]{0,199}$/.test(containerImage))) {
     throw new Error("containerImage must be a local Docker image reference");
   }
-  return { model: config.model, codexHome, timeoutMs, workspaces, ...(config.automaticRecovery !== undefined ? { automaticRecovery: parseRetryPolicy(config.automaticRecovery) } : {}), ...(containerImage ? { containerImage: containerImage as string } : {}) };
+  const automaticRecovery = config.automaticRecovery === undefined ? undefined : parseRetryPolicy(config.automaticRecovery);
+  const capacity = automaticRecovery ? (config.automaticRecovery as Record<string, unknown>).capacity : false;
+  return { model: config.model, codexHome, timeoutMs, workspaces, ...(automaticRecovery ? { automaticRecovery, ...(capacity === false ? {} : { capacityRecovery: parseCapacityPolicy(capacity === undefined ? {} : capacity) }) } : {}), ...(containerImage ? { containerImage: containerImage as string } : {}) };
 }
 
 export type ExecutionConfig = ReturnType<typeof loadExecutionConfig>;

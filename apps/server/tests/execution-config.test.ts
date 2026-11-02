@@ -67,3 +67,15 @@ test("server login secrets cannot be placed inside an AI workspace", () => {
   const outside = join(directory, "server-auth.json"); writeFileSync(outside, "{}");
   expect(() => validateExecutionEnvironment(config, databasePath, [outside])).not.toThrow();
 });
+
+test("capacity checks have their own policy and can be disabled without disabling transient recovery", () => {
+  const base = { model: "fixture", codexHome: "auth", workspaces: { example: "workspace" } };
+  writeFileSync(file, JSON.stringify({ ...base, automaticRecovery: {} }));
+  expect(loadExecutionConfig(file).capacityRecovery).toMatchObject({ initialDelayMs: 900000, maxDelayMs: 21600000, maxChecks: 3 });
+  writeFileSync(file, JSON.stringify({ ...base, automaticRecovery: { capacity: false } }));
+  expect(loadExecutionConfig(file).automaticRecovery).toBeDefined(); expect(loadExecutionConfig(file).capacityRecovery).toBeUndefined();
+  for (const capacity of [null, true, { maxChecks: 0 }]) {
+    writeFileSync(file, JSON.stringify({ ...base, automaticRecovery: { capacity } }));
+    expect(() => loadExecutionConfig(file)).toThrow();
+  }
+});

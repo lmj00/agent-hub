@@ -55,6 +55,7 @@ test("unexpected status values, extra properties and invalid timestamps are reje
     reason: null,
     lastCheckedAt: "2026-11-03T01:00:00Z",
     automaticRecoveryEnabled: false,
+    capacityRecoveryEnabled: false,
   };
   for (const value of [
     { ...normal, state: "made-up" },

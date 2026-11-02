@@ -15,7 +15,7 @@ export const defaultRetryPolicy: RetryPolicy = {
 export function parseRetryPolicy(value: unknown): RetryPolicy {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("automaticRecovery must be an object");
-  const input = value as Record<string, unknown>;
+  const { capacity: _capacity, ...input } = value as Record<string, unknown>;
   const fields = [
     "initialDelayMs",
     "maxDelayMs",

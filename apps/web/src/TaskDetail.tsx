@@ -26,6 +26,13 @@ const stopReasons = {
   unknown: "중단 이유 미확인",
 };
 const retryReasons: Record<string, string> = {
+  capacity_waiting:
+    "사용량 제한 회복을 확인할 시각까지 기다립니다. 계정 전체의 차단은 유지됩니다.",
+  capacity_check_ready: "사용량 제한을 확인할 실행 하나를 예약했습니다.",
+  capacity_check_limit:
+    "계정 확인 횟수 상한에 도달했습니다. 정책을 검토해 주세요.",
+  capacity_termination_unconfirmed:
+    "이전 실행의 종료를 확인하지 못해 한도 확인도 보류했습니다.",
   retry_scheduled: "일시적 오류로 기다린 뒤 자동으로 다시 시도합니다.",
   retry_ready: "재시도 시각이 됐습니다. 배정 조건을 확인하고 있습니다.",
   retry_limit:
@@ -169,12 +176,20 @@ export function TaskDetail({
     queue.state !== "stopped" &&
     queue.state !== "stopping";
   const viewingLatest = run?.id === latest?.id;
-  const retryLimited = !!task.retryState && (
-    task.retryState.retries >= task.retryState.policy.maxRetries ||
-    task.retryState.consecutiveErrors >= task.retryState.policy.maxConsecutiveErrors ||
-    task.retryState.totalRunMs >= task.retryState.policy.maxTotalRunMs ||
-    (!!task.retryState.nextAttemptAt && Date.parse(task.retryState.nextAttemptAt) > Date.now())
-  );
+  const capacityLimited =
+    gate?.reason === "capacity" &&
+    !!gate.capacityState &&
+    (gate.capacityState.checks >= gate.capacityState.policy.maxChecks ||
+      (!!gate.capacityState.nextCheckAt &&
+        Date.parse(gate.capacityState.nextCheckAt) > Date.now()));
+  const retryLimited =
+    !!task.retryState &&
+    (task.retryState.retries >= task.retryState.policy.maxRetries ||
+      task.retryState.consecutiveErrors >=
+        task.retryState.policy.maxConsecutiveErrors ||
+      task.retryState.totalRunMs >= task.retryState.policy.maxTotalRunMs ||
+      (!!task.retryState.nextAttemptAt &&
+        Date.parse(task.retryState.nextAttemptAt) > Date.now()));
   return (
     <section className="task-detail" aria-labelledby="detail-heading">
       <div className="detail-top">
@@ -210,7 +225,7 @@ export function TaskDetail({
           ) : null}
           {gate?.blocked && task.retryState.nextAttemptAt ? (
             <small>
-              계정 차단이 해제되기 전에는 예정 시각이 지나도 실행하지 않습니다.
+              계정 차단 중에는 허용된 확인 실행 하나만 시작할 수 있습니다.
             </small>
           ) : null}
           {!queue?.automaticRecoveryEnabled ? (
@@ -237,6 +252,7 @@ export function TaskDetail({
             active ||
             terminal ||
             retryLimited ||
+            capacityLimited ||
             (task.status === "queued" && !gate?.blocked) ||
             !records.data
           }

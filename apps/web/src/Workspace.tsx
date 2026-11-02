@@ -220,6 +220,17 @@ export function Workspace({
   );
 }
 
+const capacityReasons: Record<string, string> = {
+  waiting: "확인 시각까지 기다립니다.",
+  ready: "확인 실행 하나를 예약했습니다.",
+  checking: "확인 실행이 진행 중입니다.",
+  check_limit: "계정 확인 횟수 상한에 도달했습니다. 제한 정책을 검토해 주세요.",
+  task_limit:
+    "원인 작업의 실행 상한에 도달했습니다. 작업 기록을 검토해 주세요.",
+  task_unavailable:
+    "원인 작업을 자동으로 재개할 수 없습니다. 실행 가능한 작업을 선택해 수동으로 확인해 주세요.",
+  termination_unconfirmed: "이전 실행의 종료를 먼저 확인해야 합니다.",
+};
 function ExecutionBar({ queue, gate }: { queue: Queue; gate: ProviderGate }) {
   return (
     <section
@@ -232,7 +243,7 @@ function ExecutionBar({ queue, gate }: { queue: Queue; gate: ProviderGate }) {
       </div>
       <p>
         {gate.blocked
-          ? `${gateLabels[gate.reason!] ?? "AI 계정 확인 필요"} · 재시도 시각 ${dateTime(gate.retryAt)}`
+          ? `${gateLabels[gate.reason!] ?? "AI 계정 확인 필요"} · 제공자 재시도 시각 ${gate.retryAt ? dateTime(gate.retryAt) : "미제공"}`
           : queue.state === "disabled"
             ? "서버에 실행 설정을 연결하면 대기 작업을 순서대로 처리합니다."
             : queue.state === "held"
@@ -241,6 +252,28 @@ function ExecutionBar({ queue, gate }: { queue: Queue; gate: ProviderGate }) {
                 ? "실행기 상태 조회에 실패했습니다. 서버 기록을 확인해 주세요."
                 : "한 번에 하나의 작업을 처리합니다. 실행 기록에서 진행 상황을 확인하세요."}
       </p>
+      {gate.blocked && gate.reason === "capacity" && gate.capacityState ? (
+        <div className="capacity-summary" aria-label="계정 사용량 확인">
+          <strong>
+            계정 확인 {gate.capacityState.checks} /{" "}
+            {gate.capacityState.policy.maxChecks}회
+          </strong>
+          {gate.capacityState.nextCheckAt ? (
+            <span>
+              다음 확인 가능 시각 {dateTime(gate.capacityState.nextCheckAt)}
+            </span>
+          ) : null}
+          <span>
+            {capacityReasons[gate.capacityState.reason] ??
+              "계정 확인 조건을 검토하고 있습니다."}
+          </span>
+          {!queue.capacityRecoveryEnabled ? (
+            <span>
+              현재 자동 한도 확인은 꺼져 있으며 저장된 제한은 유지됩니다.
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {queue.lastCheckedAt ? (
         <small>실행기 확인 {dateTime(queue.lastCheckedAt)}</small>
       ) : null}
