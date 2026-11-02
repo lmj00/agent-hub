@@ -2,11 +2,11 @@ import { randomUUID } from "node:crypto";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
 import { events, projects, runs, steps, tasks } from "../src/db/schema.js";
-import { AnalysisError, type AnalysisExecutor } from "../src/modules/execution/analysis.js";
+import { AnalysisError, type AnalysisEvent, type AnalysisExecutor, type AnalysisResult } from "../src/modules/execution/analysis.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { runTask } from "../src/modules/execution/run-task.js";
 
@@ -118,6 +118,41 @@ test("leaves timeout as interrupted until child-process termination can be verif
   expect(result).toMatchObject({ status: "interrupted", errorCode: "timeout" });
   expect(store.findById(result.runId)?.finishedAt).toBeNull();
   expect(() => store.claim(otherTaskId, "test-model")).toThrow("previous run");
+});
+
+test.each(["resolve", "reject"] as const)("bounds an unresponsive executor and ignores late events and %s", async settlement => {
+  vi.useFakeTimers();
+  const analysis = Promise.withResolvers<AnalysisResult>();
+  let emit!: (event: AnalysisEvent) => void;
+  const pending = execute({ analyze(request, onEvent) {
+    emit = onEvent;
+    // 중단 신호는 무시하며, 신호를 받는 순간에도 이벤트를 보냅니다.
+    request.signal.addEventListener("abort", () => emit({ kind: "late.abort" }));
+    return analysis.promise;
+  } }, 10);
+  try {
+    await vi.advanceTimersByTimeAsync(10);
+    expect(store.listByTask(taskId)[0]?.status).toBe("interrupted");
+    const result = await pending;
+    expect(result).toMatchObject({ status: "interrupted", errorCode: "timeout", result: null });
+    const saved = store.findById(result.runId);
+    expect(saved?.finishedAt).toBeNull();
+    expect(saved?.events.map(event => event.kind)).toEqual(["run.started", "run.interrupted"]);
+    expect(() => store.claim(otherTaskId, "test")).toThrow("previous run");
+    database.close();
+    expect(() => emit({ kind: "late.event", sessionId: "late-session" })).not.toThrow();
+    if (settlement === "resolve") analysis.resolve({ output: "late success", usage: null });
+    else analysis.reject(new Error("late failure"));
+    await Promise.resolve();
+    await Promise.resolve();
+    database = openDatabase(databasePath);
+    store = createDrizzleRunStore(database.db);
+    expect(store.findById(result.runId)).toEqual(saved);
+  } finally {
+    analysis.resolve({ output: "cleanup", usage: null });
+    await pending;
+    vi.useRealTimers();
+  }
 });
 
 test("does not mark a result successful when cancellation arrives before return", async () => {

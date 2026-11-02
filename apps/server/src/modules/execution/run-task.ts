@@ -36,16 +36,32 @@ export async function runTask(
   options.signal.throwIfAborted();
   const run = store.claim(options.taskId, options.model);
   const controller = new AbortController();
-  const abort = () => controller.abort();
+  let acceptingEvents = true;
+  const { promise: interrupted, resolve: stopWaiting } = Promise.withResolvers<null>();
+  const abort = () => {
+    acceptingEvents = false;
+    stopWaiting(null);
+    controller.abort();
+  };
   options.signal.addEventListener("abort", abort, { once: true });
+  if (options.signal.aborted) abort();
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, options.timeoutMs);
+  const timer = setTimeout(() => {
+    if (!controller.signal.aborted) { timedOut = true; abort(); }
+  }, options.timeoutMs);
   let completion: RunCompletion;
   try {
-    const result = await executor.analyze({
-      instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal,
-    }, (event) => store.record(run.id, event));
-    if (controller.signal.aborted) throw new Error("Execution interrupted");
+    controller.signal.throwIfAborted();
+    // 중단 신호에 응답하지 않는 실행도 기다림을 끝냅니다. Promise.race는 뒤늦은 실패도 처리합니다.
+    const result = await Promise.race([
+      executor.analyze({
+        instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal,
+      }, (event) => {
+        if (acceptingEvents && !controller.signal.aborted) store.record(run.id, event);
+      }),
+      interrupted,
+    ]);
+    if (result === null || controller.signal.aborted) throw new Error("Execution interrupted");
     if (!result.output.trim() || Buffer.byteLength(result.output) > 65536) throw new AnalysisError("output_limit");
     completion = { status: "succeeded", result: redactOutput(result.output), errorCode: null, usage: result.usage };
   } catch (error) {
@@ -60,6 +76,7 @@ export async function runTask(
       completion = { status, result: null, errorCode: code, usage: null };
     }
   } finally {
+    acceptingEvents = false;
     clearTimeout(timer);
     options.signal.removeEventListener("abort", abort);
   }

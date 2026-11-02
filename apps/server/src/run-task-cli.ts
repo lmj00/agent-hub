@@ -34,6 +34,12 @@ async function main() {
     console.log(JSON.stringify({ runId: outcome.runId, taskId: task.id, status: outcome.status, errorCode: outcome.errorCode }));
     if (outcome.status !== "succeeded") process.exitCode = 1;
   } finally {
+    // 결과 저장 실패로 빠져나온 경우에도 SDK가 CLI를 무기한 붙잡지 못하게 합니다.
+    // 정상 종료라면 unref 타이머를 기다리지 않습니다.
+    setTimeout(() => {
+      console.error("CLI shutdown deadline exceeded; inspect execution records");
+      process.exit(1);
+    }, 10000).unref();
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
     database.close();
