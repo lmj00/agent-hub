@@ -2,7 +2,7 @@ import type { AnalysisWorkflowPolicy } from "../modules/execution/analysis-workf
 import type { EffortPolicy } from "../modules/execution/effort-policy.js";
 import type { RetryState } from "../modules/execution/retry-policy.js";
 import { sql } from "drizzle-orm";
-import type { ServiceSnapshot, CapacityState, AnalysisAssessment } from "@agent-hub/contracts";
+import type { ServiceSnapshot, CapacityState, AnalysisAssessment, GoalDefinition, Goal } from "@agent-hub/contracts";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { taskStatuses } from "../modules/tasks/task-state.js";
 import { stopReasons, type ExecutionIdentity } from "../modules/execution/analysis.js";
@@ -106,6 +106,29 @@ export const steps = sqliteTable("steps", {
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   usage: text("usage", { mode: "json" }).$type<{ inputTokens: number; cachedInputTokens: number; outputTokens: number }>(),
 }, (table) => [uniqueIndex("steps_run_sequence_unique").on(table.runId, table.sequence)]);
+
+export const goals = sqliteTable("goals", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  requestKey: text("request_key").notNull(),
+  definition: text("definition", { mode: "json" }).$type<GoalDefinition>().notNull(),
+  status: text("status", { enum: ["active", "paused", "completed"] }).notNull(),
+  version: integer("version").notNull(),
+  nextCheckAt: integer("next_check_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, table => [uniqueIndex("goals_project_request_unique").on(table.projectId, table.requestKey)]);
+
+export const goalRevisions = sqliteTable("goal_revisions", {
+  goalId: text("goal_id").notNull().references(() => goals.id),
+  version: integer("version").notNull(),
+  requestKey: text("request_key").notNull(),
+  commandHash: text("command_hash").notNull(),
+  snapshot: text("snapshot", { mode: "json" }).$type<Goal>().notNull(),
+}, table => [
+  uniqueIndex("goal_revisions_version_unique").on(table.goalId, table.version),
+  uniqueIndex("goal_revisions_request_unique").on(table.goalId, table.requestKey),
+]);
 
 export const recoveryRequests = sqliteTable("recovery_requests", {
   id: text("id").primaryKey().notNull(),

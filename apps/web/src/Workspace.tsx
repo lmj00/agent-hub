@@ -16,6 +16,7 @@ import { usePolling } from "./use-polling.js";
 import { dateTime, Status } from "./format.js";
 import { TaskDetail } from "./TaskDetail.js";
 import { ServicePanel } from "./ServicePanel.js";
+import { GoalPanel } from "./GoalPanel.js";
 
 const queueLabels: Record<Queue["state"], string> = {
   disabled: "자동 실행 꺼짐",
@@ -189,6 +190,9 @@ export function Workspace({
               projectId={project.id}
               onExpired={onExpired}
             />
+          ) : null}
+          {project ? (
+            <GoalPanel key={`goals:${project.id}`} projectId={project.id} onExpired={onExpired} />
           ) : null}
           {project ? (
             <ProjectTasks

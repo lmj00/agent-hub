@@ -21,7 +21,7 @@ export function createApiClient(fetcher: typeof fetch = fetch) {
     path: string,
     schema: T,
     options: {
-      method?: "GET" | "POST";
+      method?: "GET" | "POST" | "PATCH";
       body?: unknown;
       signal?: AbortSignal;
     } = {},
@@ -34,7 +34,7 @@ export function createApiClient(fetcher: typeof fetch = fetch) {
         ? AbortSignal.any([options.signal, AbortSignal.timeout(10000)])
         : AbortSignal.timeout(10000),
       headers:
-        options.method === "POST"
+        options.method === "POST" || options.method === "PATCH"
           ? { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }
           : {},
       ...(options.body === undefined
@@ -92,6 +92,9 @@ export function createApiClient(fetcher: typeof fetch = fetch) {
 export const api = createApiClient();
 
 const messages: Record<string, string> = {
+  INVALID_GOAL: "목표와 완료 기준, 허용 경로·제외 경로, 예산 범위를 확인해 주세요.",
+  GOAL_VERSION_CHANGED: "목표가 다른 요청으로 바뀌었습니다. 최신 내용을 확인한 뒤 다시 수정해 주세요.",
+  GOAL_COMPLETED: "완료된 목표의 기록은 수정할 수 없습니다.",
   INVALID_CREDENTIALS: "비밀번호를 확인해 주세요.",
   TOO_MANY_REQUESTS: "로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요.",
   ORIGIN_NOT_ALLOWED:

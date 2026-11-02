@@ -271,3 +271,76 @@ test("shows sequential analysis steps and effort changes in one execution attemp
     fullPage: true,
   });
 });
+
+test("manages versioned goals, preserves a lost-response request key and shows previous definitions", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(90000);
+  await login(page);
+  await createProject(page, "목표 관리 예제");
+  const panel = page.getByRole("region", {
+    name: "프로젝트 목표",
+    exact: true,
+  });
+  await panel.locator("summary").first().click();
+  await panel.getByRole("button", { name: "목표 등록 +" }).click();
+  await page
+    .getByRole("textbox", { name: "프로젝트 목표", exact: true })
+    .fill("복습 화면을 완성한다");
+  await page
+    .getByLabel("완료·평가 기준", { exact: true })
+    .fill("복습 결과가 저장된다");
+  const keys: string[] = [];
+  await page.route("**/projects/*/goals", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    keys.push(route.request().postDataJSON().requestKey);
+    if (keys.length === 1) {
+      await route.fetch();
+      await route.abort("failed");
+    } else await route.continue();
+  });
+  await panel.getByRole("button", { name: "목표 저장", exact: true }).click();
+  await expect(panel.getByRole("alert")).toBeVisible();
+  await panel.getByRole("button", { name: "목표 저장", exact: true }).click();
+  await expect(panel.locator(".goal-form")).toHaveCount(0);
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).toBe(keys[1]);
+  await expect(panel.locator(".goal-card")).toHaveCount(1);
+  await expect(panel).toContainText("활성 · 버전 1");
+  await panel.getByRole("button", { name: "목표 일시정지" }).click();
+  await expect(panel).toContainText("일시정지 · 버전 2");
+  await panel.getByRole("button", { name: "목표 재개" }).click();
+  await expect(panel).toContainText("활성 · 버전 3");
+  await panel.getByRole("button", { name: "목표 수정" }).click();
+  await page
+    .getByLabel("완료·평가 기준", { exact: true })
+    .fill("복습 결과와 날짜가 저장된다");
+  await panel.getByRole("button", { name: "목표 저장", exact: true }).click();
+  await expect(panel).toContainText("활성 · 버전 4");
+  await panel.getByRole("button", { name: "변경 이력" }).click();
+  await expect(panel.locator(".goal-history details")).toHaveCount(4);
+  await panel.locator(".goal-history summary").last().click();
+  await expect(panel.locator(".goal-history")).toContainText(
+    "완료 기준: 복습 결과가 저장된다",
+  );
+  await page.screenshot({
+    path: testInfo.outputPath("goals-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("goals-mobile.png"),
+    fullPage: true,
+  });
+  await page.reload();
+  await panel.locator("summary").first().click();
+  await expect(panel).toContainText("복습 결과와 날짜가 저장된다");
+});

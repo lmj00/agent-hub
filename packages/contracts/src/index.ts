@@ -77,6 +77,55 @@ export const analysisAssessmentSchema = object({
   ),
 });
 export type AnalysisAssessment = Static<typeof analysisAssessmentSchema>;
+export const goalDefinitionSchema = object({
+  description: Type.String({ minLength: 1, maxLength: 10000 }),
+  completionCriteria: Type.String({ minLength: 1, maxLength: 6000 }),
+  kind: enumeration(["finite", "continuous"] as const),
+  priority: Type.Integer({ minimum: 0, maximum: 100 }),
+  allowedPaths: Type.Array(Type.String({ minLength: 1, maxLength: 300 }), {
+    minItems: 1,
+    maxItems: 30,
+    uniqueItems: true,
+  }),
+  excludedPaths: Type.Array(Type.String({ minLength: 1, maxLength: 300 }), {
+    maxItems: 30,
+    uniqueItems: true,
+  }),
+  checkIntervalMs: Type.Integer({ minimum: 60000, maximum: 86400000 }),
+  budget: object({
+    windowMs: Type.Integer({ minimum: 600000, maximum: 86400000 }),
+    maxCalls: Type.Integer({ minimum: 1, maximum: 1000 }),
+    maxRunMs: Type.Integer({ minimum: 1000, maximum: 86400000 }),
+  }),
+});
+export type GoalDefinition = Static<typeof goalDefinitionSchema>;
+export const goalSchema = object({
+  id,
+  projectId: id,
+  definition: goalDefinitionSchema,
+  status: enumeration(["active", "paused", "completed"] as const),
+  version: Type.Integer({ minimum: 1 }),
+  nextCheckAt: nullable(date),
+  createdAt: date,
+  updatedAt: date,
+});
+export type Goal = Static<typeof goalSchema>;
+export const goalsSchema = object({ goals: Type.Array(goalSchema) });
+export const createGoalSchema = object({
+  requestKey,
+  definition: goalDefinitionSchema,
+});
+export const updateGoalSchema = object({
+  requestKey,
+  expectedVersion: Type.Integer({ minimum: 1 }),
+  definition: goalDefinitionSchema,
+});
+export const controlGoalSchema = object({
+  requestKey,
+  expectedVersion: Type.Integer({ minimum: 1 }),
+  action: enumeration(["pause", "resume"] as const),
+});
+export const goalHistorySchema = object({ revisions: Type.Array(goalSchema) });
 export const stopReasons = [
   "user_cancel",
   "server_shutdown",

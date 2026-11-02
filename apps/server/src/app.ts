@@ -26,6 +26,8 @@ import type { ServiceConfig } from "./modules/services/service-config.js";
 import { createDrizzleServiceStore } from "./modules/services/drizzle-service-store.js";
 import { createServiceObserver } from "./modules/services/service-observer.js";
 import { serviceRoutes } from "./modules/services/routes.js";
+import { createDrizzleGoalStore } from "./modules/goals/drizzle-goal-store.js";
+import { goalRoutes } from "./modules/goals/routes.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
   databasePath: string;
@@ -105,6 +107,7 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
     scope.register(healthRoutes, { checkDatabase: () => database.checkReady() });
     const projectStore = createDrizzleProjectStore(database.db);
     scope.register(projectRoutes, { store: projectStore });
+    scope.register(goalRoutes, { store: createDrizzleGoalStore(database.db) });
     scope.register(serviceRoutes, {
       store: createDrizzleServiceStore(database.db), projectExists: id => projectStore.findById(id) !== undefined,
       getObserverStatus: () => serviceObserver?.getStatus() ?? { enabledKeys: new Set<string>(), errors: new Set<string>(), nextChecks: new Map<string, Date>() },
