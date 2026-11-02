@@ -42,6 +42,14 @@ test("accepts Codex-generated built-in skills after a run but rejects user-insta
   expect(() => loadExecutionConfig(file)).toThrow("dedicated Codex home");
 });
 
+test("permits inert SDK plugin caches but rejects added plugin configuration", () => {
+  mkdirSync(join(directory, "auth", "plugins", "cache"), { recursive: true });
+  mkdirSync(join(directory, "auth", "plugins", ".remote-plugin-install-staging"));
+  expect(loadExecutionConfig(file).model).toBe("test-model");
+  writeFileSync(join(directory, "auth", "plugins", "custom.json"), "{}");
+  expect(() => loadExecutionConfig(file)).toThrow("dedicated Codex home");
+});
+
 test("rejects authentication inside the analyzed workspace and project-level overrides", () => {
   writeFileSync(file, JSON.stringify({ model: "test-model", codexHome: "auth", workspaces: { example: "." } }));
   expect(() => loadExecutionConfig(file)).toThrow("separate");

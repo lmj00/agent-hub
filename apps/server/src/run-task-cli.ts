@@ -1,12 +1,12 @@
 import { parseArgs } from "node:util";
-import { realpathSync } from "node:fs";
 import { loadConfig } from "./config.js";
 import { openDatabase } from "./db/connection.js";
 import { createDrizzleProjectStore } from "./modules/projects/drizzle-project-store.js";
 import { createDrizzleTaskStore } from "./modules/tasks/drizzle-task-store.js";
 import { createDrizzleRunStore } from "./modules/execution/drizzle-run-store.js";
 import { createCodexExecutor } from "./modules/execution/codex-executor.js";
-import { isWithin, loadExecutionConfig } from "./modules/execution/execution-config.js";
+import { loadExecutionConfig, validateExecutionEnvironment } from "./modules/execution/execution-config.js";
+import { acquireExecutionOwner } from "./modules/execution/execution-owner.js";
 import { runTask } from "./modules/execution/run-task.js";
 
 async function main() {
@@ -19,14 +19,16 @@ async function main() {
   const stop = () => controller.abort();
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
+  let owner: ReturnType<typeof acquireExecutionOwner> | undefined;
   try {
+    validateExecutionEnvironment(config, databasePath);
+    owner = acquireExecutionOwner(database.db);
     const task = createDrizzleTaskStore(database.db).findById(values.task);
     if (!task) throw new Error("Task not found");
     const project = createDrizzleProjectStore(database.db).findById(task.projectId);
     const workspace = project && config.workspaces.get(project.workspaceKey);
     if (!workspace) throw new Error("No prepared workspace configured for this project");
-    if (isWithin(workspace, realpathSync(databasePath))) throw new Error("Application database must be outside the analysis workspace");
-    const store = createDrizzleRunStore(database.db);
+    const store = createDrizzleRunStore(database.db, owner.token);
     const outcome = await runTask({
       taskId: task.id, workspace, model: config.model, timeoutMs: config.timeoutMs, signal: controller.signal,
     }, store, createCodexExecutor(config.codexHome));
@@ -42,7 +44,7 @@ async function main() {
     }, 10000).unref();
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
-    database.close();
+    try { owner?.release(); } finally { database.close(); }
   }
 }
 

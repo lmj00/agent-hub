@@ -1,32 +1,61 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { events, runs, steps, tasks } from "../../db/schema.js";
+import { events, executionOwner, projects, runs, steps, tasks } from "../../db/schema.js";
 import type { AnalysisEvent } from "./analysis.js";
-import type { RunCompletion } from "./run-task.js";
+import type { QueueClaim, RunCompletion } from "./run-task.js";
 
-export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"]) {
-  const instanceId = randomUUID();
+export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string) {
+  const instanceId = ownerToken ?? randomUUID();
+  type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+  function assertOwner(tx: Transaction) {
+    const owner = tx.select().from(executionOwner).get();
+    if (ownerToken ? owner?.token !== ownerToken : owner !== undefined) {
+      throw new Error("Execution ownership has changed or belongs to another process");
+    }
+  }
+
+  function claim(model: string, selection: { taskId: string } | { workspaceKeys: string[] }): QueueClaim {
+    return db.transaction((tx) => {
+      assertOwner(tx);
+      const held = tx.select({ id: runs.id, status: runs.status }).from(runs)
+        .where(inArray(runs.status, ["running", "interrupted", "blocked", "waiting_capacity"]))
+        .orderBy(asc(runs.startedAt), asc(runs.id)).get();
+      if (held) return { kind: "held", runId: held.id, reason: held.status };
+      if ("workspaceKeys" in selection && selection.workspaceKeys.length === 0) return { kind: "idle" };
+      const task = tx.select({ id: tasks.id, instruction: tasks.instruction, status: tasks.status, workspaceKey: projects.workspaceKey })
+        .from(tasks).innerJoin(projects, eq(tasks.projectId, projects.id))
+        .where("taskId" in selection ? eq(tasks.id, selection.taskId)
+          : and(eq(tasks.status, "queued"), inArray(projects.workspaceKey, selection.workspaceKeys)))
+        .orderBy(asc(tasks.createdAt), asc(tasks.id)).get();
+      if (!task) {
+        if ("taskId" in selection) throw new Error("Task not found");
+        return { kind: "idle" };
+      }
+      if (task.status !== "queued") throw new Error("Only queued tasks can be started");
+      const id = randomUUID();
+      const now = new Date();
+      tx.update(tasks).set({ status: "running" }).where(eq(tasks.id, task.id)).run();
+      tx.insert(runs).values({ id, taskId: task.id, instanceId, status: "running", model, effort: "medium", startedAt: now, lastActivityAt: now }).run();
+      tx.insert(steps).values({ id: randomUUID(), runId: id, sequence: 1, status: "running", startedAt: now }).run();
+      tx.insert(events).values({ id: randomUUID(), runId: id, sequence: 1, kind: "run.started", createdAt: now }).run();
+      return { kind: "claimed", run: { id, taskId: task.id, instruction: task.instruction }, workspaceKey: task.workspaceKey };
+    }, { behavior: "immediate" });
+  }
+
   return {
     claim(taskId: string, model: string) {
-      return db.transaction((tx) => {
-        const held = tx.select({ id: runs.id }).from(runs)
-          .where(inArray(runs.status, ["running", "interrupted", "blocked", "waiting_capacity"])).get();
-        if (held) throw new Error("A previous run needs completion or recovery before starting another run");
-        const task = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
-        if (!task) throw new Error("Task not found");
-        if (task.status !== "queued") throw new Error("Only queued tasks can be started");
-        const id = randomUUID();
-        const now = new Date();
-        tx.update(tasks).set({ status: "running" }).where(eq(tasks.id, taskId)).run();
-        tx.insert(runs).values({ id, taskId, instanceId, status: "running", model, effort: "medium", startedAt: now, lastActivityAt: now }).run();
-        tx.insert(steps).values({ id: randomUUID(), runId: id, sequence: 1, status: "running", startedAt: now }).run();
-        tx.insert(events).values({ id: randomUUID(), runId: id, sequence: 1, kind: "run.started", createdAt: now }).run();
-        return { id, taskId, instruction: task.instruction };
-      }, { behavior: "immediate" });
+      const result = claim(model, { taskId });
+      if (result.kind !== "claimed") throw new Error("A previous run needs completion or recovery before starting another run");
+      return result.run;
+    },
+    claimNext(model: string, workspaceKeys: string[]) {
+      return claim(model, { workspaceKeys });
     },
     record(runId: string, event: AnalysisEvent) {
       db.transaction((tx) => {
+        assertOwner(tx);
         const run = tx.select().from(runs).where(and(eq(runs.id, runId), eq(runs.instanceId, instanceId), eq(runs.status, "running"))).get();
         if (!run) throw new Error("Run is no longer active");
         const now = new Date();
@@ -41,6 +70,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"])
     },
     finish(runId: string, completion: RunCompletion) {
       db.transaction((tx) => {
+        assertOwner(tx);
         const run = tx.select().from(runs).where(and(eq(runs.id, runId), eq(runs.instanceId, instanceId), eq(runs.status, "running"))).get();
         if (!run) throw new Error("Cannot finish a run not owned by this executor");
         const now = new Date();

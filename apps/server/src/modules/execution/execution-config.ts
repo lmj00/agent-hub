@@ -1,6 +1,22 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
+export const executionConfigErrors = {
+  AUTH_DIRECTORY_CHANGED: "Authentication directory changed; restart with reviewed configuration",
+  WORKSPACE_CHANGED: "Workspace directory changed; restart with reviewed configuration",
+  DATABASE_IN_WORKSPACE: "Application database must be outside the analysis workspace",
+  CODEX_CONFIG_NOT_ALLOWED: "Use a dedicated Codex home with ChatGPT login only; user config, skills, plugins and hooks are not supported yet",
+  CHATGPT_LOGIN_REQUIRED: "Log in with ChatGPT in the dedicated Codex home first",
+  WORKSPACE_NOT_ALLOWED: "Workspace must be a prepared directory separate from authentication storage",
+  PROJECT_CONFIG_NOT_ALLOWED: "Prepared workspace must not inherit project Codex config",
+} as const;
+
+export class ExecutionConfigError extends Error {
+  constructor(public readonly code: keyof typeof executionConfigErrors) {
+    super(executionConfigErrors[code]);
+  }
+}
+
 export function isWithin(parent: string, child: string) {
   const path = relative(parent, child);
   return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
@@ -14,17 +30,7 @@ export function loadExecutionConfig(file: string) {
   if (typeof config.model !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(config.model)) throw new Error("An explicit model is required");
   if (typeof config.codexHome !== "string" || !config.codexHome.trim()) throw new Error("codexHome is required");
   const codexHome = realpathSync(resolve(dirname(configPath), config.codexHome));
-  const prohibited = ["config.toml", "AGENTS.md", ".agents", "plugins", "rules", "hooks.json"];
-  // Codex는 첫 실행에 기본 스킬을 skills/.system에 설치합니다. 이 생성물은 허용하되 사용자 스킬은 거부합니다.
-  const skillsPath = resolve(codexHome, "skills");
-  const hasUserSkills = existsSync(skillsPath) && readdirSync(skillsPath).some(name => name !== ".system");
-  if (hasUserSkills || readdirSync(codexHome).some(name => prohibited.includes(name) || name.endsWith(".config.toml"))) {
-    throw new Error("Use a dedicated Codex home with ChatGPT login only; user config, skills, plugins and hooks are not supported yet");
-  }
-  const auth: unknown = JSON.parse(readFileSync(resolve(codexHome, "auth.json"), "utf8"));
-  if (!auth || typeof auth !== "object" || !("auth_mode" in auth) || auth.auth_mode !== "chatgpt") {
-    throw new Error("Log in with ChatGPT in the dedicated Codex home first");
-  }
+  validateCodexHome(codexHome);
   const timeoutMs = config.timeoutMs ?? 300000;
   if (typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 1800000) {
     throw new Error("timeoutMs must be an integer between 1000 and 1800000");
@@ -34,16 +40,52 @@ export function loadExecutionConfig(file: string) {
   for (const [key, path] of Object.entries(config.workspaces)) {
     if (typeof path !== "string" || !path.trim()) throw new Error("Workspace paths must be non-empty strings");
     const workspace = realpathSync(resolve(dirname(configPath), path));
-    if (!statSync(workspace).isDirectory() || dirname(workspace) === workspace || isWithin(workspace, codexHome)) {
-      throw new Error("Workspace must be a prepared directory separate from authentication storage");
-    }
-    // 프로젝트 설정이 실행 정책을 덮어쓰지 않도록 확인합니다.
-    for (let parent = workspace; ; parent = dirname(parent)) {
-      if (existsSync(resolve(parent, ".codex", "config.toml"))) throw new Error("Prepared workspace must not inherit project Codex config");
-      if (existsSync(resolve(parent, ".git"))) break;
-      if (parent === dirname(parent)) break;
-    }
+    validateWorkspace(workspace, codexHome);
     workspaces.set(key, workspace);
   }
   return { model: config.model, codexHome, timeoutMs, workspaces };
+}
+
+export type ExecutionConfig = ReturnType<typeof loadExecutionConfig>;
+
+// 오래 켜둔 서버에서도 호출 직전의 인증·폴더 상태를 다시 확인합니다. 설정 값 변경은 재시작 시 적용합니다.
+export function validateExecutionEnvironment(config: ExecutionConfig, databasePath: string) {
+  const currentHome = realpathSync(config.codexHome);
+  if (currentHome !== config.codexHome) throw new ExecutionConfigError("AUTH_DIRECTORY_CHANGED");
+  validateCodexHome(config.codexHome);
+  const database = realpathSync(databasePath);
+  for (const workspace of config.workspaces.values()) {
+    if (realpathSync(workspace) !== workspace) throw new ExecutionConfigError("WORKSPACE_CHANGED");
+    validateWorkspace(workspace, config.codexHome);
+    if (isWithin(workspace, database)) throw new ExecutionConfigError("DATABASE_IN_WORKSPACE");
+  }
+}
+
+function validateCodexHome(codexHome: string) {
+  const prohibited = ["config.toml", "AGENTS.md", ".agents", "rules", "hooks.json"];
+  // Codex는 첫 실행에 기본 스킬을 skills/.system에 설치합니다. 이 생성물은 허용하되 사용자 스킬은 거부합니다.
+  const skillsPath = resolve(codexHome, "skills");
+  const hasUserSkills = existsSync(skillsPath) && readdirSync(skillsPath).some(name => name !== ".system");
+  // SDK가 계정 동기화로 만든 캐시는 설정과 구분합니다. 실행 시 플러그인 기능 자체를 끕니다.
+  const pluginsPath = resolve(codexHome, "plugins");
+  const hasPluginConfig = existsSync(pluginsPath) && readdirSync(pluginsPath).some(name => !["cache", ".remote-plugin-install-staging"].includes(name));
+  if (hasUserSkills || hasPluginConfig || readdirSync(codexHome).some(name => prohibited.includes(name) || name.endsWith(".config.toml"))) {
+    throw new ExecutionConfigError("CODEX_CONFIG_NOT_ALLOWED");
+  }
+  const auth: unknown = JSON.parse(readFileSync(resolve(codexHome, "auth.json"), "utf8"));
+  if (!auth || typeof auth !== "object" || !("auth_mode" in auth) || auth.auth_mode !== "chatgpt") {
+    throw new ExecutionConfigError("CHATGPT_LOGIN_REQUIRED");
+  }
+}
+
+function validateWorkspace(workspace: string, codexHome: string) {
+  if (!statSync(workspace).isDirectory() || dirname(workspace) === workspace || isWithin(workspace, codexHome)) {
+    throw new ExecutionConfigError("WORKSPACE_NOT_ALLOWED");
+  }
+  // 프로젝트 설정이 실행 정책을 덮어쓰지 않도록 확인합니다.
+  for (let parent = workspace; ; parent = dirname(parent)) {
+    if (existsSync(resolve(parent, ".codex", "config.toml"))) throw new ExecutionConfigError("PROJECT_CONFIG_NOT_ALLOWED");
+    if (existsSync(resolve(parent, ".git"))) break;
+    if (parent === dirname(parent)) break;
+  }
 }

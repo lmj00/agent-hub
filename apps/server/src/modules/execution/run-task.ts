@@ -14,6 +14,14 @@ export type RunStore = {
   finish(runId: string, completion: RunCompletion): void;
 };
 
+export type QueueClaim =
+  | { kind: "claimed"; run: ClaimedRun; workspaceKey: string }
+  | { kind: "held"; runId: string; reason: string }
+  | { kind: "idle" };
+export type QueueStore = RunStore & {
+  claimNext(model: string, workspaceKeys: string[]): QueueClaim;
+};
+
 export type RunSummary = {
   id: string; taskId: string; status: TaskStatus; model: string; effort: string;
   startedAt: Date; finishedAt: Date | null;
@@ -35,6 +43,15 @@ export async function runTask(
 ) {
   options.signal.throwIfAborted();
   const run = store.claim(options.taskId, options.model);
+  return runClaimedTask(run, options, store, executor);
+}
+
+export async function runClaimedTask(
+  run: ClaimedRun,
+  options: { model: string; workspace: string; timeoutMs: number; signal: AbortSignal },
+  store: RunStore,
+  executor: AnalysisExecutor,
+) {
   const controller = new AbortController();
   let acceptingEvents = true;
   const { promise: interrupted, resolve: stopWaiting } = Promise.withResolvers<null>();

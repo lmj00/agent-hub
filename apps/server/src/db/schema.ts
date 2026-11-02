@@ -29,6 +29,7 @@ export const tasks = sqliteTable(
   (table) => [
     uniqueIndex("tasks_project_request_key_unique").on(table.projectId, table.requestKey),
     index("tasks_project_created_at_idx").on(table.projectId, table.createdAt, table.id),
+    index("tasks_status_created_at_idx").on(table.status, table.createdAt, table.id),
     check("tasks_instruction_not_blank", sql`length(trim(${table.instruction})) > 0`),
     check("tasks_request_key_not_blank", sql`length(trim(${table.requestKey})) > 0`),
     check("tasks_status_valid", sql`${table.status} IN ('queued', 'running', 'succeeded', 'failed', 'interrupted', 'blocked', 'waiting_capacity', 'waiting_retry')`),
@@ -72,3 +73,14 @@ export const events = sqliteTable("events", {
   kind: text("kind").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 }, (table) => [uniqueIndex("events_run_sequence_unique").on(table.runId, table.sequence)]);
+
+// 실행 루프의 소유권입니다. Run의 활성 상태와 별도로 유지하며 시간만으로 만료시키지 않습니다.
+export const executionOwner = sqliteTable("execution_owner", {
+  slot: integer("slot").primaryKey().notNull(),
+  token: text("token").notNull(),
+  hostname: text("hostname").notNull(),
+  pid: integer("pid").notNull(),
+}, (table) => [
+  check("execution_owner_single_slot", sql`${table.slot} = 1`),
+  check("execution_owner_positive_pid", sql`${table.pid} > 0`),
+]);

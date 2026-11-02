@@ -17,5 +17,12 @@ export function loadConfig(env: NodeJS.ProcessEnv) {
     throw new Error("DATABASE_PATH must be a non-empty file path.");
   }
 
-  return { host: "127.0.0.1", port, databasePath: resolve(repositoryDirectory, databasePath) };
+  const executionPath = env.EXECUTION_CONFIG;
+  if (executionPath !== undefined && (executionPath.trim() === "" || executionPath.includes("\0"))) {
+    throw new Error("EXECUTION_CONFIG must be a non-empty file path when set.");
+  }
+  return {
+    host: "127.0.0.1", port, databasePath: resolve(repositoryDirectory, databasePath),
+    ...(executionPath === undefined ? {} : { executionConfigPath: resolve(repositoryDirectory, executionPath) }),
+  };
 }

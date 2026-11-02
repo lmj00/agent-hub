@@ -7,10 +7,18 @@ import { createDrizzleTaskStore } from "./modules/tasks/drizzle-task-store.js";
 import { taskRoutes } from "./modules/tasks/routes.js";
 import { createDrizzleRunStore } from "./modules/execution/drizzle-run-store.js";
 import { executionRoutes } from "./modules/execution/routes.js";
+import { acquireExecutionOwner } from "./modules/execution/execution-owner.js";
+import { createExecutionQueue } from "./modules/execution/execution-queue.js";
+import { validateExecutionEnvironment, type ExecutionConfig } from "./modules/execution/execution-config.js";
+import { createCodexExecutor } from "./modules/execution/codex-executor.js";
+import type { AnalysisExecutor } from "./modules/execution/analysis.js";
 
-type AppOptions = Omit<FastifyServerOptions, "ajv"> & { databasePath: string };
+type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
+  databasePath: string;
+  execution?: { config: ExecutionConfig; executor?: AnalysisExecutor; pollIntervalMs?: number };
+};
 
-export function buildApp({ databasePath, ...options }: AppOptions) {
+export function buildApp({ databasePath, execution, ...options }: AppOptions) {
   const app = Fastify({
     ...options,
     // 잘못된 타입과 알 수 없는 필드를 자동 보정하지 않고 요청 오류로 알립니다.
@@ -19,10 +27,38 @@ export function buildApp({ databasePath, ...options }: AppOptions) {
 
   app.register(async (scope) => {
     const database = openDatabase(databasePath);
+    let owner: ReturnType<typeof acquireExecutionOwner> | undefined;
+    let queue: ReturnType<typeof createExecutionQueue> | undefined;
 
     scope.addHook("onClose", async () => {
-      database.close();
+      try {
+        await queue?.stop();
+        owner?.release();
+      } finally { database.close(); }
     });
+    scope.addHook("preClose", async () => { await queue?.stop(); });
+
+    if (execution) {
+      try {
+        validateExecutionEnvironment(execution.config, databasePath);
+        owner = acquireExecutionOwner(database.db);
+        queue = createExecutionQueue({
+          ...execution,
+          store: createDrizzleRunStore(database.db, owner.token),
+          executor: execution.executor ?? createCodexExecutor(execution.config.codexHome),
+          validate: () => validateExecutionEnvironment(execution.config, databasePath),
+          reportDiagnostic: (diagnostic) => {
+            if (diagnostic.event === "execution_queue.error") scope.log.error(diagnostic, "Execution queue check failed");
+            else scope.log.info(diagnostic, "Execution queue check recovered");
+          },
+        });
+      } catch (error) {
+        owner?.release();
+        database.close();
+        throw error;
+      }
+      scope.addHook("onListen", async () => { queue?.start(); });
+    }
 
     scope.register(healthRoutes, { checkDatabase: () => database.checkReady() });
     const projectStore = createDrizzleProjectStore(database.db);
@@ -35,6 +71,9 @@ export function buildApp({ databasePath, ...options }: AppOptions) {
     scope.register(executionRoutes, {
       store: createDrizzleRunStore(database.db),
       taskExists: (id) => taskStore.findById(id) !== undefined,
+      getQueueStatus: () => queue?.getStatus() ?? {
+        state: "disabled", runId: null, taskId: null, reason: null, lastCheckedAt: null,
+      },
     });
   });
 

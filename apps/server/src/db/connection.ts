@@ -29,6 +29,7 @@ export function openDatabase(databasePath: string, migrationsFolder = migrations
         db.select().from(schema.runs).limit(1).all();
         db.select().from(schema.steps).limit(1).all();
         db.select().from(schema.events).limit(1).all();
+        db.select().from(schema.executionOwner).limit(1).all();
       },
       close() {
         if (client.open) client.close();

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { taskStatuses } from "../tasks/task-state.js";
 import type { RunQueries, RunSummary } from "./run-task.js";
+import type { QueueStatus } from "./execution-queue.js";
 
 const date = { type: "string", format: "date-time" };
 const nullableDate = { anyOf: [date, { type: "null" }] };
@@ -41,13 +42,27 @@ function summary(run: RunSummary) {
   return { ...run, startedAt: run.startedAt.toISOString(), finishedAt: run.finishedAt?.toISOString() ?? null };
 }
 
-export const executionRoutes: FastifyPluginAsync<{ store: RunQueries; taskExists: (id: string) => boolean }> = async (app, { store, taskExists }) => {
+export const executionRoutes: FastifyPluginAsync<{
+  store: RunQueries;
+  taskExists: (id: string) => boolean;
+  getQueueStatus: () => QueueStatus;
+}> = async (app, { store, taskExists, getQueueStatus }) => {
   app.addHook("onRequest", async (_request, reply) => { reply.header("Cache-Control", "no-store"); });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof Error && "validation" in error) return reply.code(400).send({ error: "INVALID_REQUEST", message: error.message });
     request.log.error({ err: error }, "Execution query failed");
     return reply.code(500).send({ error: "INTERNAL_ERROR", message: "Unable to query execution" });
   });
+  app.get("/execution", {
+    schema: { response: { 200: {
+      type: "object", additionalProperties: false,
+      required: ["state", "runId", "taskId", "reason", "lastCheckedAt"],
+      properties: {
+        state: { type: "string", enum: ["disabled", "idle", "running", "held", "error", "stopping", "stopped"] },
+        runId: nullableText, taskId: nullableText, reason: nullableText, lastCheckedAt: nullableDate,
+      },
+    }, ...errors } },
+  }, async () => getQueueStatus());
   app.get<{ Params: { id: string } }>("/tasks/:id/runs", {
     schema: { params, response: { 200: { type: "object", required: ["runs"], additionalProperties: false, properties: { runs: { type: "array", items: summarySchema } } }, ...errors } },
   }, async (request, reply) => {

@@ -10,7 +10,10 @@ export function codexOptions(codexHome: string, workspace: string): CodexOptions
       model_provider: "openai",
       project_doc_max_bytes: 0,
       default_permissions: "hub-readonly",
-      features: { apps: false, skip_host_skill_discovery: true, skill_search: false, skill_mcp_dependency_install: false, shell_snapshot: false },
+      features: {
+        apps: false, plugins: false, remote_plugin: false, plugin_discovery_prefetch: false,
+        skip_host_skill_discovery: true, skill_search: false, skill_mcp_dependency_install: false, shell_snapshot: false,
+      },
       shell_environment_policy: { inherit: "none" },
     },
     configOverrides: [

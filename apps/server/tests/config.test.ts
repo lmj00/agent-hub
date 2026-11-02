@@ -31,4 +31,13 @@ describe("server configuration", () => {
   test.each(["", "  ", ":memory:", "bad\0path"])("rejects non-persistent database path %j", (path) => {
     expect(() => loadConfig({ DATABASE_PATH: path })).toThrow("DATABASE_PATH must be a non-empty file path.");
   });
+
+  test("enables automatic execution only with an explicit config path resolved from the repository", () => {
+    const file = fileURLToPath(new URL("../../../.local/execution.json", import.meta.url));
+    expect(loadConfig({ EXECUTION_CONFIG: ".local/execution.json" }).executionConfigPath).toBe(file);
+    expect(loadConfig({}).executionConfigPath).toBeUndefined();
+    for (const value of ["", "  ", "bad\0path"]) {
+      expect(() => loadConfig({ EXECUTION_CONFIG: value })).toThrow("EXECUTION_CONFIG");
+    }
+  });
 });

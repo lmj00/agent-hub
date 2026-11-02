@@ -18,7 +18,10 @@ test("uses explicit ChatGPT auth, scoped read-only permissions, medium effort an
   const options = codexOptions("/tmp/private-auth", request.workspace);
   expect(Object.keys(options.env!).sort()).toEqual(["CODEX_HOME", "HOME", "PATH"]);
   expect(options.env?.HOME).toBe("/tmp/private-auth");
-  expect(options.config?.features).toMatchObject({ skip_host_skill_discovery: true, skill_search: false });
+  expect(options.config?.features).toMatchObject({
+    skip_host_skill_discovery: true, skill_search: false,
+    plugins: false, remote_plugin: false, plugin_discovery_prefetch: false,
+  });
   expect(options.config?.forced_login_method).toBe("chatgpt");
   expect(options.configOverrides?.[0]).toContain('":root"="deny"');
   expect(options.configOverrides?.[0]).toContain('"/tmp/prepared"="read"');
