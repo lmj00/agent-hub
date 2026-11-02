@@ -19,7 +19,7 @@ async function main() {
     }, event => send({ type: "event", event }));
     send({ type: "result", result });
   } catch (error) {
-    send({ type: "error", code: error instanceof AnalysisError ? error.code : "provider_error" });
+    send({ type: "error", code: error instanceof AnalysisError ? error.code : "provider_error", retryAt: error instanceof AnalysisError ? error.retryAt?.toISOString() ?? null : null });
   }
 }
 

@@ -43,6 +43,8 @@ export function createCodexExecutor(codexHome: string): AnalysisExecutor {
       let output = "";
       let usage: AnalysisUsage | null = null;
       let failure: AnalysisError | undefined;
+      let policyFailure: AnalysisError | undefined;
+      let streamError: AnalysisError | undefined;
       let completed = false;
       try {
         const stream = await thread.runStreamed([
@@ -58,24 +60,24 @@ export function createCodexExecutor(codexHome: string): AnalysisExecutor {
             onEvent({ kind: `${event.type}:${event.item.type}` });
             if (event.type === "item.completed" && event.item.type === "agent_message") output = event.item.text;
             if (event.item.type === "mcp_tool_call" || (event.item.type === "file_change" && event.item.status === "completed")) {
-              failure = new AnalysisError("unsupported_settings");
+              policyFailure = new AnalysisError("unsupported_settings");
             }
           } else if (event.type === "turn.completed") {
             completed = true;
+            streamError = undefined;
             usage = { inputTokens: event.usage.input_tokens, cachedInputTokens: event.usage.cached_input_tokens, outputTokens: event.usage.output_tokens };
             onEvent({ kind: "turn.completed" });
-          } else if (event.type === "turn.failed" || event.type === "error") {
-            failure = classifyCodexError(event.type === "error" ? event.message : event.error.message);
-          }
+          } else if (event.type === "turn.failed") failure = classifyCodexError(event.error.message);
+          else if (event.type === "error") streamError = classifyCodexError(event.message);
         }
-        if (failure) throw failure;
+        if (policyFailure || failure || streamError) throw policyFailure ?? failure ?? streamError;
         if (!completed || !output.trim()) throw new AnalysisError("provider_error");
         if (Buffer.byteLength(output) > 65536) throw new AnalysisError("output_limit");
         return { output: redactOutput(output), usage };
       } catch (error) {
         if (error instanceof AnalysisError) throw error;
-        const classified = classifyCodexError(error instanceof Error ? error.message : String(error));
-        throw new AnalysisError(classified.code, true);
+        const classified = policyFailure ?? failure ?? streamError ?? classifyCodexError(error instanceof Error ? error.message : String(error));
+        throw new AnalysisError(classified.code, true, classified.retryAt);
       }
     },
   };

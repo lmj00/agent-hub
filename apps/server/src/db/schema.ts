@@ -56,11 +56,26 @@ export const runs = sqliteTable("runs", {
   // SDK 응답 완료와 실제 자식 실행의 종료 확인은 별개의 사실입니다.
   terminationConfirmedAt: integer("termination_confirmed_at", { mode: "timestamp_ms" }),
   execution: text("execution", { mode: "json" }).$type<ExecutionIdentity>(),
+  retryAt: integer("retry_at", { mode: "timestamp_ms" }),
+  providerGateVersion: integer("provider_gate_version"),
 }, (table) => [
   check("runs_slot_valid", sql`${table.slot} = 1`),
-  uniqueIndex("runs_one_active").on(table.slot).where(sql`${table.status} IN ('running', 'interrupted')`),
+  uniqueIndex("runs_one_active").on(table.slot).where(sql`${table.status} = 'running' OR (${table.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${table.terminationConfirmedAt} IS NULL)`),
   index("runs_task_started_at_idx").on(table.taskId, table.startedAt),
 ]);
+
+// 초기 단일 계정에서는 로그인 폴더를 바꿔도 같은 제공자 범위를 사용합니다.
+export const providerGates = sqliteTable("provider_gates", {
+  scope: text("scope").primaryKey().notNull(),
+  version: integer("version").notNull(),
+  blocked: integer("blocked", { mode: "boolean" }).notNull(),
+  reason: text("reason", { enum: ["authentication", "capacity", "configuration"] }),
+  blockedAt: integer("blocked_at", { mode: "timestamp_ms" }),
+  retryAt: integer("retry_at", { mode: "timestamp_ms" }),
+  sourceRunId: text("source_run_id").references(() => runs.id, { onDelete: "restrict" }),
+  probeTaskId: text("probe_task_id").references(() => tasks.id, { onDelete: "restrict" }),
+  probeRunId: text("probe_run_id").references(() => runs.id, { onDelete: "restrict" }),
+}, table => [check("provider_gate_version_positive", sql`${table.version} > 0`)]);
 
 export const steps = sqliteTable("steps", {
   id: text("id").primaryKey().notNull(),

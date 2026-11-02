@@ -6,7 +6,7 @@ import { attachContainer, prepareContainer, removeFinishedContainer, stopAndConf
 type RunnerMessage =
   | { type: "event"; event: AnalysisEvent }
   | { type: "result"; result: AnalysisResult }
-  | { type: "error"; code: AnalysisError["code"] };
+  | { type: "error"; code: AnalysisError["code"]; retryAt?: string | null };
 
 export function createConfiguredExecutor(config: ExecutionConfig): AnalysisExecutor {
   if (!config.containerImage) return createCodexExecutor(config.codexHome);
@@ -55,7 +55,9 @@ export function createContainerExecutor(image: string, codexHome: string): Analy
               } else if (message.type === "result" && typeof message.result?.output === "string" && !result) {
                 result = message.result;
               } else if (message.type === "error" && ["authentication", "capacity", "unsupported_settings", "provider_error", "output_limit"].includes(message.code)) {
-                failure = new AnalysisError(message.code);
+                const retryAt = message.code === "capacity" && typeof message.retryAt === "string" ? new Date(message.retryAt) : null;
+                if (retryAt && !Number.isFinite(retryAt.getTime())) throw new Error("Invalid provider retry time");
+                failure = new AnalysisError(message.code, false, retryAt);
               } else throw new Error("Invalid runner message");
             } catch { fail(); return; }
           }

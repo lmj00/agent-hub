@@ -19,7 +19,7 @@ if (request.instruction === "wait") {
   console.log("invalid runner output");
   setInterval(() => {}, 1000);
 } else if (request.instruction === "capacity") {
-  console.log(JSON.stringify({ type: "error", code: "capacity" }));
+  console.log(JSON.stringify({ type: "error", code: "capacity", retryAt: "2030-01-01T00:00:00.000Z" }));
   process.exit(0);
 } else {
   console.log(JSON.stringify({ type: "result", result: { output: "fixture report", usage: null } }));

@@ -99,6 +99,13 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     expect(result).toMatchObject({ status: "interrupted", terminationConfirmedAt: expect.any(Date), result: null });
   }, 15000);
 
+  test("transfers a provider retry time from the runner to durable gate storage", async () => {
+    database.client.prepare("UPDATE tasks SET instruction = 'capacity'").run();
+    const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, createContainerExecutor(image, home));
+    expect(result).toMatchObject({ status: "waiting_capacity", terminationConfirmedAt: expect.any(Date) });
+    expect(store.getProviderGate()).toMatchObject({ blocked: true, reason: "capacity", retryAt: new Date("2030-01-01T00:00:00Z") });
+  }, 15000);
+
   test("recovers observation after host SIGKILL without trusting a mismatched token or engine", async () => {
     const host = fork(fileURLToPath(new URL("./fixtures/execution-host.ts", import.meta.url)), [image, home, workspace, randomUUID()], {
       execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "ignore", "ipc"],

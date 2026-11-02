@@ -23,6 +23,7 @@ export class AnalysisError extends Error {
   constructor(
     public readonly code: "authentication" | "capacity" | "unsupported_settings" | "provider_error" | "output_limit",
     public readonly completionUncertain = false,
+    public readonly retryAt: Date | null = null,
   ) {
     super(code);
   }
@@ -37,8 +38,20 @@ export function redactOutput(text: string): string {
 }
 
 export function classifyCodexError(message: string): AnalysisError {
-  if (/usage limit|quota|rate.?limit|too many requests|429/i.test(message)) return new AnalysisError("capacity");
-  if (/unauthori[sz]ed|401|authentication|not logged in|sign in|refresh.token/i.test(message)) return new AnalysisError("authentication");
+  if (/usage limit|quota|rate.?limit|too many requests|\b429\b/i.test(message)) return new AnalysisError("capacity", false, providerRetryAt(message));
+  if (/unauthori[sz]ed|\b401\b|authentication|not logged in|sign in|refresh.token/i.test(message)) return new AnalysisError("authentication");
   if (/unsupported|not supported|model.*not found|invalid.*model|invalid.*config/i.test(message)) return new AnalysisError("unsupported_settings");
   return new AnalysisError("provider_error");
+}
+
+// SDK 0.166.0은 오류 메시지만 제공합니다. 시간대가 명시된 절대 시각만
+// 받아들이며 "내일", "오전 9시" 등은 제공 시각으로 추측하지 않습니다.
+function providerRetryAt(message: string): Date | null {
+  const text = /(?:retry|try again)\s+at\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2}))(?![\d:.])/i.exec(message)?.[1];
+  if (!text) return null;
+  const date = new Date(text);
+  if (!Number.isFinite(date.getTime())) return null;
+  const day = text.slice(0, 10);
+  const calendar = new Date(`${day}T00:00:00.000Z`);
+  return Number.isFinite(calendar.getTime()) && calendar.toISOString().startsWith(day) ? date : null;
 }

@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { events, executionOwner, projects, runs, steps, tasks } from "../../db/schema.js";
+import { events, executionOwner, projects, providerGates, runs, steps, tasks } from "../../db/schema.js";
 import type { AnalysisEvent, StopReason } from "./analysis.js";
-import type { QueueClaim, RunCompletion } from "./run-task.js";
+import { requireTermination, type QueueClaim, type RunCompletion } from "./run-task.js";
+import { providerGateView, providerScope, readProviderGate, recordProviderOutcome, reserveProviderCheck } from "./provider-gate.js";
+
+const unresolvedRun = sql`${runs.status} = 'running' OR (${runs.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${runs.terminationConfirmedAt} IS NULL)`;
 
 export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string) {
   const instanceId = ownerToken ?? randomUUID();
@@ -20,27 +23,41 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
     return db.transaction((tx) => {
       assertOwner(tx);
       const held = tx.select({ id: runs.id, status: runs.status }).from(runs)
-        .where(inArray(runs.status, ["running", "interrupted", "blocked", "waiting_capacity"]))
+        .where(unresolvedRun)
         .orderBy(asc(runs.startedAt), asc(runs.id)).get();
       if (held) return { kind: "held", runId: held.id, reason: held.status };
-      if ("workspaceKeys" in selection && selection.workspaceKeys.length === 0) return { kind: "idle" };
+      const gate = readProviderGate(tx);
+      const probing = gate?.blocked === true;
+      if (probing && (!gate.probeTaskId || gate.probeRunId || (gate.retryAt && gate.retryAt > new Date())
+        || ("taskId" in selection && selection.taskId !== gate.probeTaskId))) {
+        return { kind: "held", runId: gate.sourceRunId!, reason: `provider_${gate.reason}` };
+      }
+      if ("workspaceKeys" in selection && selection.workspaceKeys.length === 0) {
+        return probing ? { kind: "held", runId: gate.sourceRunId!, reason: "provider_check_unavailable" } : { kind: "idle" };
+      }
+      const selectedId = probing ? gate.probeTaskId! : "taskId" in selection ? selection.taskId : undefined;
       const task = tx.select({ id: tasks.id, instruction: tasks.instruction, status: tasks.status, workspaceKey: projects.workspaceKey })
         .from(tasks).innerJoin(projects, eq(tasks.projectId, projects.id))
-        .where("taskId" in selection ? eq(tasks.id, selection.taskId)
-          : and(eq(tasks.status, "queued"), inArray(projects.workspaceKey, selection.workspaceKeys)))
+        .where(selectedId ? eq(tasks.id, selectedId)
+          : and(eq(tasks.status, "queued"), inArray(projects.workspaceKey, "workspaceKeys" in selection ? selection.workspaceKeys : [])))
         .orderBy(asc(tasks.createdAt), asc(tasks.id)).get();
       if (!task) {
         if ("taskId" in selection) throw new Error("Task not found");
         return { kind: "idle" };
       }
+      if (probing && (task.status !== "queued" || ("workspaceKeys" in selection && !selection.workspaceKeys.includes(task.workspaceKey)))) {
+        return { kind: "held", runId: gate.sourceRunId!, reason: "provider_check_unavailable" };
+      }
       if (task.status !== "queued") throw new Error("Only queued tasks can be started");
       const id = randomUUID();
       const now = new Date();
       tx.update(tasks).set({ status: "running" }).where(eq(tasks.id, task.id)).run();
-      tx.insert(runs).values({ id, taskId: task.id, instanceId, status: "running", model, effort: "medium", startedAt: now, lastActivityAt: now }).run();
+      tx.insert(runs).values({ id, taskId: task.id, instanceId, status: "running", model, effort: "medium", startedAt: now, lastActivityAt: now,
+        providerGateVersion: probing ? gate.version : null }).run();
+      if (probing) tx.update(providerGates).set({ probeRunId: id }).where(eq(providerGates.scope, providerScope)).run();
       tx.insert(steps).values({ id: randomUUID(), runId: id, sequence: 1, status: "running", startedAt: now }).run();
       tx.insert(events).values({ id: randomUUID(), runId: id, sequence: 1, kind: "run.started", createdAt: now }).run();
-      return { kind: "claimed", run: { id, taskId: task.id, instruction: task.instruction }, workspaceKey: task.workspaceKey };
+      return { kind: "claimed", run: { id, taskId: task.id, instruction: task.instruction, ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
     }, { behavior: "immediate" });
   }
 
@@ -52,6 +69,16 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
     },
     claimNext(model: string, workspaceKeys: string[]) {
       return claim(model, { workspaceKeys });
+    },
+    getProviderGate() { return providerGateView(db); },
+    reserveProviderCheck(taskId: string, expectedVersion: number, now = new Date()) {
+      db.transaction(tx => {
+        assertOwner(tx);
+        if (tx.select({ id: runs.id }).from(runs).where(unresolvedRun).get()) throw new Error("Execution termination must be confirmed first");
+        const task = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
+        if (!task || task.status !== "queued" || task.cancelRequestedAt) throw new Error("Only uncancelled queued tasks can confirm provider recovery");
+        reserveProviderCheck(tx, taskId, expectedVersion, now);
+      }, { behavior: "immediate" });
     },
     requestStop(runId: string, reason: StopReason): StopReason {
       return db.transaction((tx) => {
@@ -89,15 +116,17 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         assertOwner(tx);
         const run = tx.select().from(runs).where(and(eq(runs.id, runId), eq(runs.instanceId, instanceId), eq(runs.status, "running"))).get();
         if (!run) throw new Error("Cannot finish a run not owned by this executor");
+        if (run.providerGateVersion !== null) completion = requireTermination(completion);
         const now = new Date();
         const finishedAt = completion.status === "interrupted" ? null : now;
         tx.update(tasks).set({ status: completion.status }).where(eq(tasks.id, run.taskId)).run();
         tx.update(runs).set({ status: completion.status, result: completion.result, errorCode: completion.errorCode, finishedAt, lastActivityAt: now,
-          terminationConfirmedAt: completion.terminationConfirmedAt ?? null })
+          terminationConfirmedAt: completion.terminationConfirmedAt ?? null, retryAt: completion.retryAt ?? null })
           .where(eq(runs.id, runId)).run();
         tx.update(steps).set({ status: completion.status, usage: completion.usage, finishedAt }).where(eq(steps.runId, runId)).run();
         const last = tx.select({ sequence: sql<number>`max(${events.sequence})` }).from(events).where(eq(events.runId, runId)).get();
         tx.insert(events).values({ id: randomUUID(), runId, sequence: (last?.sequence ?? 0) + 1, kind: `run.${completion.status}`, createdAt: now }).run();
+        recordProviderOutcome(tx, run, completion, now);
       }, { behavior: "immediate" });
     },
     listByTask(taskId: string) {
@@ -111,7 +140,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         id: run.id, taskId: run.taskId, status: run.status, model: run.model, effort: run.effort,
         startedAt: run.startedAt, finishedAt: run.finishedAt, lastActivityAt: run.lastActivityAt,
         result: run.result, errorCode: run.errorCode,
-        stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt, terminationConfirmedAt: run.terminationConfirmedAt,
+        stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt, terminationConfirmedAt: run.terminationConfirmedAt, retryAt: run.retryAt,
         steps: db.select({ sequence: steps.sequence, status: steps.status, sessionId: steps.sessionId, usage: steps.usage, startedAt: steps.startedAt, finishedAt: steps.finishedAt })
           .from(steps).where(eq(steps.runId, id)).orderBy(asc(steps.sequence)).all(),
         events: db.select({ sequence: events.sequence, kind: events.kind, createdAt: events.createdAt })

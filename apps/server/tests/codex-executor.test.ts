@@ -55,3 +55,22 @@ test("classifies a failed turn without returning its raw error", async () => {
   expect(classifyCodexError("401 Unauthorized").code).toBe("authentication");
   expect(classifyCodexError("model not supported").code).toBe("unsupported_settings");
 });
+
+test("accepts only explicit, timezone-qualified provider retry times", () => {
+  expect(classifyCodexError("Usage limit reached. Try again at 2030-01-01T09:00:00+09:00").retryAt).toEqual(new Date("2030-01-01T00:00:00Z"));
+  for (const message of ["quota reached", "quota: try again at 09:00", "quota: try again tomorrow", "quota: retry at 2030-02-30T00:00:00Z"]) {
+    expect(classifyCodexError(message).retryAt).toBeNull();
+  }
+  expect(classifyCodexError("Authentication failed. Retry at 2030-01-01T00:00:00Z").retryAt).toBeNull();
+});
+
+test("a reconnected completed turn succeeds but does not erase a forbidden tool invocation", async () => {
+  fake.events = [
+    { type: "error", message: "Reconnecting... connection failed" },
+    { type: "item.completed", item: { type: "agent_message", text: "Recovered report" } },
+    { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } },
+  ];
+  await expect(createCodexExecutor("/tmp/private-auth").analyze(request, () => {})).resolves.toMatchObject({ output: "Recovered report" });
+  fake.events.unshift({ type: "item.completed", item: { type: "file_change", status: "completed" } });
+  await expect(createCodexExecutor("/tmp/private-auth").analyze(request, () => {})).rejects.toMatchObject({ code: "unsupported_settings" });
+});

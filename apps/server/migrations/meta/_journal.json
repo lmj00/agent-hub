@@ -43,6 +43,13 @@
       "when": 1793645525424,
       "tag": "0005_execution_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793646970839,
+      "tag": "0006_provider_gate",
+      "breakpoints": true
     }
   ]
 }

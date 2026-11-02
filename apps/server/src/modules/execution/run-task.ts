@@ -1,14 +1,22 @@
 import { AnalysisError, redactOutput, signalStopReason, type AnalysisEvent, type AnalysisExecutor, type AnalysisUsage, type StopReason } from "./analysis.js";
 import type { TaskStatus } from "../tasks/task-state.js";
+import type { ProviderGateView } from "./provider-gate.js";
 
-export type ClaimedRun = { id: string; taskId: string; instruction: string };
+export type ClaimedRun = { id: string; taskId: string; instruction: string; providerCheck?: boolean };
 export type RunCompletion = {
   status: Exclude<TaskStatus, "queued" | "running">;
   result: string | null;
   errorCode: string | null;
   usage: AnalysisUsage | null;
   terminationConfirmedAt?: Date | null;
+  retryAt?: Date | null;
 };
+
+export function requireTermination(completion: RunCompletion): RunCompletion {
+  return completion.terminationConfirmedAt ? completion : {
+    ...completion, status: "interrupted", errorCode: completion.errorCode ?? "termination_unconfirmed",
+  };
+}
 export type RunStore = {
   claim(taskId: string, model: string): ClaimedRun;
   record(runId: string, event: AnalysisEvent): void;
@@ -31,12 +39,14 @@ export type RunSummary = {
 export type RunDetails = RunSummary & {
   lastActivityAt: Date; result: string | null; errorCode: string | null;
   stopReason: StopReason | null; stopRequestedAt: Date | null; terminationConfirmedAt: Date | null;
+  retryAt: Date | null;
   steps: { sequence: number; status: TaskStatus; sessionId: string | null; usage: AnalysisUsage | null; startedAt: Date; finishedAt: Date | null }[];
   events: { sequence: number; kind: string; createdAt: Date }[];
 };
 export type RunQueries = {
   listByTask(taskId: string): RunSummary[];
   findById(id: string): RunDetails | undefined;
+  getProviderGate(): ProviderGateView;
 };
 
 export async function runTask(
@@ -103,7 +113,7 @@ export async function runClaimedTask(
       const status = !(error instanceof AnalysisError) || error.completionUncertain ? "interrupted"
         : code === "authentication" || code === "unsupported_settings" ? "blocked"
         : code === "capacity" ? "waiting_capacity" : "failed";
-      completion = { status, result: null, errorCode: code, usage: null };
+      completion = { status, result: null, errorCode: code, usage: null, retryAt: error instanceof AnalysisError ? error.retryAt : null };
     }
   } finally {
     acceptingEvents = false;
@@ -119,11 +129,8 @@ export async function runClaimedTask(
         new Promise<null>(resolve => { deadline = setTimeout(() => resolve(null), 8000); }),
       ]);
     } finally { clearTimeout(deadline); }
-    if (!completion.terminationConfirmedAt) {
-      completion.status = "interrupted";
-      completion.errorCode ??= "termination_unconfirmed";
-    }
   }
+  if (executor.confirmTermination || run.providerCheck) completion = requireTermination(completion);
   if (stopWriteFailed) throw stopWriteError;
   store.finish(run.id, completion);
   if (completion.terminationConfirmedAt) await executor.cleanup?.(run.id);

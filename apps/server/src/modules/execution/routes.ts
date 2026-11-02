@@ -15,11 +15,11 @@ const summaryProperties = {
 const summarySchema = { type: "object", additionalProperties: false, required: Object.keys(summaryProperties), properties: summaryProperties };
 const detailsSchema = {
   type: "object", additionalProperties: false,
-  required: [...Object.keys(summaryProperties), "lastActivityAt", "result", "errorCode", "stopReason", "stopRequestedAt", "terminationConfirmedAt", "steps", "events"],
+  required: [...Object.keys(summaryProperties), "lastActivityAt", "result", "errorCode", "stopReason", "stopRequestedAt", "terminationConfirmedAt", "retryAt", "steps", "events"],
   properties: {
     ...summaryProperties, lastActivityAt: date, result: nullableText, errorCode: nullableText,
     stopReason: { anyOf: [{ type: "string", enum: stopReasons }, { type: "null" }] },
-    stopRequestedAt: nullableDate, terminationConfirmedAt: nullableDate,
+    stopRequestedAt: nullableDate, terminationConfirmedAt: nullableDate, retryAt: nullableDate,
     steps: { type: "array", items: {
       type: "object", additionalProperties: false,
       required: ["sequence", "status", "sessionId", "usage", "startedAt", "finishedAt"],
@@ -66,6 +66,21 @@ export const executionRoutes: FastifyPluginAsync<{
       },
     }, ...errors } },
   }, async () => getQueueStatus());
+  app.get("/execution/provider-gate", {
+    schema: { response: { 200: {
+      type: "object", additionalProperties: false,
+      required: ["version", "blocked", "reason", "blockedAt", "retryAt", "sourceRunId", "probeTaskId", "probeRunId"],
+      properties: {
+        version: { type: "integer", minimum: 0 }, blocked: { type: "boolean" },
+        reason: { anyOf: [{ type: "string", enum: ["authentication", "capacity", "configuration"] }, { type: "null" }] },
+        blockedAt: nullableDate, retryAt: nullableDate,
+        sourceRunId: nullableText, probeTaskId: nullableText, probeRunId: nullableText,
+      },
+    }, ...errors } },
+  }, async () => {
+    const gate = store.getProviderGate();
+    return { ...gate, blockedAt: gate.blockedAt?.toISOString() ?? null, retryAt: gate.retryAt?.toISOString() ?? null };
+  });
   app.get<{ Params: { id: string } }>("/tasks/:id/runs", {
     schema: { params, response: { 200: { type: "object", required: ["runs"], additionalProperties: false, properties: { runs: { type: "array", items: summarySchema } } }, ...errors } },
   }, async (request, reply) => {
@@ -79,6 +94,7 @@ export const executionRoutes: FastifyPluginAsync<{
       ...summary(run), result: run.result, errorCode: run.errorCode, lastActivityAt: run.lastActivityAt.toISOString(),
       stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt?.toISOString() ?? null,
       terminationConfirmedAt: run.terminationConfirmedAt?.toISOString() ?? null,
+      retryAt: run.retryAt?.toISOString() ?? null,
       steps: run.steps.map(step => ({ ...step, startedAt: step.startedAt.toISOString(), finishedAt: step.finishedAt?.toISOString() ?? null })),
       events: run.events.map(event => ({ ...event, createdAt: event.createdAt.toISOString() })),
     };
