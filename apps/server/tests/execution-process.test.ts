@@ -86,7 +86,7 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     const originalRecord = store.record;
     store.record = (id, event) => { originalRecord(id, event); if (event.kind === "fixture.ready") controller.abort("user_cancel"); };
     const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: controller.signal }, store, createContainerExecutor(image, home));
-    expect(result.status).toBe("interrupted");
+    expect(result.status).toBe("cancelled");
     expect(store.findById(result.runId)).toMatchObject({ stopReason: "user_cancel", terminationConfirmedAt: expect.any(Date) });
     const heartbeat = readFileSync(join(home, "heartbeat"), "utf8");
     await delay(150);

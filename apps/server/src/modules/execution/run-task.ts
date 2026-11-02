@@ -17,11 +17,22 @@ export function requireTermination(completion: RunCompletion): RunCompletion {
     ...completion, status: "interrupted", errorCode: completion.errorCode ?? "termination_unconfirmed",
   };
 }
+
+export function settleStoppedCompletion(completion: RunCompletion, reason: StopReason | null, cancelled: boolean): RunCompletion {
+  if (cancelled || reason === "user_cancel") {
+    return { ...completion, status: completion.terminationConfirmedAt ? "cancelled" : "interrupted", errorCode: "cancel_requested" };
+  }
+  if (completion.status === "interrupted" && completion.terminationConfirmedAt) {
+    if (reason === "timeout") return { ...completion, status: "failed", errorCode: "timeout" };
+    if (reason === "server_shutdown") return { ...completion, status: "waiting_retry", errorCode: "server_shutdown" };
+  }
+  return completion;
+}
 export type RunStore = {
   claim(taskId: string, model: string): ClaimedRun;
   record(runId: string, event: AnalysisEvent): void;
   requestStop(runId: string, reason: StopReason): StopReason;
-  finish(runId: string, completion: RunCompletion): void;
+  finish(runId: string, completion: RunCompletion): RunCompletion;
 };
 
 export type QueueClaim =
@@ -33,7 +44,7 @@ export type QueueStore = RunStore & {
 };
 
 export type RunSummary = {
-  id: string; taskId: string; status: TaskStatus; model: string; effort: string;
+  id: string; taskId: string; attempt: number; status: TaskStatus; model: string; effort: string;
   startedAt: Date; finishedAt: Date | null;
 };
 export type RunDetails = RunSummary & {
@@ -132,7 +143,7 @@ export async function runClaimedTask(
   }
   if (executor.confirmTermination || run.providerCheck) completion = requireTermination(completion);
   if (stopWriteFailed) throw stopWriteError;
-  store.finish(run.id, completion);
-  if (completion.terminationConfirmedAt) await executor.cleanup?.(run.id);
-  return { runId: run.id, ...completion };
+  const saved = store.finish(run.id, completion);
+  if (saved.terminationConfirmedAt) await executor.cleanup?.(run.id);
+  return { runId: run.id, ...saved };
 }

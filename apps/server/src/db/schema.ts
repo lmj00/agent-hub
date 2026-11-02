@@ -34,13 +34,14 @@ export const tasks = sqliteTable(
     index("tasks_status_created_at_idx").on(table.status, table.createdAt, table.id),
     check("tasks_instruction_not_blank", sql`length(trim(${table.instruction})) > 0`),
     check("tasks_request_key_not_blank", sql`length(trim(${table.requestKey})) > 0`),
-    check("tasks_status_valid", sql`${table.status} IN ('queued', 'running', 'succeeded', 'failed', 'interrupted', 'blocked', 'waiting_capacity', 'waiting_retry')`),
+    check("tasks_status_valid", sql`${table.status} IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'interrupted', 'blocked', 'waiting_capacity', 'waiting_retry')`),
   ],
 );
 
 export const runs = sqliteTable("runs", {
   id: text("id").primaryKey().notNull(),
   taskId: text("task_id").notNull().references(() => tasks.id, { onDelete: "restrict" }),
+  attempt: integer("attempt").notNull().default(1),
   instanceId: text("instance_id").notNull(),
   slot: integer("slot").notNull().default(1),
   status: text("status", { enum: taskStatuses }).notNull(),
@@ -62,6 +63,7 @@ export const runs = sqliteTable("runs", {
   check("runs_slot_valid", sql`${table.slot} = 1`),
   uniqueIndex("runs_one_active").on(table.slot).where(sql`${table.status} = 'running' OR (${table.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${table.terminationConfirmedAt} IS NULL)`),
   index("runs_task_started_at_idx").on(table.taskId, table.startedAt),
+  uniqueIndex("runs_task_attempt_unique").on(table.taskId, table.attempt),
 ]);
 
 // 초기 단일 계정에서는 로그인 폴더를 바꿔도 같은 제공자 범위를 사용합니다.

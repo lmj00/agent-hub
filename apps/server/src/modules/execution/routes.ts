@@ -9,7 +9,7 @@ const nullableDate = { anyOf: [date, { type: "null" }] };
 const nullableText = { type: ["string", "null"] };
 const status = { type: "string", enum: taskStatuses };
 const summaryProperties = {
-  id: { type: "string" }, taskId: { type: "string" }, status,
+  id: { type: "string" }, taskId: { type: "string" }, attempt: { type: "integer", minimum: 1 }, status,
   model: { type: "string" }, effort: { type: "string" }, startedAt: date, finishedAt: nullableDate,
 };
 const summarySchema = { type: "object", additionalProperties: false, required: Object.keys(summaryProperties), properties: summaryProperties };

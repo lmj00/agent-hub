@@ -3,7 +3,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { events, executionOwner, projects, providerGates, runs, steps, tasks } from "../../db/schema.js";
 import type { AnalysisEvent, StopReason } from "./analysis.js";
-import { requireTermination, type QueueClaim, type RunCompletion } from "./run-task.js";
+import { requireTermination, settleStoppedCompletion, type QueueClaim, type RunCompletion } from "./run-task.js";
 import { providerGateView, providerScope, readProviderGate, recordProviderOutcome, reserveProviderCheck } from "./provider-gate.js";
 
 const unresolvedRun = sql`${runs.status} = 'running' OR (${runs.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${runs.terminationConfirmedAt} IS NULL)`;
@@ -36,10 +36,10 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         return probing ? { kind: "held", runId: gate.sourceRunId!, reason: "provider_check_unavailable" } : { kind: "idle" };
       }
       const selectedId = probing ? gate.probeTaskId! : "taskId" in selection ? selection.taskId : undefined;
-      const task = tx.select({ id: tasks.id, instruction: tasks.instruction, status: tasks.status, workspaceKey: projects.workspaceKey })
+      const task = tx.select({ id: tasks.id, instruction: tasks.instruction, status: tasks.status, cancelRequestedAt: tasks.cancelRequestedAt, workspaceKey: projects.workspaceKey })
         .from(tasks).innerJoin(projects, eq(tasks.projectId, projects.id))
         .where(selectedId ? eq(tasks.id, selectedId)
-          : and(eq(tasks.status, "queued"), inArray(projects.workspaceKey, "workspaceKeys" in selection ? selection.workspaceKeys : [])))
+          : and(eq(tasks.status, "queued"), sql`${tasks.cancelRequestedAt} IS NULL`, inArray(projects.workspaceKey, "workspaceKeys" in selection ? selection.workspaceKeys : [])))
         .orderBy(asc(tasks.createdAt), asc(tasks.id)).get();
       if (!task) {
         if ("taskId" in selection) throw new Error("Task not found");
@@ -49,10 +49,12 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         return { kind: "held", runId: gate.sourceRunId!, reason: "provider_check_unavailable" };
       }
       if (task.status !== "queued") throw new Error("Only queued tasks can be started");
+      if (task.cancelRequestedAt) throw new Error("Cancelled tasks cannot be started");
       const id = randomUUID();
       const now = new Date();
+      const attempt = (tx.select({ value: sql<number>`max(${runs.attempt})` }).from(runs).where(eq(runs.taskId, task.id)).get()?.value ?? 0) + 1;
       tx.update(tasks).set({ status: "running" }).where(eq(tasks.id, task.id)).run();
-      tx.insert(runs).values({ id, taskId: task.id, instanceId, status: "running", model, effort: "medium", startedAt: now, lastActivityAt: now,
+      tx.insert(runs).values({ id, taskId: task.id, attempt, instanceId, status: "running", model, effort: "medium", startedAt: now, lastActivityAt: now,
         providerGateVersion: probing ? gate.version : null }).run();
       if (probing) tx.update(providerGates).set({ probeRunId: id }).where(eq(providerGates.scope, providerScope)).run();
       tx.insert(steps).values({ id: randomUUID(), runId: id, sequence: 1, status: "running", startedAt: now }).run();
@@ -112,11 +114,13 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
       }, { behavior: "immediate" });
     },
     finish(runId: string, completion: RunCompletion) {
-      db.transaction((tx) => {
+      return db.transaction((tx) => {
         assertOwner(tx);
         const run = tx.select().from(runs).where(and(eq(runs.id, runId), eq(runs.instanceId, instanceId), eq(runs.status, "running"))).get();
         if (!run) throw new Error("Cannot finish a run not owned by this executor");
         if (run.providerGateVersion !== null) completion = requireTermination(completion);
+        const task = tx.select({ cancelRequestedAt: tasks.cancelRequestedAt }).from(tasks).where(eq(tasks.id, run.taskId)).get()!;
+        completion = settleStoppedCompletion(completion, run.stopReason, task.cancelRequestedAt !== null);
         const now = new Date();
         const finishedAt = completion.status === "interrupted" ? null : now;
         tx.update(tasks).set({ status: completion.status }).where(eq(tasks.id, run.taskId)).run();
@@ -127,17 +131,18 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         const last = tx.select({ sequence: sql<number>`max(${events.sequence})` }).from(events).where(eq(events.runId, runId)).get();
         tx.insert(events).values({ id: randomUUID(), runId, sequence: (last?.sequence ?? 0) + 1, kind: `run.${completion.status}`, createdAt: now }).run();
         recordProviderOutcome(tx, run, completion, now);
+        return completion;
       }, { behavior: "immediate" });
     },
     listByTask(taskId: string) {
-      return db.select({ id: runs.id, taskId: runs.taskId, status: runs.status, model: runs.model, effort: runs.effort, startedAt: runs.startedAt, finishedAt: runs.finishedAt })
-        .from(runs).where(eq(runs.taskId, taskId)).orderBy(desc(runs.startedAt), asc(runs.id)).all();
+      return db.select({ id: runs.id, taskId: runs.taskId, attempt: runs.attempt, status: runs.status, model: runs.model, effort: runs.effort, startedAt: runs.startedAt, finishedAt: runs.finishedAt })
+        .from(runs).where(eq(runs.taskId, taskId)).orderBy(desc(runs.attempt)).all();
     },
     findById(id: string) {
       const run = db.select().from(runs).where(eq(runs.id, id)).get();
       if (!run) return undefined;
       return {
-        id: run.id, taskId: run.taskId, status: run.status, model: run.model, effort: run.effort,
+        id: run.id, taskId: run.taskId, attempt: run.attempt, status: run.status, model: run.model, effort: run.effort,
         startedAt: run.startedAt, finishedAt: run.finishedAt, lastActivityAt: run.lastActivityAt,
         result: run.result, errorCode: run.errorCode,
         stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt, terminationConfirmedAt: run.terminationConfirmedAt, retryAt: run.retryAt,
