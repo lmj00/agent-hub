@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { taskStatuses } from "../modules/tasks/task-state.js";
 import { stopReasons, type ExecutionIdentity } from "../modules/execution/analysis.js";
+import { recoveryActions } from "../modules/execution/recover-task.js";
 
 export const projects = sqliteTable(
   "projects",
@@ -89,6 +90,24 @@ export const steps = sqliteTable("steps", {
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   usage: text("usage", { mode: "json" }).$type<{ inputTokens: number; cachedInputTokens: number; outputTokens: number }>(),
 }, (table) => [uniqueIndex("steps_run_sequence_unique").on(table.runId, table.sequence)]);
+
+export const recoveryRequests = sqliteTable("recovery_requests", {
+  id: text("id").primaryKey().notNull(),
+  taskId: text("task_id").notNull().references(() => tasks.id, { onDelete: "restrict" }),
+  runId: text("run_id").references(() => runs.id, { onDelete: "restrict" }),
+  requestKey: text("request_key").notNull(),
+  action: text("action", { enum: recoveryActions }).notNull(),
+  providerGateVersion: integer("provider_gate_version"),
+  status: text("status", { enum: ["pending", "completed", "rejected"] }).notNull(),
+  resultStatus: text("result_status", { enum: taskStatuses }),
+  errorCode: text("error_code"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+}, table => [
+  uniqueIndex("recovery_task_request_key_unique").on(table.taskId, table.requestKey),
+  uniqueIndex("recovery_one_pending_per_task").on(table.taskId).where(sql`${table.status} = 'pending'`),
+  index("recovery_pending_order_idx").on(table.status, table.createdAt, table.id),
+]);
 
 export const events = sqliteTable("events", {
   id: text("id").primaryKey().notNull(),

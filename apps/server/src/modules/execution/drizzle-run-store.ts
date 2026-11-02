@@ -1,22 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { events, executionOwner, projects, providerGates, runs, steps, tasks } from "../../db/schema.js";
+import { events, projects, providerGates, runs, steps, tasks } from "../../db/schema.js";
 import type { AnalysisEvent, StopReason } from "./analysis.js";
 import { requireTermination, settleStoppedCompletion, type QueueClaim, type RunCompletion } from "./run-task.js";
 import { providerGateView, providerScope, readProviderGate, recordProviderOutcome, reserveProviderCheck } from "./provider-gate.js";
+import { assertExecutionOwner } from "./execution-owner.js";
+import { saveRunCompletion } from "./run-completion-store.js";
 
-const unresolvedRun = sql`${runs.status} = 'running' OR (${runs.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${runs.terminationConfirmedAt} IS NULL)`;
+export const unresolvedRun = sql`${runs.status} = 'running' OR (${runs.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${runs.terminationConfirmedAt} IS NULL)`;
 
 export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string) {
   const instanceId = ownerToken ?? randomUUID();
   type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
   function assertOwner(tx: Transaction) {
-    const owner = tx.select().from(executionOwner).get();
-    if (ownerToken ? owner?.token !== ownerToken : owner !== undefined) {
-      throw new Error("Execution ownership has changed or belongs to another process");
-    }
+    assertExecutionOwner(tx, ownerToken);
   }
 
   function claim(model: string, selection: { taskId: string } | { workspaceKeys: string[] }): QueueClaim {
@@ -122,14 +121,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         const task = tx.select({ cancelRequestedAt: tasks.cancelRequestedAt }).from(tasks).where(eq(tasks.id, run.taskId)).get()!;
         completion = settleStoppedCompletion(completion, run.stopReason, task.cancelRequestedAt !== null);
         const now = new Date();
-        const finishedAt = completion.status === "interrupted" ? null : now;
-        tx.update(tasks).set({ status: completion.status }).where(eq(tasks.id, run.taskId)).run();
-        tx.update(runs).set({ status: completion.status, result: completion.result, errorCode: completion.errorCode, finishedAt, lastActivityAt: now,
-          terminationConfirmedAt: completion.terminationConfirmedAt ?? null, retryAt: completion.retryAt ?? null })
-          .where(eq(runs.id, runId)).run();
-        tx.update(steps).set({ status: completion.status, usage: completion.usage, finishedAt }).where(eq(steps.runId, runId)).run();
-        const last = tx.select({ sequence: sql<number>`max(${events.sequence})` }).from(events).where(eq(events.runId, runId)).get();
-        tx.insert(events).values({ id: randomUUID(), runId, sequence: (last?.sequence ?? 0) + 1, kind: `run.${completion.status}`, createdAt: now }).run();
+        saveRunCompletion(tx, run, completion, now);
         recordProviderOutcome(tx, run, completion, now);
         return completion;
       }, { behavior: "immediate" });

@@ -4,6 +4,13 @@ import { and, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { executionOwner } from "../../db/schema.js";
 
+export function assertExecutionOwner(db: Pick<ReturnType<typeof openDatabase>["db"], "select">, ownerToken?: string) {
+  const owner = db.select().from(executionOwner).get();
+  if (ownerToken ? owner?.token !== ownerToken : owner !== undefined) {
+    throw new Error("Execution ownership has changed or belongs to another process");
+  }
+}
+
 // 존재 여부만 확인합니다. PID 일치를 같은 실행의 증거로 삼거나 다른 프로세스를 종료하지 않습니다.
 function processMayExist(pid: number) {
   try {

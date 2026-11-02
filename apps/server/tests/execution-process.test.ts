@@ -1,12 +1,13 @@
 import { execFile, fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { buildApp } from "../src/app.js";
 import type { AnalysisEvent, ExecutionIdentity } from "../src/modules/execution/analysis.js";
 import { createContainerExecutor } from "../src/modules/execution/execution-process.js";
 import { prepareContainer, removeFinishedContainer, stopAndConfirmContainer } from "../src/modules/execution/container-runtime.js";
@@ -14,6 +15,7 @@ import { openDatabase } from "../src/db/connection.js";
 import { projects, runs, tasks } from "../src/db/schema.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { runTask } from "../src/modules/execution/run-task.js";
+import { loadExecutionConfig } from "../src/modules/execution/execution-config.js";
 
 const exec = promisify(execFile);
 const image = "agent-hub-execution-test:local";
@@ -33,7 +35,7 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     await exec("docker", ["build", "-t", image, fileURLToPath(new URL("./fixtures/container-runner/", import.meta.url))], { timeout: 30000 });
   }, 35000);
   beforeEach(() => {
-    directory = mkdtempSync(join(tmpdir(), "hub-container-"));
+    directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-container-")));
     home = join(directory, "home"); workspace = join(directory, "workspace");
     mkdirSync(home); mkdirSync(workspace);
     database = openDatabase(join(directory, "hub.sqlite"));
@@ -134,4 +136,44 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
       expect(await stopAndConfirmContainer(identity)).toBeNull();
     } finally { host.kill("SIGKILL"); }
   }, 15000);
+
+  test("HTTP recovery after server SIGKILL stops the old container before creating a replacement attempt", async () => {
+    database.client.exec("UPDATE tasks SET instruction = 'wait-once'");
+    writeFileSync(join(home, "auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
+    const configPath = join(directory, "execution.json");
+    writeFileSync(configPath, JSON.stringify({ model: "fixture", codexHome: home, containerImage: image, workspaces: { example: workspace } }));
+    const host = fork(fileURLToPath(new URL("./fixtures/execution-server.ts", import.meta.url)), [join(directory, "hub.sqlite"), configPath], {
+      execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "ignore", "ipc"],
+    });
+    let server: ReturnType<typeof buildApp> | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const deadline = setTimeout(() => reject(new Error("Fixture server did not start")), 5000);
+        host.on("message", (event: AnalysisEvent) => {
+          if (event.execution) identities.push(event.execution);
+          if (event.kind === "fixture.ready") { clearTimeout(deadline); resolve(); }
+        });
+        host.once("error", reject);
+      });
+      const original = database.db.select().from(runs).get()!;
+      const exited = once(host, "exit"); host.kill("SIGKILL"); await exited;
+      expect((await exec("docker", ["inspect", "--format", "{{.State.Running}}", original.execution!.containerId])).stdout.trim()).toBe("true");
+      server = buildApp({ databasePath: join(directory, "hub.sqlite"), execution: { config: loadExecutionConfig(configPath), pollIntervalMs: 5 } });
+      const base = await server.listen({ host: "127.0.0.1", port: 0 });
+      expect((await server.inject({ method: "GET", url: "/execution" })).json()).toMatchObject({ state: "held", runId: original.id });
+      const response = await fetch(`${base}/tasks/${taskId}/recovery-requests`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requestKey: "resume-after-crash", runId: original.id, action: "resume" }),
+      });
+      expect(response.status).toBe(202);
+      await vi.waitFor(() => expect(store.listByTask(taskId)).toMatchObject([{ attempt: 2, status: "succeeded" }, { attempt: 1, status: "waiting_retry" }]), { timeout: 10000 });
+      expect(store.findById(original.id)).toMatchObject({ errorCode: "owner_lost", terminationConfirmedAt: expect.any(Date) });
+      expect(database.client.pragma("foreign_key_check")).toEqual([]);
+      await expect(exec("docker", ["inspect", original.execution!.containerId])).rejects.toThrow();
+    } finally {
+      host.kill("SIGKILL");
+      await server?.close();
+      for (const row of database.db.select().from(runs).all()) if (row.execution) identities.push(row.execution);
+    }
+  }, 20000);
 });

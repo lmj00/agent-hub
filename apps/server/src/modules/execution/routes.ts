@@ -61,7 +61,7 @@ export const executionRoutes: FastifyPluginAsync<{
       type: "object", additionalProperties: false,
       required: ["state", "runId", "taskId", "reason", "lastCheckedAt"],
       properties: {
-        state: { type: "string", enum: ["disabled", "idle", "running", "held", "error", "stopping", "stopped"] },
+        state: { type: "string", enum: ["disabled", "idle", "running", "recovering", "held", "error", "stopping", "stopped"] },
         runId: nullableText, taskId: nullableText, reason: nullableText, lastCheckedAt: nullableDate,
       },
     }, ...errors } },

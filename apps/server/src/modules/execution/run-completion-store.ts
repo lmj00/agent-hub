@@ -1,0 +1,20 @@
+import { randomUUID } from "node:crypto";
+import { eq, sql } from "drizzle-orm";
+import type { openDatabase } from "../../db/connection.js";
+import { events, runs, steps, tasks } from "../../db/schema.js";
+import type { RunCompletion } from "./run-task.js";
+
+type CompletionDb = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update" | "insert">;
+
+// 호출자가 소유권·대상 Run을 검사한 같은 트랜잭션 안에서 사용합니다.
+export function saveRunCompletion(db: CompletionDb, run: { id: string; taskId: string }, completion: RunCompletion, now: Date) {
+  const finishedAt = completion.status === "interrupted" ? null : now;
+  db.update(tasks).set({ status: completion.status }).where(eq(tasks.id, run.taskId)).run();
+  db.update(runs).set({
+    status: completion.status, result: completion.result, errorCode: completion.errorCode, finishedAt, lastActivityAt: now,
+    terminationConfirmedAt: completion.terminationConfirmedAt ?? null, retryAt: completion.retryAt ?? null,
+  }).where(eq(runs.id, run.id)).run();
+  db.update(steps).set({ status: completion.status, usage: completion.usage, finishedAt }).where(eq(steps.runId, run.id)).run();
+  const last = db.select({ sequence: sql<number>`max(${events.sequence})` }).from(events).where(eq(events.runId, run.id)).get();
+  db.insert(events).values({ id: randomUUID(), runId: run.id, sequence: (last?.sequence ?? 0) + 1, kind: `run.${completion.status}`, createdAt: now }).run();
+}

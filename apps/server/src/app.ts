@@ -12,10 +12,14 @@ import { createExecutionQueue } from "./modules/execution/execution-queue.js";
 import { validateExecutionEnvironment, type ExecutionConfig } from "./modules/execution/execution-config.js";
 import { createConfiguredExecutor } from "./modules/execution/execution-process.js";
 import type { AnalysisExecutor } from "./modules/execution/analysis.js";
+import { createDrizzleRecoveryStore } from "./modules/execution/drizzle-recovery-store.js";
+import { createRecoveryProcessor, RecoveryError, type ExecutionObserver, type RecoveryStore } from "./modules/execution/recover-task.js";
+import { recoveryRoutes } from "./modules/execution/recovery-routes.js";
+import { removeFinishedContainer, stopAndConfirmContainer } from "./modules/execution/container-runtime.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
   databasePath: string;
-  execution?: { config: ExecutionConfig; executor?: AnalysisExecutor; pollIntervalMs?: number };
+  execution?: { config: ExecutionConfig; executor?: AnalysisExecutor; observer?: ExecutionObserver; pollIntervalMs?: number };
 };
 
 export function buildApp({ databasePath, execution, ...options }: AppOptions) {
@@ -29,6 +33,8 @@ export function buildApp({ databasePath, execution, ...options }: AppOptions) {
     const database = openDatabase(databasePath);
     let owner: ReturnType<typeof acquireExecutionOwner> | undefined;
     let queue: ReturnType<typeof createExecutionQueue> | undefined;
+    let recovery: RecoveryStore | undefined;
+    let canTrackTermination = false;
 
     scope.addHook("onClose", async () => {
       try {
@@ -42,10 +48,14 @@ export function buildApp({ databasePath, execution, ...options }: AppOptions) {
       try {
         validateExecutionEnvironment(execution.config, databasePath);
         owner = acquireExecutionOwner(database.db);
+        const executor = execution.executor ?? createConfiguredExecutor(execution.config);
+        canTrackTermination = typeof executor.confirmTermination === "function";
+        recovery = createDrizzleRecoveryStore(database.db, owner.token);
         queue = createExecutionQueue({
           ...execution,
           store: createDrizzleRunStore(database.db, owner.token),
-          executor: execution.executor ?? createConfiguredExecutor(execution.config),
+          executor,
+          recovery: createRecoveryProcessor(recovery, execution.observer ?? { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }),
           validate: () => validateExecutionEnvironment(execution.config, databasePath),
           reportDiagnostic: (diagnostic) => {
             if (diagnostic.event === "execution_queue.error") scope.log.error(diagnostic, "Execution queue check failed");
@@ -73,6 +83,15 @@ export function buildApp({ databasePath, execution, ...options }: AppOptions) {
       taskExists: (id) => taskStore.findById(id) !== undefined,
       getQueueStatus: () => queue?.getStatus() ?? {
         state: "disabled", runId: null, taskId: null, reason: null, lastCheckedAt: null,
+      },
+    });
+    scope.register(recoveryRoutes, {
+      queries: createDrizzleRecoveryStore(database.db),
+      request: input => {
+        if (!recovery || !queue) throw new RecoveryError("EXECUTION_DISABLED");
+        const result = recovery.request(input, queue.getActiveRunId(), canTrackTermination);
+        if (input.action === "cancel") queue.cancel(input.runId);
+        return result;
       },
     });
   });

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 const input = createInterface({ input: process.stdin });
 let request;
@@ -12,7 +12,8 @@ setInterval(() => fs.appendFileSync('/codex-home/heartbeat', 'x'), 30);
 child.unref();
 while (!existsSync("/codex-home/heartbeat")) await new Promise(resolve => setTimeout(resolve, 10));
 console.log(JSON.stringify({ type: "event", event: { kind: "fixture.ready" } }));
-if (request.instruction === "wait") {
+if (request.instruction === "wait" || (request.instruction === "wait-once" && !existsSync("/codex-home/attempted"))) {
+  writeFileSync("/codex-home/attempted", "started");
   process.on("SIGTERM", () => {});
   setInterval(() => {}, 1000);
 } else if (request.instruction === "malformed") {
