@@ -16,6 +16,132 @@
   --amber: #9a5a17;
   --danger: #ae3446;
 }
+.project-connection-info {
+  padding: 12px 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.project-connection-info summary {
+  cursor: pointer;
+}
+.project-connection-info p {
+  margin: 10px 0 6px;
+}
+.project-connection-info code {
+  display: block;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.services-panel {
+  margin-bottom: 25px;
+}
+.services-panel h2 {
+  font-size: 14px;
+}
+.services-intro {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 7px 0 13px;
+}
+.service-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 350px), 1fr));
+  gap: 12px;
+}
+.service-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  padding: 18px 20px;
+}
+.service-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+}
+.service-heading h3 {
+  font-size: 13px;
+}
+.service-heading small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.service-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--muted);
+}
+.service-healthy,
+.service-waiting {
+  color: var(--teal);
+}
+.service-degraded,
+.service-stale {
+  color: var(--amber);
+}
+.service-unavailable,
+.service-stopped {
+  color: var(--danger);
+}
+.service-reason {
+  margin: 11px 0 9px;
+  font-size: 12px;
+}
+.service-observed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.service-evidence {
+  border-top: 1px solid var(--line);
+  margin-top: 13px;
+  padding-top: 12px;
+}
+.service-evidence.historical {
+  background: #f6f8fb;
+  margin: 13px -6px -4px;
+  padding: 12px 6px 4px;
+}
+.service-evidence.historical > .eyebrow {
+  color: var(--amber);
+}
+.service-evidence .eyebrow {
+  font-size: 10px;
+}
+.service-summary {
+  margin-top: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.service-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px 15px;
+  margin: 11px 0 0;
+}
+.service-facts dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+.service-facts dd {
+  margin: 3px 0 0;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.service-no-evidence {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 15px;
+}
 * {
   box-sizing: border-box;
 }

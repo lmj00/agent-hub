@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "key": "example-service",
+      "projectId": "00000000-0000-4000-8000-000000000001",
+      "name": "예제 서비스",
+      "url": "http://127.0.0.1:4000/health/agent-hub",
+      "intervalMs": 15000,
+      "timeoutMs": 3000,
+      "staleAfterMs": 60000,
+      "allowWaiting": true,
+      "activityTimeoutMs": 300000
+    }
+  ]
+}

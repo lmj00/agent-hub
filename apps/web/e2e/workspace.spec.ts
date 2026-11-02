@@ -25,11 +25,15 @@ async function createTask(page: Page, instruction: string) {
   await expect(page.locator("#detail-heading")).toHaveText(instruction);
 }
 
-test("registers projects and tasks, escapes model output, and keeps mobile content in the viewport", async ({
+test("registers projects and tasks, escapes model output, and separates waiting, failed and stale service observations", async ({
   page,
-}) => {
+  request,
+}, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
   await login(page);
   await createProject(page, "언어 공부 앱");
   await createTask(page, "코드 구조를 분석해 줘.");
@@ -43,6 +47,39 @@ test("registers projects and tasks, escapes model output, and keeps mobile conte
     ),
   ).toBe(true);
   await expect(page.locator(".analysis-result")).toBeVisible();
+  expect(errors).toEqual([]);
+  await page.getByRole("button", { name: /관측 예제/ }).click();
+  await expect(page.locator(".services-panel")).toHaveCount(1);
+  await expect(page.locator(".service-state")).toHaveText("정상 대기");
+  await expect(page.locator(".service-evidence")).not.toHaveClass(/historical/);
+  await request.post("http://127.0.0.1:4321/fixture/failure");
+  await expect(page.locator(".service-state")).toHaveText("관측 실패");
+  await expect(page.locator(".service-evidence.historical")).toContainText(
+    "이전 수집 기록",
+  );
+  await expect(page.locator(".service-summary")).toContainText("새 학습 기록");
+  await request.post("http://127.0.0.1:4321/fixture/stale");
+  await expect(page.locator(".service-state")).toHaveText("오래된 정보");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("services-mobile.png"),
+    fullPage: true,
+  });
+  await request.post("http://127.0.0.1:4321/fixture/waiting");
+  await expect(page.locator(".service-state")).toHaveText("정상 대기");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({
+    path: testInfo.outputPath("services-desktop.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: /언어 공부 앱 example/ }).click();
+  await expect(page.locator(".services-panel")).toHaveCount(0);
+  await page.getByRole("button", { name: /관측 예제/ }).click();
+  await expect(page.locator(".services-panel")).toHaveCount(1);
   expect(errors).toEqual([]);
 });
 

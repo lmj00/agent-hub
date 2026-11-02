@@ -20,15 +20,20 @@ import type { AuthConfig } from "./modules/auth/auth-config.js";
 import { createDrizzleSessionStore } from "./modules/auth/drizzle-session-store.js";
 import { installAuthentication } from "./modules/auth/authentication.js";
 import { webRoutes } from "./modules/web/routes.js";
+import type { ServiceConfig } from "./modules/services/service-config.js";
+import { createDrizzleServiceStore } from "./modules/services/drizzle-service-store.js";
+import { createServiceObserver } from "./modules/services/service-observer.js";
+import { serviceRoutes } from "./modules/services/routes.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
   databasePath: string;
   auth?: AuthConfig;
   webDirectory?: string;
+  services?: ServiceConfig;
   execution?: { config: ExecutionConfig; executor?: AnalysisExecutor; observer?: ExecutionObserver; pollIntervalMs?: number };
 };
 
-export function buildApp({ databasePath, execution, auth, webDirectory, ...options }: AppOptions) {
+export function buildApp({ databasePath, execution, auth, webDirectory, services, ...options }: AppOptions) {
   if (webDirectory && !auth) throw new Error("The management UI requires authentication");
   const app = Fastify({
     ...options,
@@ -41,40 +46,53 @@ export function buildApp({ databasePath, execution, auth, webDirectory, ...optio
     let owner: ReturnType<typeof acquireExecutionOwner> | undefined;
     let queue: ReturnType<typeof createExecutionQueue> | undefined;
     let recovery: RecoveryStore | undefined;
+    let serviceObserver: ReturnType<typeof createServiceObserver> | undefined;
     let canTrackTermination = false;
+    const protectedFiles = [auth?.sourcePath, services?.sourcePath].filter((path): path is string => path !== undefined);
 
     scope.addHook("onClose", async () => {
       try {
-        await queue?.stop();
+        await Promise.all([queue?.stop(), serviceObserver?.stop()]);
         owner?.release();
       } finally { database.close(); }
     });
-    scope.addHook("preClose", async () => { await queue?.stop(); });
+    scope.addHook("preClose", async () => { await Promise.all([queue?.stop(), serviceObserver?.stop()]); });
 
-    if (execution) {
+    if (execution || services) {
       try {
-        validateExecutionEnvironment(execution.config, databasePath, auth ? [auth.sourcePath] : []);
+        if (execution) validateExecutionEnvironment(execution.config, databasePath, protectedFiles);
         owner = acquireExecutionOwner(database.db);
-        const executor = execution.executor ?? createConfiguredExecutor(execution.config);
-        canTrackTermination = typeof executor.confirmTermination === "function";
-        recovery = createDrizzleRecoveryStore(database.db, owner.token);
-        queue = createExecutionQueue({
-          ...execution,
-          store: createDrizzleRunStore(database.db, owner.token),
-          executor,
-          recovery: createRecoveryProcessor(recovery, execution.observer ?? { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }),
-          validate: () => validateExecutionEnvironment(execution.config, databasePath, auth ? [auth.sourcePath] : []),
-          reportDiagnostic: (diagnostic) => {
-            if (diagnostic.event === "execution_queue.error") scope.log.error(diagnostic, "Execution queue check failed");
-            else scope.log.info(diagnostic, "Execution queue check recovered");
-          },
-        });
+        if (services) {
+          const serviceStore = createDrizzleServiceStore(database.db, owner.token);
+          serviceStore.configure(services.targets);
+          serviceObserver = createServiceObserver({ targets: services.targets, store: serviceStore, report: event => {
+            if (event.code === "SERVICE_OBSERVER_ERROR") scope.log.error(event, "Service observation storage failed");
+            else scope.log.info(event, "Service observation storage recovered");
+          } });
+        }
+        if (execution) {
+          const executor = execution.executor ?? createConfiguredExecutor(execution.config);
+          canTrackTermination = typeof executor.confirmTermination === "function";
+          recovery = createDrizzleRecoveryStore(database.db, owner.token);
+          queue = createExecutionQueue({
+            ...execution,
+            store: createDrizzleRunStore(database.db, owner.token),
+            executor,
+            recovery: createRecoveryProcessor(recovery, execution.observer ?? { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }),
+            validate: () => validateExecutionEnvironment(execution.config, databasePath, protectedFiles),
+            reportDiagnostic: (diagnostic) => {
+              if (diagnostic.event === "execution_queue.error") scope.log.error(diagnostic, "Execution queue check failed");
+              else scope.log.info(diagnostic, "Execution queue check recovered");
+            },
+          });
+        }
       } catch (error) {
         owner?.release();
+        owner = undefined;
         database.close();
         throw error;
       }
-      scope.addHook("onListen", async () => { queue?.start(); });
+      scope.addHook("onListen", async () => { queue?.start(); serviceObserver?.start(); });
     }
 
     if (auth) await installAuthentication(scope, auth, createDrizzleSessionStore(database.db));
@@ -82,6 +100,10 @@ export function buildApp({ databasePath, execution, auth, webDirectory, ...optio
     scope.register(healthRoutes, { checkDatabase: () => database.checkReady() });
     const projectStore = createDrizzleProjectStore(database.db);
     scope.register(projectRoutes, { store: projectStore });
+    scope.register(serviceRoutes, {
+      store: createDrizzleServiceStore(database.db), projectExists: id => projectStore.findById(id) !== undefined,
+      getObserverStatus: () => serviceObserver?.getStatus() ?? { enabledKeys: new Set<string>(), errors: new Set<string>(), nextChecks: new Map<string, Date>() },
+    });
     const taskStore = createDrizzleTaskStore(database.db);
     scope.register(taskRoutes, {
       store: taskStore,

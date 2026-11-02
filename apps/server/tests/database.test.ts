@@ -4,7 +4,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
-import { projects, tasks } from "../src/db/schema.js";
+import { authSessions, projects, tasks } from "../src/db/schema.js";
 
 const migrationCount = JSON.parse(readFileSync(join(migrationsDirectory, "meta", "_journal.json"), "utf8")).entries.length;
 
@@ -119,6 +119,19 @@ test("rolls back a failed migration and leaves the existing data and migration h
 
 test("rejects a migration folder with missing history", () => {
   expect(() => connect(directory)).toThrow();
+});
+
+test("adds service observations to the authenticated task database without losing task or session records", () => {
+  const folder = join(directory, "before-services"); cpSync(migrationsDirectory, folder, { recursive: true });
+  const journalPath = join(folder, "meta", "_journal.json"); const journal = JSON.parse(readFileSync(journalPath, "utf8"));
+  journal.entries = journal.entries.slice(0, 10); writeFileSync(journalPath, JSON.stringify(journal));
+  const old = connect(folder); old.db.insert(projects).values(project).run();
+  old.db.insert(tasks).values({ id: "retained-task", projectId: project.id, instruction: "Preserve me", requestKey: "retained", createdAt: new Date() }).run();
+  const session = { id: "retained-session", generation: "generation", data: "{}", expiresAt: new Date(2000000000000) }; old.db.insert(authSessions).values(session).run(); old.close();
+  const upgraded = connect();
+  expect(upgraded.db.select().from(tasks).get()?.instruction).toBe("Preserve me"); expect(upgraded.db.select().from(authSessions).get()).toEqual(session);
+  expect(upgraded.client.prepare("SELECT * FROM service_targets").all()).toEqual([]); expect(upgraded.client.prepare("SELECT * FROM service_observations").all()).toEqual([]);
+  expect(upgraded.client.pragma("foreign_key_check")).toEqual([]); expect(() => upgraded.checkReady()).not.toThrow();
 });
 
 test("adds tasks to a projects-only database and preserves existing projects", () => {

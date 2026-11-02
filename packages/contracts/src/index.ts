@@ -10,13 +10,17 @@ import { Value } from "@sinclair/typebox/value";
 FormatRegistry.Set("uuid", (value) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
 );
-FormatRegistry.Set(
-  "date-time",
-  (value) =>
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+FormatRegistry.Set("date-time", (value) => {
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
       value,
-    ) && Number.isFinite(Date.parse(value)),
-);
+    ) ||
+    !Number.isFinite(Date.parse(value))
+  )
+    return false;
+  const day = value.slice(0, 10);
+  return new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) === day;
+});
 export function parseResponse<T extends TSchema>(
   schema: T,
   value: unknown,
@@ -201,4 +205,58 @@ export const sessionSchema = object({
 export type Session = Static<typeof sessionSchema>;
 export const loginSchema = object({
   password: Type.String({ minLength: 1, maxLength: 1024 }),
+});
+
+export const serviceSnapshotSchema = object({
+  observedAt: date,
+  processState: enumeration(["running", "stopped", "unknown"] as const),
+  activityState: enumeration([
+    "working",
+    "waiting",
+    "degraded",
+    "unknown",
+  ] as const),
+  lastSuccessAt: nullable(date),
+  nextExpectedAt: nullable(date),
+  errorCount: Type.Integer({ minimum: 0, maximum: 2147483647 }),
+  summary: Type.String({ maxLength: 500 }),
+});
+export type ServiceSnapshot = Static<typeof serviceSnapshotSchema>;
+export const serviceObservationSchema = object({
+  id,
+  receivedAt: date,
+  success: Type.Boolean(),
+  errorCode: nullable(text),
+  snapshot: nullable(serviceSnapshotSchema),
+});
+export type ServiceObservation = Static<typeof serviceObservationSchema>;
+export const serviceStates = [
+  "healthy",
+  "waiting",
+  "degraded",
+  "stopped",
+  "stale",
+  "unavailable",
+  "unknown",
+] as const;
+export type ServiceState = (typeof serviceStates)[number];
+export const serviceSchema = object({
+  key: text,
+  name: text,
+  projectId: id,
+  enabled: Type.Boolean(),
+  intervalMs: Type.Integer(),
+  staleAfterMs: Type.Integer(),
+  allowWaiting: Type.Boolean(),
+  activityTimeoutMs: nullable(Type.Integer()),
+  state: enumeration(serviceStates),
+  reason: text,
+  nextCheckAt: nullable(date),
+  latest: nullable(serviceObservationSchema),
+  lastSuccessful: nullable(serviceObservationSchema),
+});
+export type Service = Static<typeof serviceSchema>;
+export const servicesSchema = object({
+  services: Type.Array(serviceSchema),
+  checkedAt: date,
 });

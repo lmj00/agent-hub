@@ -5,7 +5,7 @@ export const executionConfigErrors = {
   AUTH_DIRECTORY_CHANGED: "Authentication directory changed; restart with reviewed configuration",
   WORKSPACE_CHANGED: "Workspace directory changed; restart with reviewed configuration",
   DATABASE_IN_WORKSPACE: "Application database must be outside the analysis workspace",
-  SERVER_SECRET_IN_WORKSPACE: "Server authentication config must be outside the analysis workspace",
+  SERVER_SECRET_IN_WORKSPACE: "Private server configuration must be outside the analysis workspace",
   CODEX_CONFIG_NOT_ALLOWED: "Use a dedicated Codex home with ChatGPT login only; user config, skills, plugins and hooks are not supported yet",
   CHATGPT_LOGIN_REQUIRED: "Log in with ChatGPT in the dedicated Codex home first",
   WORKSPACE_NOT_ALLOWED: "Workspace must be a prepared directory separate from authentication storage",

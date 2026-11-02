@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, openSync, readFileSync, realpathSync } from "node:fs";
+import { readPrivateJson } from "../../private-config.js";
 import type { PasswordHash } from "./password.js";
 
 export type AuthConfig = { sourcePath: string; origin: string; sessionSecret: string; password: PasswordHash };
@@ -13,14 +13,7 @@ export function validateOrigin(value: unknown): string {
 }
 
 export function loadAuthConfig(path: string): AuthConfig {
-  const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  let value: unknown;
-  try {
-    const stat = fstatSync(descriptor);
-    if (!stat.isFile() || stat.size > 8192 || (stat.mode & 0o077) !== 0) throw new Error("Authentication config must be a private regular file (chmod 600)");
-    try { value = JSON.parse(readFileSync(descriptor, "utf8")); }
-    catch { throw new Error("Authentication config must contain valid JSON"); }
-  } finally { closeSync(descriptor); }
+  const { value, sourcePath } = readPrivateJson(path, "Authentication config");
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid authentication config");
   const config = value as Record<string, unknown>;
   if (Object.keys(config).some(key => !["version", "origin", "sessionSecret", "password"].includes(key)) || config.version !== 1) throw new Error("Unsupported authentication config");
@@ -29,5 +22,5 @@ export function loadAuthConfig(path: string): AuthConfig {
   const password = config.password as Partial<PasswordHash> | undefined;
   if (!password || typeof password.salt !== "string" || !/^[a-f0-9]{32}$/.test(password.salt)
     || typeof password.hash !== "string" || !/^[a-f0-9]{128}$/.test(password.hash)) throw new Error("Invalid scrypt password hash");
-  return { sourcePath: realpathSync(path), origin, sessionSecret: config.sessionSecret, password: { salt: password.salt, hash: password.hash } };
+  return { sourcePath, origin, sessionSecret: config.sessionSecret, password: { salt: password.salt, hash: password.hash } };
 }

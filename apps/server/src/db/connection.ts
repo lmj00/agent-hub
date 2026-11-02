@@ -33,6 +33,8 @@ export function openDatabase(databasePath: string, migrationsFolder = migrations
         db.select().from(schema.providerGates).limit(1).all();
         db.select().from(schema.recoveryRequests).limit(1).all();
         db.select().from(schema.authSessions).limit(1).all();
+        db.select().from(schema.serviceTargets).limit(1).all();
+        db.select().from(schema.serviceObservations).limit(1).all();
       },
       close() {
         if (client.open) client.close();

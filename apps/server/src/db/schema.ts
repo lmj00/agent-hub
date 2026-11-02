@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { ServiceSnapshot } from "@agent-hub/contracts";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { taskStatuses } from "../modules/tasks/task-state.js";
 import { stopReasons, type ExecutionIdentity } from "../modules/execution/analysis.js";
@@ -123,6 +124,32 @@ export const authSessions = sqliteTable("auth_sessions", {
   data: text("data").notNull(),
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
 }, table => [index("auth_sessions_expiry_idx").on(table.expiresAt)]);
+
+export const serviceTargets = sqliteTable("service_targets", {
+  key: text("key").primaryKey().notNull(),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "restrict" }),
+  name: text("name").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  configured: integer("configured", { mode: "boolean" }).notNull(),
+  intervalMs: integer("interval_ms").notNull(),
+  staleAfterMs: integer("stale_after_ms").notNull(),
+  allowWaiting: integer("allow_waiting", { mode: "boolean" }).notNull(),
+  activityTimeoutMs: integer("activity_timeout_ms"),
+}, table => [index("service_targets_project_idx").on(table.projectId)]);
+
+export const serviceObservations = sqliteTable("service_observations", {
+  sequence: integer("sequence").primaryKey({ autoIncrement: true }),
+  id: text("id").notNull().unique(),
+  targetKey: text("target_key").notNull().references(() => serviceTargets.key, { onDelete: "restrict" }),
+  fingerprint: text("fingerprint").notNull(),
+  receivedAt: integer("received_at", { mode: "timestamp_ms" }).notNull(),
+  success: integer("success", { mode: "boolean" }).notNull(),
+  errorCode: text("error_code"),
+  snapshot: text("snapshot", { mode: "json" }).$type<ServiceSnapshot>(),
+}, table => [
+  index("service_observations_target_sequence_idx").on(table.targetKey, table.sequence),
+  check("service_observation_result_valid", sql`(${table.success} = 1 AND ${table.snapshot} IS NOT NULL AND json_valid(${table.snapshot}) AND ${table.errorCode} IS NULL) OR (${table.success} = 0 AND ${table.snapshot} IS NULL AND ${table.errorCode} IS NOT NULL)`),
+]);
 
 // 실행 루프의 소유권입니다. Run의 활성 상태와 별도로 유지하며 시간만으로 만료시키지 않습니다.
 export const executionOwner = sqliteTable("execution_owner", {

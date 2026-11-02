@@ -15,6 +15,7 @@ import { api, ApiError, errorMessage } from "./api.js";
 import { usePolling } from "./use-polling.js";
 import { dateTime, Status } from "./format.js";
 import { TaskDetail } from "./TaskDetail.js";
+import { ServicePanel } from "./ServicePanel.js";
 
 const queueLabels: Record<Queue["state"], string> = {
   disabled: "자동 실행 꺼짐",
@@ -134,6 +135,13 @@ export function Workspace({
             }}
             onExpired={onExpired}
           />
+          {project ? (
+            <details className="project-connection-info">
+              <summary>프로젝트 연결 정보</summary>
+              <p>서비스 관측 설정에 사용하는 프로젝트 ID입니다.</p>
+              <code>{project.id}</code>
+            </details>
+          ) : null}
           <div className="sidebar-note">
             <span className="eyebrow">현재 지원 범위</span>
             <p>읽기 전용 분석</p>
@@ -176,8 +184,15 @@ export function Workspace({
             />
           ) : null}
           {project ? (
+            <ServicePanel
+              key={`services:${project.id}`}
+              projectId={project.id}
+              onExpired={onExpired}
+            />
+          ) : null}
+          {project ? (
             <ProjectTasks
-              key={project.id}
+              key={`tasks:${project.id}`}
               project={project}
               taskId={taskId}
               setTaskId={setTaskId}

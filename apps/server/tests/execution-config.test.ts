@@ -63,7 +63,7 @@ test("server login secrets cannot be placed inside an AI workspace", () => {
   const config = loadExecutionConfig(file);
   const databasePath = join(directory, "hub.sqlite"); writeFileSync(databasePath, "");
   const secret = join(config.workspaces.get("example")!, "server-auth.json"); writeFileSync(secret, "{}");
-  expect(() => validateExecutionEnvironment(config, databasePath, [secret])).toThrow("Server authentication config");
+  expect(() => validateExecutionEnvironment(config, databasePath, [secret])).toThrow("Private server configuration");
   const outside = join(directory, "server-auth.json"); writeFileSync(outside, "{}");
   expect(() => validateExecutionEnvironment(config, databasePath, [outside])).not.toThrow();
 });

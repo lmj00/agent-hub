@@ -5,9 +5,10 @@ import { loadAuthConfig } from "./modules/auth/auth-config.js";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { loadServiceConfig } from "./modules/services/service-config.js";
 
 async function startServer() {
-  const { databasePath, executionConfigPath, authConfigPath, localApiOnly, ...listenOptions } = loadConfig(process.env);
+  const { databasePath, executionConfigPath, authConfigPath, serviceConfigPath, localApiOnly, ...listenOptions } = loadConfig(process.env);
   if (!authConfigPath && !localApiOnly) throw new Error("Set AUTH_CONFIG after pnpm auth:setup, or explicitly use LOCAL_API_ONLY=1 for local API development");
   const auth = authConfigPath ? loadAuthConfig(authConfigPath) : undefined;
   const webDirectory = fileURLToPath(new URL("../../web/dist/", import.meta.url));
@@ -16,6 +17,7 @@ async function startServer() {
     ...(auth ? { auth, trustProxy: auth.origin.startsWith("https:") ? "loopback" : false } : {}),
     ...(auth && existsSync(join(webDirectory, "index.html")) ? { webDirectory } : {}),
     ...(executionConfigPath ? { execution: { config: loadExecutionConfig(executionConfigPath) } } : {}),
+    ...(serviceConfigPath ? { services: loadServiceConfig(serviceConfigPath) } : {}),
   });
   if (localApiOnly) app.addHook("onRequest", async (request, reply) => {
     const host = request.headers.host ?? "";

@@ -14,6 +14,10 @@ import { buildApp } from "../../server/dist/app.js";
 import { hashPassword } from "../../server/dist/modules/auth/password.js";
 import { loadExecutionConfig } from "../../server/dist/modules/execution/execution-config.js";
 import { AnalysisError } from "../../server/dist/modules/execution/analysis.js";
+import { createServer } from "node:http";
+import { openDatabase } from "../../server/dist/db/connection.js";
+import { createDrizzleProjectStore } from "../../server/dist/modules/projects/drizzle-project-store.js";
+import { loadServiceConfig } from "../../server/dist/modules/services/service-config.js";
 
 const directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-browser-")));
 mkdirSync(join(directory, "workspace"));
@@ -80,9 +84,77 @@ const executor = {
     return new Date();
   },
 };
+const projectId = "00000000-0000-4000-8000-000000000001";
+const database = openDatabase(join(directory, "hub.sqlite"));
+createDrizzleProjectStore(database.db).save({
+  id: projectId,
+  name: "관측 예제",
+  workspaceKey: "example",
+  createdAt: new Date(),
+});
+database.close();
+let serviceMode = "waiting";
+const service = createServer((request, response) => {
+  if (
+    request.method === "POST" &&
+    /^\/fixture\/(waiting|failure|stale)$/.test(request.url ?? "")
+  ) {
+    serviceMode = request.url.split("/").at(-1);
+    response.end("fixture updated");
+    return;
+  }
+  if (request.method !== "GET" || request.url !== "/status") {
+    response.writeHead(404);
+    response.end();
+    return;
+  }
+  if (serviceMode === "failure") {
+    response.writeHead(503);
+    response.end();
+    return;
+  }
+  const now = Date.now();
+  response.writeHead(200, { "Content-Type": "application/json" });
+  response.end(
+    JSON.stringify({
+      observedAt: new Date(
+        now - (serviceMode === "stale" ? 60000 : 0),
+      ).toISOString(),
+      processState: "running",
+      activityState: "waiting",
+      lastSuccessAt: new Date(now - 3600000).toISOString(),
+      nextExpectedAt: null,
+      errorCount: 0,
+      summary: "새 학습 기록이 들어오기를 기다립니다.",
+    }),
+  );
+});
+await new Promise((resolve, reject) => {
+  service.once("error", reject);
+  service.listen(4321, "127.0.0.1", resolve);
+});
+const serviceFile = join(directory, "services.json");
+writeFileSync(
+  serviceFile,
+  JSON.stringify({
+    version: 1,
+    targets: [
+      {
+        key: "study-service",
+        projectId,
+        name: "학습 기록 처리",
+        url: "http://127.0.0.1:4321/status",
+        intervalMs: 1000,
+        staleAfterMs: 10000,
+      },
+    ],
+  }),
+  { mode: 0o600 },
+);
 const app = buildApp({
   databasePath: join(directory, "hub.sqlite"),
   auth,
+  services: loadServiceConfig(serviceFile),
   webDirectory: fileURLToPath(new URL("../dist/", import.meta.url)),
   execution: {
     config: loadExecutionConfig(join(directory, "execution.json")),
@@ -93,6 +165,8 @@ const app = buildApp({
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, async () => {
     await app.close();
+    service.closeAllConnections();
+    await new Promise((resolve) => service.close(resolve));
     rmSync(directory, { recursive: true, force: true });
     process.exit(0);
   });

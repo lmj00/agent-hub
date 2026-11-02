@@ -13,7 +13,7 @@ async function main() {
   const { values } = parseArgs({ options: { task: { type: "string" }, config: { type: "string" } } });
   if (!values.task || !values.config) throw new Error("Usage: pnpm task:run --task TASK_ID --config /path/to/execution.json");
   const config = loadExecutionConfig(values.config);
-  const { databasePath, authConfigPath } = loadConfig(process.env);
+  const { databasePath, authConfigPath, serviceConfigPath } = loadConfig(process.env);
   const database = openDatabase(databasePath);
   const controller = new AbortController();
   const cancel = () => controller.abort("user_cancel");
@@ -22,7 +22,7 @@ async function main() {
   process.once("SIGTERM", shutdown);
   let owner: ReturnType<typeof acquireExecutionOwner> | undefined;
   try {
-    validateExecutionEnvironment(config, databasePath, authConfigPath ? [authConfigPath] : []);
+    validateExecutionEnvironment(config, databasePath, [authConfigPath, serviceConfigPath].filter((path): path is string => path !== undefined));
     owner = acquireExecutionOwner(database.db);
     const task = createDrizzleTaskStore(database.db).findById(values.task);
     if (!task) throw new Error("Task not found");

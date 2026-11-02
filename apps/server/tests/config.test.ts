@@ -3,6 +3,10 @@ import { describe, expect, test } from "vitest";
 import { loadConfig } from "../src/config.js";
 
 describe("server configuration", () => {
+  test("resolves service observation config only when explicitly provided", () => {
+    expect(loadConfig({ SERVICE_CONFIG: ".local/services.json" }).serviceConfigPath).toBe(fileURLToPath(new URL("../../../.local/services.json", import.meta.url)));
+    for (const value of ["", " ", "bad\0path"]) expect(() => loadConfig({ SERVICE_CONFIG: value })).toThrow("SERVICE_CONFIG");
+  });
   test("authentication and explicit local-only access cannot be configured ambiguously", () => {
     expect(loadConfig({ AUTH_CONFIG: ".local/auth.json" }).authConfigPath).toBe(fileURLToPath(new URL("../../../.local/auth.json", import.meta.url)));
     expect(loadConfig({ LOCAL_API_ONLY: "1" }).localApiOnly).toBe(true);

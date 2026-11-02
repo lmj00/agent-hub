@@ -43,7 +43,7 @@ async function login(session?: Browser) {
 
 test("only liveness and authentication endpoints are public; private reads and writes require a session", async () => {
   expect((await app.inject({ method: "GET", url: "/health/live" })).statusCode).toBe(200);
-  for (const url of ["/health/ready", "/projects", "/execution", "/execution/provider-gate"]) {
+  for (const url of ["/health/ready", "/projects", "/execution", "/execution/provider-gate", "/projects/00000000-0000-4000-8000-000000000001/services"]) {
     const response = await app.inject({ method: "GET", url }); expect(response.statusCode).toBe(401);
     expect(response.headers["cache-control"]).toBe("no-store");
   }
