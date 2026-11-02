@@ -8,3 +8,9 @@ saveExact: true
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+
+# Temporary security overrides; remove when the parent packages adopt patched dependencies.
+overrides:
+  "@fastify/static>glob": "14.0.2"
+  "glob@14.0.2>minimatch": "11.0.1"
+  "@esbuild-kit/core-utils>esbuild": "0.25.12"
