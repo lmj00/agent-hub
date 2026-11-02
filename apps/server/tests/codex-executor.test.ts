@@ -50,14 +50,19 @@ test("does not treat a partial agent message as success", async () => {
   await expect(createCodexExecutor("/tmp/private-auth").analyze(request, () => {})).rejects.toMatchObject({ code: "provider_error" });
 });
 
-test("does not mark a broken sandbox runtime as successful analysis", async () => {
+test.each([
+  "bwrap: execvp /app/private-runtime/codex: No such file or directory",
+  "bwrap: No permissions to create a new namespace, likely because the kernel does not allow non-privileged user namespaces.",
+  "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
+])("does not mark a broken sandbox runtime as successful analysis: %s", async (message) => {
   fake.events = [
-    { type: "item.completed", item: { type: "command_execution", exit_code: 1, aggregated_output: "bwrap: execvp /app/private-runtime/codex: No such file or directory" } },
+    { type: "item.completed", item: { type: "command_execution", exit_code: 1, aggregated_output: message } },
     { type: "item.completed", item: { type: "agent_message", text: "Could not read project files." } },
     { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } },
   ];
   await expect(createCodexExecutor("/tmp/private-auth").analyze(request, () => {})).rejects.toMatchObject({ code: "unsupported_settings" });
   const options = codexOptions("/codex-home", "/workspace", "/usr/local/lib/codex/bin/codex");
+  expect(classifyCodexError(message)).toMatchObject({ code: "unsupported_settings", message: "unsupported_settings" });
   expect(options.codexPathOverride).toBe("/usr/local/lib/codex/bin/codex");
   expect(options.configOverrides?.[0]).toContain('"/codex-home"="deny"');
 });

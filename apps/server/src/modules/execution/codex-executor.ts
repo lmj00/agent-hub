@@ -1,5 +1,5 @@
 import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk";
-import { AnalysisError, classifyCodexError, redactOutput, type AnalysisExecutor, type AnalysisRequest, type AnalysisUsage } from "./analysis.js";
+import { AnalysisError, classifyCodexError, isSandboxSetupError, redactOutput, type AnalysisExecutor, type AnalysisRequest, type AnalysisUsage } from "./analysis.js";
 
 export function codexOptions(codexHome: string, workspace: string, executablePath?: string): CodexOptions {
   return {
@@ -61,7 +61,7 @@ export function createCodexExecutor(codexHome: string, executablePath?: string):
             await onEvent({ kind: `${event.type}:${event.item.type}` });
             if (event.type === "item.completed" && event.item.type === "agent_message") output = event.item.text;
             if (event.type === "item.completed" && event.item.type === "command_execution" &&
-              event.item.exit_code !== 0 && /bwrap: execvp .*: No such file or directory|Failed to execvp .*No such file or directory/.test(event.item.aggregated_output)) {
+              event.item.exit_code !== 0 && isSandboxSetupError(event.item.aggregated_output)) {
               policyFailure = new AnalysisError("unsupported_settings");
             }
             if (event.item.type === "mcp_tool_call" || (event.item.type === "file_change" && event.item.status === "completed")) {

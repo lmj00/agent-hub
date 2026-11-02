@@ -515,8 +515,15 @@ DB가 중단 요청을 저장하지 못하면 신호 전송까지 막지 않습�
 
 ## 공개 저장소의 자동 검사 — 2026-11-03
 
-**선택:** GitHub가 제공하는 Ubuntu 24.04 실행 서버에서 기존 검증 명령을 실행합니다. 로컬 검사에만 의존하면 다른 환경의 실패와 PR의 회귀를 놓칠 수 있어 타입·빌드·SQLite·컨테이너·화면 검사를 연결했습니다. 별도의 테스트 프레임워크나 개인 서버는 추가하지 않습니다.
+**선택:** GitHub가 제공하는 Ubuntu 22.04 실행 서버에서 기존 검증 명령을 실행합니다. 로컬 검사에만 의존하면 다른 환경의 실패와 PR의 회귀를 놓칠 수 있어 타입·빌드·SQLite·컨테이너·화면 검사를 연결했습니다. 별도의 테스트 프레임워크나 개인 서버는 추가하지 않습니다.
 
 Node.js는 `.nvmrc`, pnpm은 `packageManager` 값을 읽고 `--frozen-lockfile`로 설치합니다. [checkout](https://github.com/actions/checkout)·[setup-node](https://github.com/actions/setup-node) 등 외부 Action은 전체 커밋 ID로 고정하며 저장소 권한은 읽기만 허용합니다. [Playwright의 CI 안내](https://playwright.dev/docs/ci-intro)에 따라 Chromium과 OS 의존성을 설치하고, 이미 빌드한 앱에 가짜 AI 실행기를 연결합니다. Docker 이미지를 먼저 빌드해 첫 다운로드 시간을 개별 테스트의 제한 시간과 분리합니다.
 
 개인 인증을 가진 자체 실행 서버와 `pull_request_target`은 사용하지 않습니다. 컨테이너 테스트는 실제 CLI의 파일 권한 경계까지 검사하지만 모델을 호출하지 않습니다. 실제 계정·모델 품질·AWS 운영 검증은 계속 별도로 수행합니다. CI 구성 추가 자체를 원격 실행 성공으로 간주하지 않으며, 해당 커밋의 Actions 결과로 확인합니다.
+
+
+### Linux 호스트의 샌드박스 제약 확인
+
+첫 Ubuntu 24.04 CI에서는 서버 테스트 312개 중 311개와 컨테이너 수명 검사 13개가 통과했으나, 실제 Codex CLI의 샌드박스 검사 1개가 실패했습니다. 오류는 `bwrap: No permissions to create a new namespace`였고 모델이나 실제 인증을 사용하기 전에 발생했습니다. [Ubuntu의 사용자 네임스페이스 제한](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/)과 같은 호스트 정책 영향을 받는 경로입니다. 이 실행만으로 정확히 어느 커널·보안 필터가 거부했는지까지 분리해 확인한 것은 아닙니다.
+
+전체 권한 검사는 Ubuntu 22.04에서 다시 실행하도록 바꿨으며, 호스트 보안 설정을 끄거나 컨테이너에 특권을 추가하지 않았습니다. Ubuntu 24.04 배포를 지원한다고 표시하지 않고 해당 환경의 격리 설정 검증을 6단계의 남은 항목으로 둡니다. 실행 어댑터도 네임스페이스·loopback 초기화 실패를 `unsupported_settings`로 분류하도록 보완했습니다. 모델이 그 뒤 보고서를 반환하더라도 성공으로 처리하지 않으며, 기존 설정 차단·종료 확인 절차를 따릅니다.

@@ -40,7 +40,12 @@ export function redactOutput(text: string): string {
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED]");
 }
 
+export function isSandboxSetupError(message: string): boolean {
+  return /bwrap: execvp .*: No such file or directory|Failed to execvp .*No such file or directory|bwrap: No permissions to create a new namespace|bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted/.test(message);
+}
+
 export function classifyCodexError(message: string): AnalysisError {
+  if (isSandboxSetupError(message)) return new AnalysisError("unsupported_settings");
   if (/usage limit|quota|rate.?limit|too many requests|\b429\b/i.test(message)) return new AnalysisError("capacity", false, providerRetryAt(message));
   if (/unauthori[sz]ed|\b401\b|authentication|not logged in|sign in|refresh.token/i.test(message)) return new AnalysisError("authentication");
   if (/unsupported|not supported|model.*not found|invalid.*model|invalid.*config/i.test(message)) return new AnalysisError("unsupported_settings");
