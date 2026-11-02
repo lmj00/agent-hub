@@ -72,7 +72,7 @@ export function createContainerExecutor(image: string, codexHome: string): Analy
           else if (code !== 0 || buffer || !result) reject(new AnalysisError("provider_error", true));
           else resolve(result);
         });
-        child.stdin!.end(JSON.stringify({ instruction: request.instruction, model: request.model }) + "\n");
+        child.stdin!.end(JSON.stringify({ instruction: request.instruction, model: request.model, effort: request.effort ?? "medium" }) + "\n");
       });
     },
     async confirmTermination(runId) {

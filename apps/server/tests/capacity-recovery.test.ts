@@ -41,7 +41,7 @@ const policy = {
 function connect(config = policy) {
   database = openDatabase(join(directory, "hub.sqlite"));
   owner = acquireExecutionOwner(database.db);
-  store = createDrizzleRunStore(database.db, owner.token, retryPolicy, config);
+  store = createDrizzleRunStore(database.db, owner.token, { automaticRecovery: retryPolicy, capacityRecovery: config });
   recovery = createDrizzleRecoveryStore(database.db, owner.token);
   capacity = createCapacityRecovery({
     db: database.db,
@@ -424,7 +424,7 @@ test("a reservation storage failure rolls back both the gate and the queued task
 });
 
 test("legacy capacity blocks adopt a bounded policy without changing provider retry evidence", () => {
-  store = createDrizzleRunStore(database.db, owner.token, retryPolicy);
+  store = createDrizzleRunStore(database.db, owner.token, { automaticRecovery: retryPolicy });
   blocked();
   expect(gate().capacityState).toBeNull();
   expect(capacity.tick()).toBe(true);

@@ -32,6 +32,7 @@ writeFileSync(
     model: "fixture-model",
     codexHome: "codex",
     timeoutMs: 60000,
+    effortPolicy: { mode: "adaptive", maxEffort: "xhigh" },
     automaticRecovery: {
       initialDelayMs: 5000,
       jitterRatio: 0,

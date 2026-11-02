@@ -430,7 +430,11 @@ function RunRecord({
         <div>
           <dt>추론 강도</dt>
           <dd>
-            {run.effort} <small>현재 분석 단계의 고정 설정</small>
+            {run.effort}{" "}
+            <small>
+              {run.steps.at(-1)?.effortReason ??
+                "이전 버전의 실행으로 선택 이유가 기록되지 않았습니다."}
+            </small>
           </dd>
         </div>
       </dl>

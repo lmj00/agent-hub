@@ -57,6 +57,8 @@ export const taskStatuses = [
   "waiting_retry",
 ] as const;
 export type TaskStatus = (typeof taskStatuses)[number];
+export const efforts = ["medium", "high", "xhigh"] as const;
+export type Effort = (typeof efforts)[number];
 export const stopReasons = [
   "user_cancel",
   "server_shutdown",
@@ -147,6 +149,9 @@ export const runDetailsSchema = object({
       sequence: Type.Integer(),
       status,
       sessionId: nullable(text),
+      effort: nullable(enumeration(efforts)),
+      effortReason: nullable(text),
+      effortPolicyVersion: nullable(Type.Integer()),
       usage: nullable(
         object({
           inputTokens: Type.Integer(),

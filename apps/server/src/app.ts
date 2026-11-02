@@ -79,7 +79,7 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
           recovery = createDrizzleRecoveryStore(database.db, owner.token);
           queue = createExecutionQueue({
             ...execution,
-            store: createDrizzleRunStore(database.db, owner.token, execution.config.automaticRecovery, execution.config.capacityRecovery),
+            store: createDrizzleRunStore(database.db, owner.token, execution.config),
             executor,
             ...(execution.config.automaticRecovery ? { automaticRecovery: createAutomaticRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()], recovery }) } : {}),
             ...(execution.config.automaticRecovery && execution.config.capacityRecovery ? { capacityRecovery: createCapacityRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.capacityRecovery, retryPolicy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()] }) } : {}),

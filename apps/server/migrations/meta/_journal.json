@@ -92,6 +92,13 @@
       "when": 1793655842300,
       "tag": "0012_capacity_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1793656572402,
+      "tag": "0013_effort_selection",
+      "breakpoints": true
     }
   ]
 }

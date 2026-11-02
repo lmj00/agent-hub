@@ -19,5 +19,8 @@ COPY --from=build /app/apps/server/node_modules ./apps/server/node_modules
 COPY --from=build /app/apps/server/dist ./apps/server/dist
 COPY --from=build /app/apps/server/package.json ./apps/server/package.json
 COPY --from=build /app/packages/contracts ./packages/contracts
+COPY docker/install-codex-runtime.mjs ./apps/server/install-codex-runtime.mjs
+RUN node ./apps/server/install-codex-runtime.mjs && rm ./apps/server/install-codex-runtime.mjs
+ENV PATH="/usr/local/lib/codex/codex-path:${PATH}"
 USER node
 ENTRYPOINT ["node", "/app/apps/server/dist/modules/execution/analysis-runner.js"]

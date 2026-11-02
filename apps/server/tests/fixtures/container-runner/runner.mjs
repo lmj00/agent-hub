@@ -27,6 +27,6 @@ if (request.instruction === "wait" || (request.instruction === "wait-once" && !e
   console.log(JSON.stringify({ type: "error", code: "capacity", retryAt: "2030-01-01T00:00:00.000Z" }));
   process.exit(0);
 } else {
-  console.log(JSON.stringify({ type: "result", result: { output: "fixture report", usage: null } }));
+  console.log(JSON.stringify({ type: "result", result: { output: request.instruction.includes("effort-report") ? `applied effort: ${request.effort}` : "fixture report", usage: null } }));
   process.exit(0);
 }

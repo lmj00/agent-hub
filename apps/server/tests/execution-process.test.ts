@@ -1,3 +1,4 @@
+import { parseEffortPolicy } from "../src/modules/execution/effort-policy.js";
 import { execFile, fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
@@ -54,6 +55,19 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     }
     rmSync(directory, { recursive: true, force: true });
   });
+
+  test("passes every allowed effort through the real container protocol", async () => {
+    const selected = createDrizzleRunStore(database.db, undefined, { effortPolicy: parseEffortPolicy({}) });
+    const projectId = database.db.select().from(tasks).get()!.projectId;
+    try {
+      for (const [instruction, effort] of [["effort-report", "medium"], ["effort-report 동시성", "high"], ["effort-report 여러 시스템의 복잡한 원인", "xhigh"]]) {
+        const id = randomUUID(); database.db.insert(tasks).values({ id, projectId, instruction: instruction!, requestKey: id, createdAt: new Date() }).run();
+        const result = await runTask({ taskId: id, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, selected, createContainerExecutor(image, home));
+        expect(result).toMatchObject({ status: "succeeded", result: `applied effort: ${effort}`, terminationConfirmedAt: expect.any(Date) });
+        expect(selected.findById(result.runId)?.steps[0]?.effort).toBe(effort);
+      }
+    } finally { for (const row of database.db.select().from(runs).all()) if (row.execution) identities.push(row.execution); }
+  }, 20000);
 
   test("records termination only after detached descendants stop, then removes the container", async () => {
     const outcome = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, createContainerExecutor(image, home));

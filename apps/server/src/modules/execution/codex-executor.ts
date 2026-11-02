@@ -1,8 +1,9 @@
 import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk";
 import { AnalysisError, classifyCodexError, redactOutput, type AnalysisExecutor, type AnalysisRequest, type AnalysisUsage } from "./analysis.js";
 
-export function codexOptions(codexHome: string, workspace: string): CodexOptions {
+export function codexOptions(codexHome: string, workspace: string, executablePath?: string): CodexOptions {
   return {
+    ...(executablePath ? { codexPathOverride: executablePath } : {}),
     // API 키나 서버의 다른 자격 증명은 자식 프로세스로 전달하지 않습니다.
     env: { HOME: codexHome, PATH: process.env.PATH ?? "/usr/bin:/bin", CODEX_HOME: codexHome },
     config: {
@@ -14,7 +15,7 @@ export function codexOptions(codexHome: string, workspace: string): CodexOptions
         apps: false, plugins: false, remote_plugin: false, plugin_discovery_prefetch: false,
         skip_host_skill_discovery: true, skill_search: false, skill_mcp_dependency_install: false, shell_snapshot: false,
       },
-      shell_environment_policy: { inherit: "none" },
+      shell_environment_policy: { inherit: "none", set: { PATH: process.env.PATH ?? "/usr/bin:/bin" } },
     },
     configOverrides: [
       `permissions.hub-readonly.filesystem={":root"="deny",":minimal"="read",${JSON.stringify(workspace)}="read",${JSON.stringify(codexHome)}="deny"}`,
@@ -28,17 +29,17 @@ export function threadOptions(request: AnalysisRequest): ThreadOptions {
     model: request.model,
     workingDirectory: request.workspace,
     skipGitRepoCheck: true,
-    modelReasoningEffort: "medium",
+    modelReasoningEffort: request.effort ?? "medium",
     approvalPolicy: "never",
     webSearchMode: "disabled",
     // sandboxMode는 위 권한 프로필을 덮어쓰므로 함께 지정하지 않습니다.
   };
 }
 
-export function createCodexExecutor(codexHome: string): AnalysisExecutor {
+export function createCodexExecutor(codexHome: string, executablePath?: string): AnalysisExecutor {
   return {
     async analyze(request, onEvent) {
-      const codex = new Codex(codexOptions(codexHome, request.workspace));
+      const codex = new Codex(codexOptions(codexHome, request.workspace, executablePath));
       const thread = codex.startThread(threadOptions(request));
       let output = "";
       let usage: AnalysisUsage | null = null;
@@ -59,6 +60,10 @@ export function createCodexExecutor(codexHome: string): AnalysisExecutor {
             // 명령 원문·도구 인자·추론 텍스트는 기록하지 않습니다.
             onEvent({ kind: `${event.type}:${event.item.type}` });
             if (event.type === "item.completed" && event.item.type === "agent_message") output = event.item.text;
+            if (event.type === "item.completed" && event.item.type === "command_execution" &&
+              event.item.exit_code !== 0 && /bwrap: execvp .*: No such file or directory|Failed to execvp .*No such file or directory/.test(event.item.aggregated_output)) {
+              policyFailure = new AnalysisError("unsupported_settings");
+            }
             if (event.item.type === "mcp_tool_call" || (event.item.type === "file_change" && event.item.status === "completed")) {
               policyFailure = new AnalysisError("unsupported_settings");
             }

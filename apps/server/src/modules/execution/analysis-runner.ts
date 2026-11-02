@@ -1,3 +1,4 @@
+import { efforts, type Effort } from "@agent-hub/contracts";
 import { createInterface } from "node:readline";
 import { AnalysisError } from "./analysis.js";
 import { createCodexExecutor } from "./codex-executor.js";
@@ -9,13 +10,15 @@ async function main() {
   let line: string | undefined;
   for await (const value of input) { line = value; break; }
   if (!line || Buffer.byteLength(line) > 65536) throw new Error("Invalid runner input");
-  const request = JSON.parse(line) as { instruction?: unknown; model?: unknown };
+  const request = JSON.parse(line) as { instruction?: unknown; model?: unknown; effort?: unknown };
   if (typeof request.instruction !== "string" || typeof request.model !== "string") throw new Error("Invalid runner input");
+  const effort = request.effort ?? "medium";
+  if (!efforts.includes(effort as Effort)) throw new AnalysisError("unsupported_settings");
   const controller = new AbortController();
   process.once("SIGTERM", () => controller.abort());
   try {
-    const result = await createCodexExecutor("/codex-home").analyze({
-      instruction: request.instruction, model: request.model, workspace: "/workspace", signal: controller.signal,
+    const result = await createCodexExecutor("/codex-home", "/usr/local/lib/codex/bin/codex").analyze({
+      instruction: request.instruction, model: request.model, effort: effort as Effort, workspace: "/workspace", signal: controller.signal,
     }, event => send({ type: "event", event }));
     send({ type: "result", result });
   } catch (error) {

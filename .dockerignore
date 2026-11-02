@@ -19,3 +19,4 @@
 !packages/contracts/src/**
 !docker/
 !docker/analysis-runner.Dockerfile
+!docker/install-codex-runtime.mjs

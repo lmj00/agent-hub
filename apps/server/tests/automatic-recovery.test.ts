@@ -36,7 +36,7 @@ let policy: RetryPolicy;
 function connect() {
   database = openDatabase(join(directory, "hub.sqlite"));
   owner = acquireExecutionOwner(database.db);
-  store = createDrizzleRunStore(database.db, owner.token, policy);
+  store = createDrizzleRunStore(database.db, owner.token, { automaticRecovery: policy });
   recovery = createDrizzleRecoveryStore(database.db, owner.token);
   automatic = createAutomaticRecovery({
     db: database.db,

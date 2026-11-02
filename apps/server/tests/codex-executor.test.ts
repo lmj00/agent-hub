@@ -23,6 +23,7 @@ test("uses explicit ChatGPT auth, scoped read-only permissions, medium effort an
     plugins: false, remote_plugin: false, plugin_discovery_prefetch: false,
   });
   expect(options.config?.forced_login_method).toBe("chatgpt");
+  expect(options.config?.shell_environment_policy).toEqual({ inherit: "none", set: { PATH: options.env?.PATH } });
   expect(options.configOverrides?.[0]).toContain('":root"="deny"');
   expect(options.configOverrides?.[0]).toContain('"/tmp/prepared"="read"');
   expect(options.configOverrides?.[0]).toContain('"/tmp/private-auth"="deny"');
@@ -49,6 +50,18 @@ test("does not treat a partial agent message as success", async () => {
   await expect(createCodexExecutor("/tmp/private-auth").analyze(request, () => {})).rejects.toMatchObject({ code: "provider_error" });
 });
 
+test("does not mark a broken sandbox runtime as successful analysis", async () => {
+  fake.events = [
+    { type: "item.completed", item: { type: "command_execution", exit_code: 1, aggregated_output: "bwrap: execvp /app/private-runtime/codex: No such file or directory" } },
+    { type: "item.completed", item: { type: "agent_message", text: "Could not read project files." } },
+    { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } },
+  ];
+  await expect(createCodexExecutor("/tmp/private-auth").analyze(request, () => {})).rejects.toMatchObject({ code: "unsupported_settings" });
+  const options = codexOptions("/codex-home", "/workspace", "/usr/local/lib/codex/bin/codex");
+  expect(options.codexPathOverride).toBe("/usr/local/lib/codex/bin/codex");
+  expect(options.configOverrides?.[0]).toContain('"/codex-home"="deny"');
+});
+
 test("classifies a failed turn without returning its raw error", async () => {
   fake.events = [{ type: "turn.failed", error: { message: "Usage limit reached: sk-fixture_secret" } }];
   await expect(createCodexExecutor("/tmp/private-auth").analyze(request, () => {})).rejects.toMatchObject({ code: "capacity", message: "capacity" });
@@ -73,4 +86,16 @@ test("a reconnected completed turn succeeds but does not erase a forbidden tool 
   await expect(createCodexExecutor("/tmp/private-auth").analyze(request, () => {})).resolves.toMatchObject({ output: "Recovered report" });
   fake.events.unshift({ type: "item.completed", item: { type: "file_change", status: "completed" } });
   await expect(createCodexExecutor("/tmp/private-auth").analyze(request, () => {})).rejects.toMatchObject({ code: "unsupported_settings" });
+});
+
+test("passes the chosen effort to the actual SDK thread options", async () => {
+  for (const effort of ["medium", "high", "xhigh"] as const) {
+    fake.events = [
+      { type: "thread.started", thread_id: "effort-fixture" },
+      { type: "item.completed", item: { type: "agent_message", text: "Result" } },
+      { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } },
+    ];
+    await createCodexExecutor("/tmp/private-auth").analyze({ ...request, effort }, () => {});
+    expect(fake.start).toHaveBeenLastCalledWith(expect.objectContaining({ modelReasoningEffort: effort }));
+  }
 });

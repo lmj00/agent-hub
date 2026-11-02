@@ -1,6 +1,7 @@
-import type { CapacityPolicy } from "./capacity-policy.js";
+import type { ExecutionConfig } from "./execution-config.js";
+import { defaultEffortPolicy, selectInitialEffort } from "./effort-policy.js";
 import { ensureRetryState } from "./retry-state-store.js";
-import { retryLimitReason, type RetryPolicy } from "./retry-policy.js";
+import { retryLimitReason } from "./retry-policy.js";
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
@@ -13,7 +14,7 @@ import { saveRunCompletion } from "./run-completion-store.js";
 
 export const unresolvedRun = sql`${runs.status} = 'running' OR (${runs.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${runs.terminationConfirmedAt} IS NULL)`;
 
-export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string, retryPolicy?: RetryPolicy, capacityPolicy?: CapacityPolicy) {
+export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string, policies: Pick<ExecutionConfig, "automaticRecovery" | "capacityRecovery" | "effortPolicy"> = {}) {
   const instanceId = ownerToken ?? randomUUID();
   type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -59,7 +60,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
       const id = randomUUID();
       const now = new Date();
       const attempt = (tx.select({ value: sql<number>`max(${runs.attempt})` }).from(runs).where(eq(runs.taskId, task.id)).get()?.value ?? 0) + 1;
-      const retryState = ensureRetryState(tx, task.id, retryPolicy);
+      const retryState = ensureRetryState(tx, task.id, policies.automaticRecovery);
       if (retryState) {
         const reason = attempt > 1 ? retryLimitReason(retryState) : retryState.totalRunMs >= retryState.policy.maxTotalRunMs ? "task_time_limit" : null;
         if (reason) {
@@ -70,12 +71,14 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         tx.update(tasks).set({ retryState: { ...retryState, retries: retryState.retries + (attempt > 1 ? 1 : 0), nextAttemptAt: null, reason: null } }).where(eq(tasks.id, task.id)).run();
       }
       tx.update(tasks).set({ status: "running" }).where(eq(tasks.id, task.id)).run();
-      tx.insert(runs).values({ id, taskId: task.id, attempt, instanceId, status: "running", model, effort: "medium", startedAt: now, lastActivityAt: now,
+      const effortPolicy = policies.effortPolicy ?? defaultEffortPolicy;
+      const effortSelection = selectInitialEffort(task.instruction, effortPolicy);
+      tx.insert(runs).values({ id, taskId: task.id, attempt, instanceId, status: "running", model, effort: effortSelection.effort, effortPolicy, startedAt: now, lastActivityAt: now,
         providerGateVersion: probing ? gate.version : null }).run();
       if (probing) tx.update(providerGates).set({ probeRunId: id, ...(gate.reason === "capacity" && gate.capacityState ? { capacityState: { ...gate.capacityState, checks: gate.capacityState.checks + 1, nextCheckAt: null, reason: "checking" } } : {}) }).where(eq(providerGates.scope, providerScope)).run();
-      tx.insert(steps).values({ id: randomUUID(), runId: id, sequence: 1, status: "running", startedAt: now }).run();
+      tx.insert(steps).values({ id: randomUUID(), runId: id, sequence: 1, status: "running", startedAt: now, effort: effortSelection.effort, effortReason: effortSelection.reason, effortPolicyVersion: effortSelection.policyVersion }).run();
       tx.insert(events).values({ id: randomUUID(), runId: id, sequence: 1, kind: "run.started", createdAt: now }).run();
-      return { kind: "claimed", run: { id, taskId: task.id, instruction: task.instruction, ...(retryState ? { remainingRunMs: Math.max(1, retryState.policy.maxTotalRunMs - retryState.totalRunMs) } : {}), ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
+      return { kind: "claimed", run: { id, taskId: task.id, instruction: task.instruction, effort: effortSelection.effort, ...(retryState ? { remainingRunMs: Math.max(1, retryState.policy.maxTotalRunMs - retryState.totalRunMs) } : {}), ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
     }, { behavior: "immediate" });
   }
 
@@ -139,7 +142,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         completion = settleStoppedCompletion(completion, run.stopReason, task.cancelRequestedAt !== null);
         const now = new Date();
         saveRunCompletion(tx, run, completion, now);
-        recordProviderOutcome(tx, run, completion, now, capacityPolicy);
+        recordProviderOutcome(tx, run, completion, now, policies.capacityRecovery);
         return completion;
       }, { behavior: "immediate" });
     },
@@ -155,7 +158,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         startedAt: run.startedAt, finishedAt: run.finishedAt, lastActivityAt: run.lastActivityAt,
         result: run.result, errorCode: run.errorCode,
         stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt, terminationConfirmedAt: run.terminationConfirmedAt, retryAt: run.retryAt,
-        steps: db.select({ sequence: steps.sequence, status: steps.status, sessionId: steps.sessionId, usage: steps.usage, startedAt: steps.startedAt, finishedAt: steps.finishedAt })
+        steps: db.select({ sequence: steps.sequence, status: steps.status, sessionId: steps.sessionId, effort: steps.effort, effortReason: steps.effortReason, effortPolicyVersion: steps.effortPolicyVersion, usage: steps.usage, startedAt: steps.startedAt, finishedAt: steps.finishedAt })
           .from(steps).where(eq(steps.runId, id)).orderBy(asc(steps.sequence)).all(),
         events: db.select({ sequence: events.sequence, kind: events.kind, createdAt: events.createdAt })
           .from(events).where(eq(events.runId, id)).orderBy(asc(events.sequence)).all(),

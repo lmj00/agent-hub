@@ -1,8 +1,9 @@
+import type { Effort } from "@agent-hub/contracts";
 import { AnalysisError, redactOutput, signalStopReason, type AnalysisEvent, type AnalysisExecutor, type AnalysisUsage, type StopReason } from "./analysis.js";
 import type { TaskStatus } from "../tasks/task-state.js";
 import type { ProviderGateView } from "./provider-gate.js";
 
-export type ClaimedRun = { id: string; taskId: string; instruction: string; providerCheck?: boolean; remainingRunMs?: number };
+export type ClaimedRun = { id: string; taskId: string; instruction: string; effort?: Effort; providerCheck?: boolean; remainingRunMs?: number };
 export type RunCompletion = {
   status: Exclude<TaskStatus, "queued" | "running">;
   result: string | null;
@@ -51,7 +52,7 @@ export type RunDetails = RunSummary & {
   lastActivityAt: Date; result: string | null; errorCode: string | null;
   stopReason: StopReason | null; stopRequestedAt: Date | null; terminationConfirmedAt: Date | null;
   retryAt: Date | null;
-  steps: { sequence: number; status: TaskStatus; sessionId: string | null; usage: AnalysisUsage | null; startedAt: Date; finishedAt: Date | null }[];
+  steps: { sequence: number; status: TaskStatus; sessionId: string | null; effort: Effort | null; effortReason: string | null; effortPolicyVersion: number | null; usage: AnalysisUsage | null; startedAt: Date; finishedAt: Date | null }[];
   events: { sequence: number; kind: string; createdAt: Date }[];
 };
 export type RunQueries = {
@@ -105,7 +106,7 @@ export async function runClaimedTask(
     // 중단 신호에 응답하지 않는 실행도 기다림을 끝냅니다. Promise.race는 뒤늦은 실패도 처리합니다.
     const result = await Promise.race([
       executor.analyze({
-        instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal, runId: run.id,
+        instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal, runId: run.id, effort: run.effort ?? "medium",
       }, (event) => {
         if (acceptingEvents && !controller.signal.aborted) store.record(run.id, event);
       }),

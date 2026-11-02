@@ -50,7 +50,11 @@ test("registers projects and tasks, escapes model output, and separates waiting,
   });
   await login(page);
   await createProject(page, "언어 공부 앱");
-  await createTask(page, "코드 구조를 분석해 줘.");
+  await createTask(page, "여러 시스템의 복잡한 원인과 코드 구조를 분석해 줘.");
+  await expect(page.locator(".run-facts")).toContainText("xhigh");
+  await expect(page.locator(".run-facts")).toContainText(
+    "여러 시스템의 복잡한 원인 분석",
+  );
   await expect(page.locator(".analysis-result")).toContainText("<script>");
   await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
   expect(await page.evaluate(() => "unwanted" in window)).toBe(false);
