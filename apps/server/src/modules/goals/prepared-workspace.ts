@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
   lstatSync,
@@ -9,6 +8,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import {
+  git,
+  sourceRevision,
+  readGitTree,
+  readGitBlobs,
+  safeGitPath,
+  type GitEntry,
+} from "./workspace-git.js";
 import { isWithin } from "../execution/execution-config.js";
 
 export type GoalScope = {
@@ -32,67 +39,6 @@ const maxFiles = 500,
   maxFileBytes = 1048576,
   maxBytes = 8 * 1048576;
 const marker = ".hub-prepared-input.json";
-const gitEnv = {
-  PATH: process.env.PATH ?? "/usr/bin:/bin",
-  LANG: "C",
-  LC_ALL: "C",
-  GIT_CONFIG_NOSYSTEM: "1",
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_TERMINAL_PROMPT: "0",
-  GIT_OPTIONAL_LOCKS: "0",
-  GIT_NO_REPLACE_OBJECTS: "1",
-  GIT_NO_LAZY_FETCH: "1",
-  GIT_ALLOW_PROTOCOL: "",
-};
-const gitOptions = [
-  "-c",
-  "core.fsmonitor=false",
-  "-c",
-  "core.untrackedCache=false",
-  "-c",
-  "core.hooksPath=/dev/null",
-  "-c",
-  "core.attributesFile=/dev/null",
-];
-
-function git(
-  source: string,
-  args: string[],
-  signal: AbortSignal,
-  input?: string,
-): Promise<Buffer> {
-  return new Promise((accept, reject) => {
-    const child = execFile(
-      "git",
-      [...gitOptions, ...args],
-      {
-        cwd: source,
-        env: gitEnv,
-        signal,
-        timeout: 5000,
-        killSignal: "SIGKILL",
-        maxBuffer: maxBytes + 1048576,
-        encoding: "buffer",
-      },
-      (error, stdout) =>
-        error
-          ? reject(new Error("Unable to read prepared Git source"))
-          : accept(stdout),
-    );
-    child.stdin?.on("error", () => child.kill("SIGKILL"));
-    child.stdin?.end(input);
-  });
-}
-function safePath(path: string) {
-  return (
-    path !== "" &&
-    !path.startsWith("/") &&
-    !/[\\\x00-\x1f]/.test(path) &&
-    path
-      .split("/")
-      .every((part) => part !== "." && part !== ".." && part !== "")
-  );
-}
 const contains = (parent: string, child: string) =>
   parent === "." || parent === child || child.startsWith(`${parent}/`);
 export function allowedGoalPath(
@@ -100,7 +46,7 @@ export function allowedGoalPath(
   scope: Pick<GoalScope, "allowedPaths" | "excludedPaths">,
 ) {
   return (
-    safePath(path) &&
+    safeGitPath(path) &&
     scope.allowedPaths.some((parent) => contains(parent, path)) &&
     !scope.excludedPaths.some((parent) => contains(parent, path))
   );
@@ -118,7 +64,43 @@ export function privateInputPath(path: string) {
         ),
     );
 }
-function privateDirectory(path: string) {
+export type ScopedGitFile = {
+  path: string;
+  blob: string;
+  bytes: number;
+  mode: "100644" | "100755";
+};
+export function scopedGitFiles(
+  entries: GitEntry[],
+  scope: GoalScope,
+): ScopedGitFile[] {
+  const files: ScopedGitFile[] = [];
+  let total = 0;
+  for (const entry of entries) {
+    if (
+      entry.type === "tree" ||
+      !allowedGoalPath(entry.path, scope) ||
+      privateInputPath(entry.path)
+    )
+      continue;
+    if (
+      (entry.mode !== "100644" && entry.mode !== "100755") ||
+      entry.type !== "blob"
+    )
+      throw new Error("Goal scope contains a symlink or submodule");
+    const bytes = entry.bytes;
+    if (
+      bytes === null ||
+      bytes > maxFileBytes ||
+      (total += bytes) > maxBytes ||
+      files.length >= maxFiles
+    )
+      throw new Error("Prepared input exceeds file or byte limits");
+    files.push({ path: entry.path, blob: entry.blob, bytes, mode: entry.mode });
+  }
+  return files;
+}
+export function privateDirectory(path: string) {
   try {
     mkdirSync(path, { mode: 0o700 });
   } catch (error) {
@@ -171,51 +153,6 @@ export function inputIntent(
     files: [],
   };
 }
-async function sourceRevision(source: string, signal: AbortSignal) {
-  // Even status may execute a repository's clean filter. Inspect names without
-  // returning config values, and reject filters before touching the worktree.
-  const configNames = (
-    await git(source, ["config", "--null", "--name-only", "--list"], signal)
-  )
-    .toString()
-    .split("\0");
-  if (configNames.some((name) => /^filter\./i.test(name)))
-    throw new Error("Goal source cannot configure Git filters");
-  const top = (await git(source, ["rev-parse", "--show-toplevel"], signal))
-    .toString()
-    .trim();
-  if (realpathSync(top) !== source)
-    throw new Error("Goal source must be a Git working tree root");
-  const tracked = (await git(source, ["ls-files", "-v", "-z"], signal))
-    .toString()
-    .split("\0")
-    .filter(Boolean);
-  if (tracked.some((entry) => /^[a-zS]/.test(entry)))
-    throw new Error("Goal source cannot hide worktree changes");
-  const status = await git(
-    source,
-    [
-      "status",
-      "--porcelain=v1",
-      "-z",
-      "--untracked-files=normal",
-      "--ignore-submodules=all",
-    ],
-    signal,
-  );
-  if (status.length)
-    throw new Error(
-      "Goal source must have committed changes before preparation",
-    );
-  const revision = (
-    await git(source, ["rev-parse", "--verify", "HEAD"], signal)
-  )
-    .toString()
-    .trim();
-  if (!/^[a-f0-9]{40,64}$/.test(revision))
-    throw new Error("Goal source requires an initial commit");
-  return revision;
-}
 export async function assertSourceUnchanged(
   input: PreparedInput,
   signal: AbortSignal,
@@ -240,77 +177,18 @@ export async function prepareWorkspace(
     { mode: 0o600, flag: "wx" },
   );
   const revision = await sourceRevision(intent.source, signal);
-  const tree = await git(
-    intent.source,
-    ["ls-tree", "-r", "-l", "-z", "--full-tree", revision],
-    signal,
-  );
-  if (!Buffer.from(tree.toString("utf8")).equals(tree))
-    throw new Error("Git tree paths must be UTF-8");
-  const files: PreparedInput["files"] = [];
-  let total = 0;
-  for (const entry of tree.toString("utf8").split("\0").filter(Boolean)) {
-    const match = /^(\d+) (\w+) ([a-f0-9]{40,64})\s+([\d-]+)\t([\s\S]+)$/.exec(
-      entry,
-    );
-    if (!match) throw new Error("Invalid Git tree entry");
-    const [, mode, type, blob, size, path] = match as unknown as [
-      string,
-      string,
-      string,
-      string,
-      string,
-      string,
-    ];
-    if (!safePath(path)) throw new Error("Invalid Git tree path");
-    if (!allowedGoalPath(path, intent.scope) || privateInputPath(path))
-      continue;
-    if (!["100644", "100755"].includes(mode) || type !== "blob")
-      throw new Error("Goal scope contains a symlink or submodule");
-    const bytes = Number(size);
-    total += bytes;
-    if (
-      !Number.isSafeInteger(bytes) ||
-      bytes < 0 ||
-      bytes > maxFileBytes ||
-      total > maxBytes ||
-      files.length >= maxFiles
-    )
-      throw new Error("Prepared input exceeds file or byte limits");
-    files.push({ path, blob, bytes });
-  }
-  if (files.length) {
-    const contents = await git(
-      intent.source,
-      ["cat-file", "--batch"],
-      signal,
-      files.map((file) => file.blob).join("\n") + "\n",
-    );
-    let position = 0;
-    for (const file of files) {
-      signal.throwIfAborted();
-      const end = contents.indexOf(10, position);
-      if (
-        end < 0 ||
-        contents.subarray(position, end).toString() !==
-          `${file.blob} blob ${file.bytes}`
-      )
-        throw new Error("Git blob does not match manifest");
-      const start = end + 1,
-        next = start + file.bytes;
-      if (contents[next] !== 10) throw new Error("Incomplete Git blob");
-      const destination = join(intent.directory, file.path);
-      if (!isWithin(intent.directory, destination) || file.path === marker)
-        throw new Error("Invalid prepared destination");
-      mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
-      writeFileSync(destination, contents.subarray(start, next), {
-        mode: 0o600,
-        flag: "wx",
-      });
-      position = next + 1;
-    }
-    if (position !== contents.length)
-      throw new Error("Unexpected Git blob data");
+  const files = scopedGitFiles(
+    await readGitTree(intent.source, revision, signal),
+    intent.scope,
+  ).map(({ path, blob, bytes }) => ({ path, blob, bytes }));
+  const contents = await readGitBlobs(intent.source, files, signal);
+  for (const [index, file] of files.entries()) {
+    signal.throwIfAborted();
+    const destination = join(intent.directory, file.path);
+    if (!isWithin(intent.directory, destination) || file.path === marker)
+      throw new Error("Invalid prepared destination");
+    mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+    writeFileSync(destination, contents[index]!, { mode: 0o600, flag: "wx" });
   }
   // A fresh Git root prevents discovery of configuration in the server's ancestor repository.
   await git(intent.directory, ["init", "--quiet", "--template="], signal);
