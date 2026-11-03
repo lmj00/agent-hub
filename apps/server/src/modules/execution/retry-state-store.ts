@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { runs, tasks } from "../../db/schema.js";
+import { runs, tasks, taskReleases } from "../../db/schema.js";
 import {
   initialRetryState,
   type RetryPolicy,
@@ -9,16 +9,27 @@ import {
 
 type RetryDb = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update">;
 
-function errorStreak(history: { errorCode: string | null }[]) {
-  const lastError = history.at(-1)?.errorCode ?? null;
-  let consecutiveErrors = 0;
-  if (lastError) {
-    for (
-      let index = history.length - 1;
-      index >= 0 && history[index]!.errorCode === lastError;
-      index--
-    )
-      consecutiveErrors++;
+export function readRetryBaseline(db: Pick<RetryDb, "select">, taskId: string) {
+  return db
+    .select()
+    .from(taskReleases)
+    .where(eq(taskReleases.newTaskId, taskId))
+    .get();
+}
+
+function errorStreak(
+  history: { errorCode: string | null }[],
+  baseline?: Pick<RetryState, "lastError" | "consecutiveErrors">,
+) {
+  let lastError = baseline?.lastError ?? null,
+    consecutiveErrors = baseline?.consecutiveErrors ?? 0;
+  for (const run of history) {
+    consecutiveErrors = run.errorCode
+      ? run.errorCode === lastError
+        ? consecutiveErrors + 1
+        : 1
+      : 0;
+    lastError = run.errorCode;
   }
   return { lastError, consecutiveErrors };
 }
@@ -34,7 +45,12 @@ export function refreshRetryErrorStreak(db: RetryDb, taskId: string) {
     .orderBy(asc(runs.attempt))
     .all();
   db.update(tasks)
-    .set({ retryState: { ...task.retryState, ...errorStreak(history) } })
+    .set({
+      retryState: {
+        ...task.retryState,
+        ...errorStreak(history, readRetryBaseline(db, taskId)?.priorRetryState),
+      },
+    })
     .where(eq(tasks.id, taskId))
     .run();
 }
@@ -77,16 +93,26 @@ export function ensureRetryState(
   policy?: RetryPolicy,
 ): RetryState | null {
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
-  if (task.retryState || !policy) return task.retryState;
+  if (task.retryState) return task.retryState;
+  const baseline = readRetryBaseline(db, taskId);
+  if (!policy && !baseline) return null;
   const history = db
     .select()
     .from(runs)
     .where(eq(runs.taskId, taskId))
     .orderBy(asc(runs.attempt))
     .all();
-  const state = initialRetryState(policy);
-  state.retries = Math.max(0, history.length - 1);
-  Object.assign(state, errorStreak(history));
+  const state = baseline
+    ? structuredClone(baseline.priorRetryState)
+    : initialRetryState(policy!);
+  if (baseline) {
+    state.reason = null;
+    state.decisionRunId = null;
+  }
+  state.retries += baseline?.priorAttempts
+    ? history.length
+    : Math.max(0, history.length - 1);
+  Object.assign(state, errorStreak(history, baseline?.priorRetryState));
   for (const run of history) {
     const end = run.terminationConfirmedAt ?? run.finishedAt;
     const duration = Math.max(

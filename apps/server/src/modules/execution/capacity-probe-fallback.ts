@@ -21,7 +21,7 @@ import {
   reserveProviderCheck,
   type readProviderGate,
 } from "./provider-gate.js";
-import { ensureRetryState } from "./retry-state-store.js";
+import { ensureRetryState, readRetryBaseline } from "./retry-state-store.js";
 import { retryLimitReason, type RetryPolicy } from "./retry-policy.js";
 
 type Db = Pick<
@@ -129,7 +129,7 @@ export function replaceUnavailableGoalProbe(
       if (readBudgetWait(db, task, now)) continue;
       const retry = ensureRetryState(db, task.id, options.retryPolicy)!;
       if (
-        (last
+        (last || (readRetryBaseline(db, task.id)?.priorAttempts ?? 0) > 0
           ? retryLimitReason(retry)
           : retry.totalRunMs >= retry.policy.maxTotalRunMs) ||
         (retry.nextAttemptAt && Date.parse(retry.nextAttemptAt) > now.getTime())

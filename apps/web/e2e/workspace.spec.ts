@@ -39,6 +39,49 @@ async function createTask(page: Page, instruction: string) {
   await expect(page.locator("#detail-heading")).toHaveText(instruction);
 }
 
+test("releases cancelled planned work once after a lost response and preserves both linked records", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: /취소 재허용 예제 example/ }).click();
+  await page.getByRole("button", { name: /취소 기록을 이어받을 개선 작업/ }).click();
+  await expect(page.locator(".detail-top .status-cancelled")).toBeVisible();
+  const commands: unknown[] = [];
+  await page.route("**/tasks/*/release", async route => {
+    commands.push(route.request().postDataJSON());
+    const result = await route.fetch();
+    if (commands.length === 1) {
+      expect(result.status()).toBe(201);
+      await route.abort("failed");
+    } else {
+      expect(result.status()).toBe(200);
+      await route.fulfill({ response: result });
+    }
+  });
+  // Keep the original detail visible while retrying an uncertain response.
+  let holdRefresh = true;
+  await page.route("**/projects/*/tasks", async route => {
+    if (holdRefresh && route.request().method() === "GET") await route.abort("failed");
+    else await route.continue();
+  });
+  await page.getByRole("button", { name: "취소한 작업 다시 허용", exact: true }).click();
+  await expect(page.locator(".task-detail [role=alert]")).toContainText("서버에 연결하지 못했습니다");
+  holdRefresh = false;
+  await page.getByRole("button", { name: "취소한 작업 다시 허용", exact: true }).click();
+  await expect(page.locator(".detail-top .status-queued")).toBeVisible();
+  expect(commands).toHaveLength(2);
+  expect(commands[1]).toEqual(commands[0]);
+  await expect(page.getByLabel("자동 복구 정책", { exact: true })).toContainText("재시도 0 / 3회");
+  await expect(page.locator(".task-list .task-row")).toHaveCount(2);
+  await page.getByRole("button", { name: "이전 취소 작업 보기", exact: true }).click();
+  await expect(page.locator(".detail-top .status-cancelled")).toBeVisible();
+  await expect(page.getByRole("button", { name: "취소한 작업 다시 허용", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "다시 허용한 작업 보기", exact: true }).click();
+  await expect(page.locator(".detail-top .status-queued")).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: /취소 재허용 예제 example/ }).click();
+  await expect(page.locator(".task-list .task-row")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "이전 취소 작업 보기", exact: true })).toBeVisible();
+});
+
 test("rechecks planned work after resume and distinguishes excluded work from retained work", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: /범위 재검사 예제 example/ }).click();

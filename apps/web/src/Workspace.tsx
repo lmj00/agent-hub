@@ -470,6 +470,7 @@ function ProjectTasks({
           gate={gate}
           onExpired={onExpired}
           onChanged={refresh}
+          onSelectTask={setTaskId}
         />
       ) : (
         <section className="task-detail empty-detail">

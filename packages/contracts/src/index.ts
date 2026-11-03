@@ -223,6 +223,12 @@ export const taskGoalReviewSchema = object({
   checkedAt: date,
 });
 export type TaskGoalReview = Static<typeof taskGoalReviewSchema>;
+export const releaseTaskSchema = object({ requestKey, expectedGoalVersion: Type.Integer({ minimum: 1 }) });
+export type ReleaseTask = Static<typeof releaseTaskSchema>;
+export const taskReleaseSchema = object({
+  sourceTaskId: id, newTaskId: id, goalId: id, goalVersion: Type.Integer({ minimum: 2 }), createdAt: date,
+});
+export type TaskRelease = Static<typeof taskReleaseSchema>;
 export const taskSchema = object({
   id,
   projectId: id,
@@ -230,6 +236,9 @@ export const taskSchema = object({
   goalId: nullable(id),
   goalVersion: nullable(Type.Integer({ minimum: 1 })),
   goalReview: nullable(taskGoalReviewSchema),
+  planningTaskId: nullable(id),
+  previousTaskId: nullable(id),
+  nextTaskId: nullable(id),
   budgetWait: nullable(budgetWaitSchema),
   instruction: text,
   requestKey: text,

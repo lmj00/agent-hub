@@ -136,6 +136,16 @@ for (const [title, path] of [["예제 코드 개선 작업", "src/main.ts"], ["�
     plannedWork: { planningTaskId: randomUUID(), problemKey: path, sourceRevision: "a".repeat(40), sourceDigest: "b".repeat(64), title, paths: [path], acceptanceCriteria: "테스트 통과", evidence: ["예제 파일"] },
   }).run();
 }
+const releaseProjectId = randomUUID();
+createDrizzleProjectStore(database.db).save({ id: releaseProjectId, name: "취소 재허용 예제", workspaceKey: "example", createdAt: new Date() });
+const releaseGoal = createDrizzleGoalStore(database.db).register(releaseProjectId, "release", {
+  ...reviewGoal.definition, description: "취소한 개선 작업 관리",
+}).goal;
+const releaseTaskId = randomUUID();
+database.db.insert(tasks).values({ id: releaseTaskId, projectId: releaseProjectId, goalId: releaseGoal.id, goalVersion: 1,
+  instruction: "취소 기록을 이어받을 개선 작업", requestKey: releaseTaskId, status: "cancelled", cancelRequestedAt: new Date(), createdAt: new Date(),
+  plannedWork: { planningTaskId: randomUUID(), problemKey: "release", sourceRevision: "a".repeat(40), sourceDigest: "b".repeat(64), title: "개선", paths: ["src/main.ts"], acceptanceCriteria: "테스트 통과", evidence: ["예제 파일"] },
+}).run();
 database.close();
 let serviceMode = "waiting";
 const service = createServer((request, response) => {

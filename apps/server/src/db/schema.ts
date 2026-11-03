@@ -55,6 +55,23 @@ export const tasks = sqliteTable(
   ],
 );
 
+export const taskReleases = sqliteTable("task_releases", {
+  sourceTaskId: text("source_task_id").primaryKey().notNull().references(() => tasks.id, { onDelete: "restrict" }),
+  newTaskId: text("new_task_id").notNull().references(() => tasks.id, { onDelete: "restrict" }),
+  goalId: text("goal_id").notNull().references(() => goals.id, { onDelete: "restrict" }),
+  goalVersion: integer("goal_version").notNull(),
+  requestKey: text("request_key").notNull(),
+  commandHash: text("command_hash").notNull(),
+  priorAttempts: integer("prior_attempts").notNull(),
+  priorRetryState: text("prior_retry_state", { mode: "json" }).$type<RetryState>().notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, table => [
+  uniqueIndex("task_releases_new_task_unique").on(table.newTaskId),
+  check("task_releases_distinct_tasks", sql`${table.sourceTaskId} <> ${table.newTaskId}`),
+  check("task_releases_attempts_valid", sql`${table.priorAttempts} >= 0`),
+  check("task_releases_goal_version_valid", sql`${table.goalVersion} > 1`),
+]);
+
 export const runs = sqliteTable("runs", {
   id: text("id").primaryKey().notNull(),
   taskId: text("task_id").notNull().references(() => tasks.id, { onDelete: "restrict" }),

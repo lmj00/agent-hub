@@ -32,6 +32,8 @@ import { budgetRoutes } from "./modules/budgets/routes.js";
 import { createProjectBudgetStore } from "./modules/budgets/project-budget-store.js";
 import { cleanupConfirmedInputs, cleanupPreparedRun, createPreparedExecutor, verifyPreparedResult } from "./modules/goals/prepared-executor.js";
 import { preparedInputRoot } from "./modules/goals/prepared-workspace.js";
+import { createWorkReleaseStore } from "./modules/goals/work-release-store.js";
+import { workReleaseRoutes } from "./modules/goals/work-release-routes.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
   databasePath: string;
@@ -114,6 +116,7 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
     const projectStore = createDrizzleProjectStore(database.db);
     scope.register(projectRoutes, { store: projectStore });
     scope.register(goalRoutes, { store: createDrizzleGoalStore(database.db) });
+    scope.register(workReleaseRoutes, { store: createWorkReleaseStore(database.db, execution?.config.automaticRecovery) });
     scope.register(budgetRoutes, { store: createProjectBudgetStore(database.db) });
     scope.register(serviceRoutes, {
       store: createDrizzleServiceStore(database.db), projectExists: id => projectStore.findById(id) !== undefined,

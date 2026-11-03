@@ -15,6 +15,9 @@ export type Task = CreateTaskInput & {
   goalId?: string | null;
   goalVersion?: number | null;
   goalReview?: TaskGoalReview | null;
+  planningTaskId?: string | null;
+  previousTaskId?: string | null;
+  nextTaskId?: string | null;
   budgetWait?: BudgetWait | null;
   status: TaskStatus;
   createdAt: Date;

@@ -114,6 +114,9 @@ const messages: Record<string, string> = {
     "작업 또는 계정의 재시도·누적 시간 상한에 도달했습니다. 실행 기록과 정책을 검토해 주세요.",
   RETRY_TOO_EARLY: "아직 다시 시도할 수 있는 시각이 아닙니다.",
   PROVIDER_CHECK_RESERVED: "이미 실행 제한을 확인하는 작업이 예약돼 있습니다.",
+  TASK_NOT_RELEASABLE: "목표의 계획에서 생성된 취소 작업만 다시 허용할 수 있습니다.",
+  TASK_ALREADY_RELEASED: "이미 다시 허용한 작업이 있습니다. 연결된 작업을 확인해 주세요.",
+  TASK_SCOPE_CHANGED: "현재 목표의 허용 범위에서 이 작업을 수행할 수 없습니다. 목표와 작업 경로를 확인해 주세요.",
   TASK_CANCELLED:
     "취소한 작업은 재개할 수 없습니다. 필요하면 새 작업을 등록해 주세요.",
   TASK_ALREADY_COMPLETED: "이미 완료된 작업입니다.",

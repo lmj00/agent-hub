@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   runsSchema,
+  goalSchema,
+  taskReleaseSchema,
+  type ReleaseTask,
   runDetailsSchema,
   recoverySchema,
   type Task,
@@ -85,12 +88,14 @@ export function TaskDetail({
   gate,
   onExpired,
   onChanged,
+  onSelectTask,
 }: {
   task: Task;
   queue: Queue | null;
   gate: ProviderGate | null;
   onExpired: () => void;
   onChanged: () => void;
+  onSelectTask: (id: string) => void;
 }) {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -124,6 +129,7 @@ export function TaskDetail({
   const [receipt, setReceipt] = useState<Recovery | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const releaseCommand = useRef<ReleaseTask | null>(null);
   const identities = useRef(new Map<string, string>());
   const receiptId = receipt?.status === "pending" ? receipt.id : null;
   const loadReceipt = useCallback(
@@ -140,6 +146,41 @@ export function TaskDetail({
       refresh();
     }
   }, [receiptPoll.data, refresh]);
+
+  async function releaseWork() {
+    if (busy || !task.goalId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (!releaseCommand.current) {
+        const goal = await api.request(`/goals/${task.goalId}`, goalSchema);
+        releaseCommand.current = {
+          requestKey: crypto.randomUUID(),
+          expectedGoalVersion: goal.version,
+        };
+      }
+      const accepted = await api.request(
+        `/tasks/${task.id}/release`,
+        taskReleaseSchema,
+        { method: "POST", body: releaseCommand.current },
+      );
+      releaseCommand.current = null;
+      refresh();
+      onSelectTask(accepted.newTaskId);
+    } catch (failure) {
+      // Uncertain delivery retains both the key and the expected Goal version.
+      if (
+        failure instanceof ApiError &&
+        failure.status >= 400 &&
+        failure.status < 500
+      ) releaseCommand.current = null;
+      if (failure instanceof ApiError && failure.status === 401) onExpired();
+      else setError(failure);
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function requestAction(action: RecoveryAction) {
     if (busy) return;
@@ -215,6 +256,32 @@ export function TaskDetail({
         {task.instruction}
       </h2>
       <p className="detail-created">등록 {dateTime(task.createdAt)}</p>
+      {task.previousTaskId || task.nextTaskId ? (
+        <div className="notice" aria-label="다시 허용한 작업 연결">
+          <p>취소 기록과 이전 실행 한도를 이어받는 작업입니다.</p>
+          {task.previousTaskId ? (
+            <button className="quiet" onClick={() => onSelectTask(task.previousTaskId!)}>
+              이전 취소 작업 보기
+            </button>
+          ) : null}
+          {task.nextTaskId ? (
+            <button className="quiet" onClick={() => onSelectTask(task.nextTaskId!)}>
+              다시 허용한 작업 보기
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {task.status === "cancelled" && task.planningTaskId && !task.nextTaskId ? (
+        <div className="notice" aria-label="취소 작업 다시 허용">
+          <p>
+            현재 목표에서 허용하는 작업이면 새 작업으로 이어갑니다.
+            기존 취소 기록과 재시도·누적 시간 한도는 유지합니다.
+          </p>
+          <button className="secondary" disabled={busy || pending} onClick={() => void releaseWork()}>
+            취소한 작업 다시 허용
+          </button>
+        </div>
+      ) : null}
       {task.goalReview ? (
         <div className="notice" aria-label="목표 범위 재검사">
           <strong>{task.goalReview.decision === "retained" ? "변경된 목표에서도 허용된 작업입니다." : "목표의 허용 범위를 벗어나 제외한 작업입니다."}</strong>
@@ -322,7 +389,9 @@ export function TaskDetail({
         {terminal
           ? task.status === "succeeded"
             ? "분석이 완료됐습니다. 아래 결과를 확인하거나 새 작업을 등록하세요."
-            : "취소가 완료됐습니다. 다시 분석하려면 새 작업을 등록하세요."
+            : task.planningTaskId
+              ? "취소가 완료됐습니다. 명시적으로 다시 허용하기 전에는 이 작업을 실행하지 않습니다."
+              : "취소가 완료됐습니다. 다시 분석하려면 새 작업을 등록하세요."
           : !enabled
             ? "자동 실행을 설정한 서버에서 취소·재개를 요청할 수 있습니다."
             : active

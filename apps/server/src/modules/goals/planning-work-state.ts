@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { recoveryRequests, runs, tasks } from "../../db/schema.js";
+import { recoveryRequests, runs, taskReleases, tasks } from "../../db/schema.js";
 import { allowedGoalPath, privateInputPath } from "./prepared-workspace.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select">;
@@ -60,6 +60,7 @@ export function readPlanningWork(db: Db, goalId: string) {
       unresolved = true;
       continue;
     }
+    if (task.status === "cancelled" && db.select({ id: taskReleases.newTaskId }).from(taskReleases).where(eq(taskReleases.sourceTaskId, task.id)).get()) continue;
     // Scope exclusion before any attempt consumes no task retry budget. The
     // current Goal can be planned afresh without reviving the old Task.
     if (

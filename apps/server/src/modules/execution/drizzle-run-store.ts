@@ -3,7 +3,7 @@ import { assignableGoal, readGoalExecutionBlock } from "../goals/goal-execution-
 import { saveWorkflowStep } from "./workflow-step-store.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import { defaultEffortPolicy, selectInitialEffort } from "./effort-policy.js";
-import { ensureRetryState } from "./retry-state-store.js";
+import { ensureRetryState, readRetryBaseline } from "./retry-state-store.js";
 import { retryLimitReason } from "./retry-policy.js";
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
@@ -89,9 +89,10 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         const id = randomUUID();
         const previousRun = tx.select().from(runs).where(eq(runs.taskId, task.id)).orderBy(desc(runs.attempt)).get();
         const attempt = (previousRun?.attempt ?? 0) + 1;
+        const retryAttempt = !!previousRun || (readRetryBaseline(tx, task.id)?.priorAttempts ?? 0) > 0;
         const retryState = ensureRetryState(tx, task.id, policies.automaticRecovery);
         if (retryState) {
-          const reason = attempt > 1 ? retryLimitReason(retryState) : retryState.totalRunMs >= retryState.policy.maxTotalRunMs ? "task_time_limit" : null;
+          const reason = retryAttempt ? retryLimitReason(retryState) : retryState.totalRunMs >= retryState.policy.maxTotalRunMs ? "task_time_limit" : null;
           if (reason) {
             tx.update(tasks).set({ status: "blocked", budgetWait: null, retryState: { ...retryState, reason, nextAttemptAt: null } }).where(eq(tasks.id, task.id)).run();
             continue;
@@ -105,7 +106,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
           continue;
         }
         if (retryState) {
-          tx.update(tasks).set({ retryState: { ...retryState, retries: retryState.retries + (attempt > 1 ? 1 : 0), nextAttemptAt: null, reason: null } }).where(eq(tasks.id, task.id)).run();
+          tx.update(tasks).set({ retryState: { ...retryState, retries: retryState.retries + (retryAttempt ? 1 : 0), nextAttemptAt: null, reason: null } }).where(eq(tasks.id, task.id)).run();
         }
         tx.update(tasks).set({ status: "running", budgetWait: null }).where(eq(tasks.id, task.id)).run();
         const effortPolicy = policies.effortPolicy ?? defaultEffortPolicy;
