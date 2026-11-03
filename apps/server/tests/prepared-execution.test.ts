@@ -1,3 +1,4 @@
+import { runExecutions } from "../src/db/schema.js";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -307,11 +308,7 @@ test("recovery cleanup runs only after the store persisted its proof", async () 
     containerId: "a".repeat(64),
     token: "fixture",
   };
-  database.db
-    .update(runs)
-    .set({ execution: identity })
-    .where(eq(runs.id, result.runId))
-    .run();
+  database.db.insert(runExecutions).values({ runId: result.runId, sequence: 1, containerId: identity.containerId, token: identity.token, engineId: identity.engineId, createdAt: new Date() }).run();
   const recovery = createDrizzleRecoveryStore(database.db, owner.token);
   const request = recovery.request(
     {

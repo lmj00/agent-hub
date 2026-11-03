@@ -7,7 +7,9 @@ export { stopReasons, type StopReason };
 
 export type AnalysisUsage = { inputTokens: number; cachedInputTokens: number; outputTokens: number };
 export type ExecutionIdentity = { kind: "docker"; containerId: string; token: string; engineId: string };
-export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity; step?: StepUpdate; preparedInput?: PreparedInput; planningProposal?: string; planningInput?: PlanningInput };
+export const maxRunExecutions = 12;
+export type ExecutionRecord = { sequence: number; identity: ExecutionIdentity; createdAt: Date; terminationConfirmedAt: Date | null };
+export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity; executionTermination?: { identity: ExecutionIdentity; confirmedAt: Date }; step?: StepUpdate; preparedInput?: PreparedInput; planningProposal?: string; planningInput?: PlanningInput };
 export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; outputSchema?: unknown; scope?: GoalScope; planning?: PlanningContext; responseMode?: "goal-plan" };
 export type AnalysisResult = { output: string; usage: AnalysisUsage | null };
 

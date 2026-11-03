@@ -14,6 +14,7 @@ import { preparedGoalChanged } from "../goals/prepared-input-store.js";
 import { saveRunCompletion } from "./run-completion-store.js";
 import { applyPlanningCompletion } from "../goals/plan-application.js";
 import { pauseCancelledPlan } from "../goals/planning-cancellation.js";
+import { confirmExecutions, readExecutions } from "./execution-record-store.js";
 
 type Db = ReturnType<typeof openDatabase>["db"];
 type Transaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -99,10 +100,10 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         const request = tx.select().from(recoveryRequests).where(eq(recoveryRequests.id, id)).get();
         if (!request || request.status !== "pending") return undefined;
         const run = latestRun(tx, request.taskId);
-        return { request, run: run?.id === request.runId ? run : null };
+        return { request, run: run?.id === request.runId ? { ...run, executions: readExecutions(tx, run.id) } : null };
       });
     },
-    complete(id, confirmedAt, inputVerified = false) {
+    complete(id, confirmedAt, inputVerified = false, observedExecutions = []) {
       return db.transaction(tx => {
         assertExecutionOwner(tx, ownerToken);
         const request = tx.select().from(recoveryRequests).where(eq(recoveryRequests.id, id)).get();
@@ -120,6 +121,8 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         if ((run?.id ?? null) !== request.runId) return finish("STALE_RUN");
         if (request.action !== "cancel" && (task.cancelRequestedAt || task.status === "cancelled")) return finish("TASK_CANCELLED");
         if (run) {
+          const executions = readExecutions(tx, run.id);
+          if (confirmedAt && !run.terminationConfirmedAt && JSON.stringify(executions.map(row => [row.sequence, row.identity])) !== JSON.stringify(observedExecutions.map(row => [row.sequence, row.identity]))) return finish("TERMINATION_UNCONFIRMED");
           const proof = run.terminationConfirmedAt ?? confirmedAt;
           if (run.status === "running" || run.status === "interrupted" || (run.stopReason === "scope_changed" && !run.terminationConfirmedAt)) {
             const usage = tx.select({ usage: steps.usage }).from(steps).where(eq(steps.runId, run.id)).orderBy(asc(steps.sequence)).get()?.usage ?? null;
@@ -135,6 +138,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
             const gate = readProviderGate(tx);
             if (proof && gate?.probeRunId === run.id && gate.version === run.providerGateVersion) recordProviderOutcome(tx, run, completion, now);
           } else if (proof && !run.terminationConfirmedAt) {
+            confirmExecutions(tx, run.id, proof);
             tx.update(runs).set({ terminationConfirmedAt: proof }).where(eq(runs.id, run.id)).run();
           }
           accountRunDuration(tx, run.id, proof ?? run.finishedAt);

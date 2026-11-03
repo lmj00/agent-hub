@@ -1,3 +1,4 @@
+import { readExecutions } from "../src/modules/execution/execution-record-store.js";
 import { createDrizzleServiceStore } from "../src/modules/services/drizzle-service-store.js";
 import { parseEffortPolicy } from "../src/modules/execution/effort-policy.js";
 import { parseAnalysisWorkflow } from "../src/modules/execution/analysis-workflow.js";
@@ -55,8 +56,7 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     database.db.insert(tasks).values({ id: taskId, projectId, instruction: "normal", requestKey: "first", createdAt: new Date() }).run();
   });
   afterEach(async () => {
-    const stored = database.db.select().from(runs).get()?.execution;
-    if (stored) identities.push(stored);
+    for (const row of database.db.select().from(runs).all()) identities.push(...readExecutions(database.db, row.id).map(entry => entry.identity));
     database.close();
     for (const identity of identities.splice(0)) {
       await stopAndConfirmContainer(identity);
@@ -75,7 +75,7 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
         expect(result).toMatchObject({ status: "succeeded", errorCode: null, result: `applied effort: ${effort}`, terminationConfirmedAt: expect.any(Date) });
         expect(selected.findById(result.runId)?.steps[0]?.effort).toBe(effort);
       }
-    } finally { for (const row of database.db.select().from(runs).all()) if (row.execution) identities.push(row.execution); }
+    } finally { for (const row of database.db.select().from(runs).all()) identities.push(...readExecutions(database.db, row.id).map(entry => entry.identity)); }
   }, 20000);
 
   test.each(["executor", "cli"])("%s mounts only prepared goal files read-only and ignores child-supplied input metadata", async mode => {
@@ -176,11 +176,90 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     expect(outcome.status).toBe("succeeded");
     const run = database.db.select().from(runs).get()!;
     expect(run.terminationConfirmedAt).toBeInstanceOf(Date);
-    expect(run.execution?.containerId).toMatch(/^[a-f0-9]{64}$/);
+    expect(readExecutions(database.db, run.id)[0]?.identity.containerId).toMatch(/^[a-f0-9]{64}$/);
     const heartbeat = readFileSync(join(home, "heartbeat"), "utf8");
     await delay(150);
     expect(readFileSync(join(home, "heartbeat"), "utf8")).toBe(heartbeat);
-    await expect(exec("docker", ["inspect", run.execution!.containerId])).rejects.toThrow();
+    await expect(exec("docker", ["inspect", readExecutions(database.db, run.id)[0]!.identity.containerId])).rejects.toThrow();
+  }, 15000);
+
+  test("keeps both sequential container identities and waits for saved termination before the next phase", async () => {
+    const executor = createContainerExecutor(image, home);
+    const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 15000, signal: new AbortController().signal }, store, {
+      ...executor,
+      async analyze(request, onEvent) {
+        await executor.analyze({ ...request, instruction: "forged-termination" }, async event => {
+          await onEvent(event);
+          if (event.kind === "execution.terminated" && !event.executionTermination) expect(readExecutions(database.db, request.runId!)[0]?.terminationConfirmedAt).toBeNull();
+        });
+        const first = readExecutions(database.db, request.runId!)[0]!;
+        expect(first.terminationConfirmedAt).toBeInstanceOf(Date);
+        expect((await exec("docker", ["inspect", "--format", "{{.State.Running}}", first.identity.containerId])).stdout.trim()).toBe("false");
+        return executor.analyze(request, onEvent);
+      },
+    });
+    expect(result.status).toBe("succeeded");
+    const records = readExecutions(database.db, result.runId);
+    expect(records).toHaveLength(2);
+    expect(records[0]!.identity.containerId).not.toBe(records[1]!.identity.containerId);
+    expect(records[0]!.terminationConfirmedAt!.getTime()).toBeLessThanOrEqual(records[1]!.createdAt.getTime());
+    for (const record of records) {
+      expect(record.terminationConfirmedAt).toBeInstanceOf(Date);
+      await expect(exec("docker", ["inspect", record.identity.containerId])).rejects.toThrow();
+    }
+  }, 20000);
+
+  test.each(["save", "reject", "stop"])("waits for an asynchronous prepared acknowledgement: %s", async action => {
+    const executor = createContainerExecutor(image, home);
+    const run = store.claim(taskId, "fixture");
+    const gate = Promise.withResolvers<void>();
+    let prepared: ExecutionIdentity | undefined;
+    const result = executor.analyze({ runId: run.id, model: "fixture", instruction: "normal", workspace, signal: new AbortController().signal }, async event => {
+      if (event.execution) {
+        prepared = event.execution; identities.push(prepared);
+        await gate.promise;
+      }
+      store.record(run.id, event);
+    }).then(value => ({ value }), error => ({ error }));
+    try {
+      await expect.poll(() => prepared, { timeout: 5000 }).toBeDefined();
+      expect((await exec("docker", ["inspect", "--format", "{{.State.Status}}", prepared!.containerId])).stdout.trim()).toBe("created");
+      expect(existsSync(join(home, "heartbeat"))).toBe(false);
+      if (action === "stop") {
+        const proofs = await Promise.all([executor.confirmTermination!(run.id), executor.confirmTermination!(run.id)]);
+        expect(proofs).toEqual([expect.any(Date), expect.any(Date)]);
+        expect(proofs[0]).toEqual(proofs[1]);
+      }
+      if (action === "reject") gate.reject(new Error("fixture storage failure")); else gate.resolve();
+      const completed = await result;
+      if (action === "save") expect(completed).toMatchObject({ value: { output: "fixture report" } });
+      else {
+        expect(completed).toMatchObject({ error: expect.any(Error) });
+        expect(existsSync(join(home, "heartbeat"))).toBe(false);
+      }
+      const confirmedAt = await executor.confirmTermination!(run.id);
+      expect(confirmedAt).toBeInstanceOf(Date);
+      store.finish(run.id, { status: action === "save" ? "succeeded" : "blocked", result: null, errorCode: null, usage: null, terminationConfirmedAt: confirmedAt });
+      await executor.cleanup!(run.id);
+    } finally { gate.resolve(); await result; }
+  }, 15000);
+
+  test("does not allocate a concurrent phase while the first container is waiting for persistence", async () => {
+    const executor = createContainerExecutor(image, home);
+    const gate = Promise.withResolvers<void>();
+    const request = { runId: randomUUID(), model: "fixture", instruction: "normal", workspace, signal: new AbortController().signal };
+    let prepared: ExecutionIdentity | undefined;
+    const first = executor.analyze(request, async event => {
+      if (event.execution) { prepared = event.execution; identities.push(prepared); await gate.promise; }
+    }).catch(error => error);
+    try {
+      await expect.poll(() => prepared, { timeout: 5000 }).toBeDefined();
+      await expect(executor.analyze(request, () => {})).rejects.toThrow("Previous execution must be confirmed");
+      expect(existsSync(join(home, "heartbeat"))).toBe(false);
+      expect(await executor.confirmTermination!(request.runId)).toBeInstanceOf(Date);
+      gate.resolve(); expect(await first).toBeInstanceOf(Error);
+      await executor.cleanup!(request.runId);
+    } finally { gate.resolve(); await first; }
   }, 15000);
 
   test("retires an unstarted container so a delayed start cannot run after confirmation", async () => {
@@ -195,7 +274,7 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     const outcome = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store,
       createContainerExecutor(`agent-hub-missing:${randomUUID()}`, home));
     expect(outcome).toMatchObject({ status: "blocked", errorCode: "unsupported_settings", terminationConfirmedAt: expect.any(Date) });
-    expect(database.db.select().from(runs).get()?.execution).toBeNull();
+    expect(readExecutions(database.db, outcome.runId)).toEqual([]);
   }, 15000);
 
   test("stops SIGTERM-resistant commands on cancellation and persists the proof", async () => {
@@ -295,7 +374,7 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
       expect((await server.inject({ method: "GET", url: `/tasks/${taskId}` })).json().retryState.retries).toBe(1);
     } finally {
       await server.close();
-      for (const row of database.db.select().from(runs).all()) if (row.execution) identities.push(row.execution);
+      for (const row of database.db.select().from(runs).all()) identities.push(...readExecutions(database.db, row.id).map(entry => entry.identity));
     }
   }, 15000);
 
@@ -319,7 +398,7 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
       });
       const original = database.db.select().from(runs).get()!;
       const exited = once(host, "exit"); host.kill("SIGKILL"); await exited;
-      expect((await exec("docker", ["inspect", "--format", "{{.State.Running}}", original.execution!.containerId])).stdout.trim()).toBe("true");
+      expect((await exec("docker", ["inspect", "--format", "{{.State.Running}}", readExecutions(database.db, original.id)[0]!.identity.containerId])).stdout.trim()).toBe("true");
       server = buildApp({ databasePath: join(directory, "hub.sqlite"), execution: { config: loadExecutionConfig(configPath), pollIntervalMs: 5 } });
       const base = await server.listen({ host: "127.0.0.1", port: 0 });
       if (mode === "manual") {
@@ -339,11 +418,11 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
         expect(store.listByTask(taskId)[0]!.startedAt.getTime()).toBeGreaterThan(store.findById(original.id)!.terminationConfirmedAt!.getTime());
       }
       expect(database.client.pragma("foreign_key_check")).toEqual([]);
-      await expect(exec("docker", ["inspect", original.execution!.containerId])).rejects.toThrow();
+      await expect(exec("docker", ["inspect", readExecutions(database.db, original.id)[0]!.identity.containerId])).rejects.toThrow();
     } finally {
       host.kill("SIGKILL");
       await server?.close();
-      for (const row of database.db.select().from(runs).all()) if (row.execution) identities.push(row.execution);
+      for (const row of database.db.select().from(runs).all()) identities.push(...readExecutions(database.db, row.id).map(entry => entry.identity));
     }
   }, 20000);
 });

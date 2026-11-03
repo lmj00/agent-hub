@@ -1,6 +1,6 @@
 import { recoveryActions, type RecoveryAction } from "@agent-hub/contracts";
 export { recoveryActions, type RecoveryAction };
-import type { AnalysisUsage, ExecutionIdentity, StopReason } from "./analysis.js";
+import type { AnalysisUsage, ExecutionIdentity, ExecutionRecord, StopReason } from "./analysis.js";
 import type { TaskStatus } from "../tasks/task-state.js";
 import { settleStoppedCompletion, type RunCompletion } from "./run-task.js";
 import type { PlanResult } from "../goals/goal-plan-policy.js";
@@ -18,8 +18,8 @@ export type RecoveryStore = {
   request(input: RecoveryInput, activeRunId: string | null, canTrackTermination: boolean): { request: RecoveryRequest; created: boolean };
   findById(id: string): RecoveryRequest | undefined;
   nextPending(): RecoveryRequest | undefined;
-  candidate(id: string): { request: RecoveryRequest; run: { execution: ExecutionIdentity | null; terminationConfirmedAt: Date | null; planResult?: PlanResult | null } | null } | undefined;
-  complete(id: string, terminationConfirmedAt: Date | null, inputVerified?: boolean): { proofSaved: boolean };
+  candidate(id: string): { request: RecoveryRequest; run: { executions: ExecutionRecord[]; terminationConfirmedAt: Date | null; planResult?: PlanResult | null } | null } | undefined;
+  complete(id: string, terminationConfirmedAt: Date | null, inputVerified?: boolean, observedExecutions?: ExecutionRecord[]): { proofSaved: boolean };
 };
 export type ExecutionObserver = {
   confirm: (identity: ExecutionIdentity) => Promise<Date | null>;
@@ -53,11 +53,20 @@ export function createRecoveryProcessor(store: RecoveryStore, observer: Executio
       const candidate = store.candidate(id);
       if (!candidate) return;
       let confirmedAt = candidate.run?.terminationConfirmedAt ?? null;
-      if (candidate.run?.execution && !confirmedAt) {
+      const executions = candidate.run?.executions ?? [];
+      if (executions.length && !confirmedAt) {
         let deadline: ReturnType<typeof setTimeout> | undefined;
         try {
           confirmedAt = await Promise.race([
-            observer.confirm(candidate.run.execution).catch(() => null),
+            (async () => {
+              let latest = 0;
+              for (const execution of executions) {
+                const proof = execution.terminationConfirmedAt ?? await observer.confirm(execution.identity).catch(() => null);
+                if (!proof) return null;
+                latest = Math.max(latest, proof.getTime());
+              }
+              return new Date(latest);
+            })(),
             new Promise<null>(resolve => { deadline = setTimeout(() => resolve(null), 8000); }),
           ]);
         } finally { clearTimeout(deadline); }
@@ -65,8 +74,8 @@ export function createRecoveryProcessor(store: RecoveryStore, observer: Executio
       // DB 저장에 실패하면 종료된 컨테이너도 보존하여 재시작 뒤 다시 관측할 수 있게 합니다.
       const inputVerified = confirmedAt && candidate.run?.planResult?.status === "proposed" && candidate.request.runId
         ? await verifyInput?.(candidate.request.runId) ?? false : false;
-      const result = store.complete(id, confirmedAt, inputVerified);
-      if (result.proofSaved && candidate.run?.execution) await observer.cleanup(candidate.run.execution);
+      const result = store.complete(id, confirmedAt, inputVerified, executions);
+      if (result.proofSaved) for (const execution of executions) await observer.cleanup(execution.identity);
       if (result.proofSaved && candidate.request.runId) cleanupRun?.(candidate.request.runId);
     },
   };

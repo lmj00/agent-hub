@@ -146,8 +146,8 @@ test.each([
   ["timeout", "failed"], ["server_shutdown", "waiting_retry"], ["unknown", "blocked"], [null, "waiting_retry"],
 ] as const)("reconciliation settles a lost run with reason %s as %s without automatically queuing it", async (reason, status) => {
   const run = runs.claim(task(), "fixture");
-  if (reason) runs.requestStop(run.id, reason);
   runs.record(run.id, { kind: "execution.prepared", execution: { kind: "docker", containerId: "a".repeat(64), engineId: "fixture", token: randomUUID() } });
+  if (reason) runs.requestStop(run.id, reason);
   const accepted = recovery.request(input(run, { action: "reconcile" }), null, true);
   await processor().service.process(accepted.request.id);
   expect(runs.findById(run.id)).toMatchObject({ status, finishedAt: expect.any(Date), terminationConfirmedAt: expect.any(Date) });

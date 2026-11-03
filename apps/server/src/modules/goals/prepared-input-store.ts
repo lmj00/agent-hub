@@ -5,6 +5,7 @@ import { AnalysisError, redactOutput } from "../execution/analysis.js";
 import { readGoalExecutionBlock } from "./goal-execution-store.js";
 import type { GoalScope, PreparedInput } from "./prepared-workspace.js";
 import { planningInstruction, type PlanningInput } from "./goal-plan-policy.js";
+import { readExecutions } from "../execution/execution-record-store.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update">;
 type Run = typeof runs.$inferSelect;
@@ -29,7 +30,7 @@ export function savePlanningInput(
     goal.status !== "active" ||
     cycle?.status !== "reserved" ||
     run.planningInput ||
-    run.execution ||
+    readExecutions(db, run.id).length > 0 ||
     run.stopReason ||
     run.preparedInput?.phase !== "ready" ||
     input.version !== 1 ||
@@ -98,7 +99,7 @@ export function savePreparedInput(
     throw new AnalysisError("goal_changed");
   if (
     input.runId !== run.id ||
-    run.execution ||
+    readExecutions(db, run.id).length > 0 ||
     kind !== `input.${input.phase}`
   )
     throw new AnalysisError("input_unavailable");

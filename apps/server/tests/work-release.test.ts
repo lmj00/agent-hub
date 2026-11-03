@@ -751,7 +751,10 @@ test("upgrades the pre-release database without changing tasks, runs or recovery
     .run();
   const before = [
     old.db.select().from(tasks).all(),
-    old.client.prepare("SELECT * FROM runs").all(),
+    (old.client.prepare("SELECT * FROM runs").all() as Record<string, unknown>[]).map(({ execution, ...row }) => {
+      expect(execution).toBeNull();
+      return row;
+    }),
     old.db.select().from(recoveryRequests).all(),
   ];
   old.close();
@@ -761,6 +764,7 @@ test("upgrades the pre-release database without changing tasks, runs or recovery
     database.client.prepare("SELECT * FROM runs").all(),
     database.db.select().from(recoveryRequests).all(),
   ]).toMatchObject(before);
+  expect(database.client.prepare("SELECT count(*) AS count FROM run_executions").get()).toEqual({ count: 0 });
   expect(database.db.select().from(taskReleases).all()).toEqual([]);
   expect(() => database.checkReady()).not.toThrow();
   database.client.exec("DROP TABLE task_releases");

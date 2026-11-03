@@ -694,7 +694,7 @@ P1 [INFORMATIONAL] (confidence: 9/10) `run-task.ts:164`와 `recover-task.ts:60`�
 
 추정 시간은 기존 구현을 재사용하는 경우이며 일정 보장이 아닙니다. 네 단위는 공통 실행·저장 모듈을 바꾸므로 순차 구현합니다.
 
-- [ ] **T1 (P1, human: 1~2일 / CC: 1~2시간 추정)** — 실행별 식별자·종료 기록과 저장 확인 뒤 시작. A1·Q1·P1. `execution/`, `db/`, 마이그레이션과 관련 테스트. SQLite 이전 데이터 보존·두 단계 컨테이너·저장 실패·재시작을 검증.
+- [x] **T1 (P1, human: 1~2일 / CC: 1~2시간 추정)** — 실행별 식별자·종료 기록과 저장 확인 뒤 시작. A1·Q1·P1. `execution/`, `db/`, 마이그레이션과 관련 테스트. SQLite 이전 데이터 보존·두 단계 컨테이너·저장 실패·재시작을 검증.
 - [ ] **T2 (P1, human: 2~3일 / CC: 2~3시간 추정)** — 비공개 개발 기준·작업별 변경 수집. A4·G1·G4. `goals/`, 개발 공간 모듈과 실제 Git 테스트. 첫 변경을 다음 작업에 포함하고 원본·범위 밖 파일을 보존.
 - [ ] **T3 (P1, human: 2~3일 / CC: 2~3시간 추정)** — 개발·실제 테스트·별도 검토와 재작업. A2·G5·G6. `execution/`, 설정·계약·컨테이너 테스트. 실제 Codex로 수정과 실패 피드백을 확인.
 - [ ] **T4 (P1, human: 2~3일 / CC: 2~3시간 추정)** — 변경 반영·중단 복구·후속 기준 연결. A3·G7~G10. `goals/`, DB·실행·화면과 관련 테스트. 완료 후 5f에서 자동 계획 시작과 서로 다른 두 작업을 검증.
@@ -731,13 +731,19 @@ REALITY: obligation-tiers pass T1~T4 필수, 운영 배포와 원격 실행은 �
 
 Scope accepted as-is. Architecture 4건, Code Quality 1건, Test GAP 10개, Performance 1건으로 총 16건이며 구현 작업에 연결했습니다. 현실 검사 12개와 미검증 전제 2개를 기록했습니다. 검사와 오류 처리를 모두 빠뜨린 무음 실패 경로는 0개입니다. 미결정 구현 선택은 0개이고 새 TODO 제안은 없습니다. 병렬 lane은 0개, 순차 단위는 4개입니다. Lake Score는 선택지 점수로 응답을 받은 검토가 아니므로 N/A입니다. 외부 검토는 disabled이며 독립 모델 검토 통과로 간주하지 않습니다. Suppressed findings: 없음.
 
+### T1 구현 후 확인
+
+`run_executions`에 컨테이너별 기록을 저장하고 기존 Run의 단일 열을 이전 후 제거했습니다. 이전 단계의 종료 기록·시작 전 저장 확인·중복 시작 거부·전체 종료 확인 이후 늦은 시작 차단을 연결했습니다. 복구 시 관측한 목록과 현재 DB 목록을 대조하고, 저장한 종료 근거를 재사용합니다. 개별 종료와 최종 Run 완료의 저장 실패는 다음 실행을 허용하지 않습니다.
+
+실제 SQLite 검사 10개와 Docker 검사 5개를 추가했습니다. 전체 테스트 **585개(실제 Docker 26개)**, Chromium 시나리오 **11개**, 타입 검사·빌드를 통과했습니다. 이전 스키마의 실행 ID·종료 시각 보존과 재적용 방지, 두 컨테이너의 순차 실행·정리, 비동기 저장 실패·중복 종료 확인·자식의 위조 메타데이터를 검증했습니다. 모델 호출은 테스트 대역이며 실제 개발 에이전트 품질 검증은 T3에 남아 있습니다. Git 변경 반영·자동 계획 시작은 아직 완료하지 않았습니다.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 | --- | --- | --- | --- | --- | --- |
 | CEO Review | `/plan-ceo-review` | 제품 범위 | 0 | NOT RUN | 기존 범위 유지 |
 | Outside Review | 설정 disabled | 독립 모델 검토 | 1 | DISABLED | 외부 검토 없음 |
-| Eng Review | `/plan-eng-review` | 5e 구조·검증 계획 | 2 | ISSUES OPEN | 16건을 T1~T4에 연결, 구현·검증 대기 |
+| Eng Review | `/plan-eng-review` | 5e 구조·검증 계획 | 2 | ISSUES OPEN | T1 검증 완료. T2~T4 구현·검증 대기 |
 | Design Review | `/plan-design-review` | UI/UX | 0 | NOT RUN | 화면 반영은 T4 검증에 포함 |
 | DX Review | `/plan-devex-review` | 개발 경험 | 0 | NOT RUN | 별도 검토 없음 |
 

@@ -1,3 +1,4 @@
+import { runExecutions } from "../src/db/schema.js";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -496,11 +497,7 @@ test.each([false, true])(
       containerId: "a".repeat(64),
       token: "fixture",
     };
-    database.db
-      .update(runs)
-      .set({ execution: identity })
-      .where(eq(runs.id, run.id))
-      .run();
+    database.db.insert(runExecutions).values({ runId: run.id, sequence: 1, containerId: identity.containerId, token: identity.token, engineId: identity.engineId, createdAt: new Date() }).run();
     if (changed) writeFileSync(join(source, "src/main.ts"), "user change");
     const recovery = createDrizzleRecoveryStore(database.db);
     const request = recovery.request(

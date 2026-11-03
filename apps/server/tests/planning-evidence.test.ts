@@ -527,13 +527,15 @@ test("preserves existing run records when adding durable planning input", () => 
       Date.now(),
       "Existing result",
     );
-  const before = old.client.prepare("SELECT * FROM runs").get();
+  const { execution, ...before } = old.client.prepare("SELECT * FROM runs").get() as Record<string, unknown>;
+  expect(execution).toBeNull();
   old.close();
   database = openDatabase(oldPath);
   expect(database.client.prepare("SELECT * FROM runs").get()).toEqual({
-    ...(before as object),
+    ...before,
     planning_input: null,
   });
+  expect(database.client.prepare("SELECT count(*) AS count FROM run_executions").get()).toEqual({ count: 0 });
   expect(() => database.checkReady()).not.toThrow();
 });
 

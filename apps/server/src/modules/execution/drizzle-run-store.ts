@@ -1,5 +1,6 @@
 import { prepareRunBudget, reserveRunBudget, readBudgetWait } from "../budgets/budget-store.js";
 import { assignableGoal, readGoalExecutionBlock } from "../goals/goal-execution-store.js";
+import { recordExecution } from "./execution-record-store.js";
 import { saveWorkflowStep } from "./workflow-step-store.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import { defaultEffortPolicy, selectInitialEffort } from "./effort-policy.js";
@@ -186,11 +187,8 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         if (event.preparedInput) savePreparedInput(tx, run, event.preparedInput, event.kind);
         if (event.planningInput) savePlanningInput(tx, run, event.planningInput, event.kind);
         if (event.planningProposal !== undefined) savePlanningProposal(tx, run, event.planningProposal, event.kind);
-        if (event.execution) {
-          if (run.execution) throw new Error("Execution identity is already assigned");
-          tx.update(runs).set({ execution: event.execution }).where(eq(runs.id, runId)).run();
-        }
         const now = new Date();
+        recordExecution(tx, run, event, now);
         tx.update(runs).set({ lastActivityAt: now }).where(eq(runs.id, runId)).run();
         if (event.step) saveWorkflowStep(tx, run, event.step, now);
         if (event.sessionId) tx.update(steps).set({ sessionId: event.sessionId }).where(and(eq(steps.runId, runId), eq(steps.status, "running"))).run();

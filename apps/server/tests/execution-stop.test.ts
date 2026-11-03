@@ -1,3 +1,4 @@
+import { readExecutions } from "../src/modules/execution/execution-record-store.js";
 import { randomUUID } from "node:crypto";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,7 +44,8 @@ test("failed completion persistence preserves the execution identity and does no
     async analyze(_request, onEvent) { onEvent({ kind: "execution.prepared", execution }); return { output: "Report", usage: null }; },
     confirmTermination: async () => new Date(), cleanup,
   })).rejects.toThrow("fixture");
-  expect(database.db.select().from(runs).get()).toMatchObject({ status: "running", execution, terminationConfirmedAt: null });
+  expect(database.db.select().from(runs).get()).toMatchObject({ status: "running", terminationConfirmedAt: null });
+  expect(readExecutions(database.db, database.db.select().from(runs).get()!.id)[0]?.identity).toEqual(execution);
   expect(cleanup).not.toHaveBeenCalled();
 });
 
@@ -53,7 +55,7 @@ test("execution identity is durable and cannot be replaced during a run", () => 
   store.record(run.id, { kind: "execution.prepared", execution });
   expect(() => store.record(run.id, { kind: "execution.prepared", execution: { ...execution, token: randomUUID() } })).toThrow("already assigned");
   database.close(); database = openDatabase(join(directory, "hub.sqlite"));
-  expect(database.db.select().from(runs).get()?.execution).toEqual(execution);
+  expect(readExecutions(database.db, run.id)[0]?.identity).toEqual(execution);
 });
 
 test.each(["user_cancel", "server_shutdown"] as const)("persists %s before signaling the executor and preserves it across restart", async reason => {

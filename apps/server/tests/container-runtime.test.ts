@@ -77,6 +77,7 @@ test("records the Run timeout during slow preparation and never starts a contain
     expect(result).toMatchObject({ status: "failed", errorCode: "timeout", terminationConfirmedAt: expect.any(Date) });
     expect(trace()).not.toContain("create");
     expect(trace()).not.toContain("start");
-    expect(database.client.prepare("SELECT stop_reason, execution FROM runs").get()).toEqual({ stop_reason: "timeout", execution: null });
+    expect(database.client.prepare("SELECT count(*) AS count FROM run_executions").get()).toEqual({ count: 0 });
+    expect(database.client.prepare("SELECT stop_reason FROM runs").get()).toEqual({ stop_reason: "timeout" });
   } finally { database.close(); }
 });

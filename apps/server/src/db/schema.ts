@@ -5,9 +5,9 @@ import type { PreparedInput } from "../modules/goals/prepared-workspace.js";
 import type { PlannedWork, PlanResult, PlanningInput } from "../modules/goals/goal-plan-policy.js";
 import { sql } from "drizzle-orm";
 import type { ServiceSnapshot, CapacityState, AnalysisAssessment, GoalDefinition, Goal, PeriodBudgetPolicy, BudgetWait, TaskGoalReview } from "@agent-hub/contracts";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { taskStatuses } from "../modules/tasks/task-state.js";
-import { stopReasons, type ExecutionIdentity } from "../modules/execution/analysis.js";
+import { maxRunExecutions, stopReasons } from "../modules/execution/analysis.js";
 import { recoveryActions } from "../modules/execution/recover-task.js";
 
 export const projects = sqliteTable(
@@ -93,7 +93,6 @@ export const runs = sqliteTable("runs", {
   stopRequestedAt: integer("stop_requested_at", { mode: "timestamp_ms" }),
   // SDK 응답 완료와 실제 자식 실행의 종료 확인은 별개의 사실입니다.
   terminationConfirmedAt: integer("termination_confirmed_at", { mode: "timestamp_ms" }),
-  execution: text("execution", { mode: "json" }).$type<ExecutionIdentity>(),
   preparedInput: text("prepared_input", { mode: "json" }).$type<PreparedInput>(),
   planningInput: text("planning_input", { mode: "json" }).$type<PlanningInput>(),
   planResult: text("plan_result", { mode: "json" }).$type<PlanResult>(),
@@ -105,6 +104,23 @@ export const runs = sqliteTable("runs", {
   uniqueIndex("runs_one_active").on(table.slot).where(sql`${table.status} = 'running' OR (${table.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${table.terminationConfirmedAt} IS NULL)`),
   index("runs_task_started_at_idx").on(table.taskId, table.startedAt),
   uniqueIndex("runs_task_attempt_unique").on(table.taskId, table.attempt),
+]);
+
+// A Run may own several sequential containers. Only one can lack termination
+// evidence; a later phase never replaces an earlier container's identity.
+export const runExecutions = sqliteTable("run_executions", {
+  runId: text("run_id").notNull().references(() => runs.id, { onDelete: "restrict" }),
+  sequence: integer("sequence").notNull(),
+  containerId: text("container_id").notNull(),
+  token: text("token").notNull(),
+  engineId: text("engine_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  terminationConfirmedAt: integer("termination_confirmed_at", { mode: "timestamp_ms" }),
+}, table => [
+  primaryKey({ columns: [table.runId, table.sequence] }),
+  uniqueIndex("run_executions_container_unique").on(table.runId, table.containerId),
+  uniqueIndex("run_executions_one_unconfirmed").on(table.runId).where(sql`${table.terminationConfirmedAt} IS NULL`),
+  check("run_executions_sequence_valid", sql`${table.sequence} BETWEEN 1 AND ${sql.raw(String(maxRunExecutions))}`),
 ]);
 
 // 초기 단일 계정에서는 로그인 폴더를 바꿔도 같은 제공자 범위를 사용합니다.
