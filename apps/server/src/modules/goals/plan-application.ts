@@ -7,8 +7,13 @@ import {
   parseGoalPlan,
   problemKey,
   type PlannedWork,
+  type PlanResult,
 } from "./goal-plan-policy.js";
 import { preparedGoalChanged } from "./prepared-input-store.js";
+import {
+  overlappingWorkPaths,
+  readPlanningWork,
+} from "./planning-work-state.js";
 
 type Db = Pick<
   ReturnType<typeof openDatabase>["db"],
@@ -50,10 +55,20 @@ export function applyPlanningCompletion(
           errorCode: "termination_unconfirmed",
         }
       : completion;
-  const reject = (reason: string): RunCompletion => {
+  const reject = (
+    reason: string,
+    suppressed?: PlanResult["suppressed"],
+  ): RunCompletion => {
     if (run.planResult)
       db.update(runs)
-        .set({ planResult: { ...run.planResult, status: "rejected", reason } })
+        .set({
+          planResult: {
+            ...run.planResult,
+            status: "rejected",
+            reason,
+            ...(suppressed ? { suppressed } : {}),
+          },
+        })
         .where(eq(runs.id, run.id))
         .run();
     db.update(planningCycles)
@@ -94,15 +109,24 @@ export function applyPlanningCompletion(
   }
   // Completion requires independent code/test evidence, supplied by the development stage.
   if (plan.outcome === "complete") return reject("verification_required");
-  const previous = db
-    .select()
-    .from(tasks)
-    .where(and(eq(tasks.goalId, goal.id), eq(tasks.kind, "work")))
-    .all();
-  if (previous.some((task) => task.status !== "succeeded"))
-    return reject("work_unresolved");
+  const work = readPlanningWork(db, goal.id);
+  const previous = work.previous;
+  if (work.unresolved) return reject("work_unresolved");
   const createdTaskIds: string[] = [];
-  for (const proposed of plan.tasks) {
+  const suppressed: NonNullable<PlanResult["suppressed"]> = [];
+  for (const [proposalIndex, proposed] of plan.tasks.entries()) {
+    const blocking = work.suppressed.filter((item) =>
+      overlappingWorkPaths(item.paths, proposed.paths),
+    );
+    if (blocking.length) {
+      suppressed.push({
+        proposalIndex,
+        title: proposed.title,
+        blockedByTaskIds: blocking.slice(0, 20).map((item) => item.taskId),
+        totalBlockingTasks: blocking.length,
+      });
+      continue;
+    }
     const key = problemKey(goal.id, proposed.paths);
     if (
       previous.some(
@@ -156,11 +180,20 @@ export function applyPlanningCompletion(
       .all();
     if (
       recent.length === 2 &&
-      recent.every((item) => item.reason === "duplicate_work")
+      recent.every(
+        (item) =>
+          item.reason === "duplicate_work" || item.reason === "suppressed_work",
+      )
     )
-      return reject("planning_no_progress");
+      return reject("planning_no_progress", suppressed);
   }
-  const reason = duplicate ? "duplicate_work" : plan.outcome;
+  const reason = duplicate
+    ? suppressed.length
+      ? "suppressed_work"
+      : "duplicate_work"
+    : suppressed.length
+      ? "work_with_suppression"
+      : plan.outcome;
   db.update(planningCycles)
     .set({ status: "applied", resultRunId: run.id, reason, finishedAt: now })
     .where(eq(planningCycles.taskId, run.taskId))
@@ -171,6 +204,7 @@ export function applyPlanningCompletion(
         ...run.planResult,
         status: "applied",
         createdTaskIds,
+        suppressed,
         reason,
       },
     })
@@ -189,7 +223,8 @@ export function applyPlanningCompletion(
     result: [
       plan.summary,
       ...plan.tasks.map(
-        (item) => `- ${item.title}: ${item.acceptanceCriteria}`,
+        (item, index) =>
+          `- ${suppressed.some((held) => held.proposalIndex === index) ? "[기존 문제로 생성 제외] " : ""}${item.title}: ${item.acceptanceCriteria}`,
       ),
       createdTaskIds.length
         ? `생성한 작업: ${createdTaskIds.length}개`

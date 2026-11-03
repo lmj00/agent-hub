@@ -38,6 +38,11 @@ import { createRecoveryProcessor } from "../src/modules/execution/recover-task.j
 import { runTask } from "../src/modules/execution/run-task.js";
 import { parseAnalysisWorkflow } from "../src/modules/execution/analysis-workflow.js";
 import { createProjectBudgetStore } from "../src/modules/budgets/project-budget-store.js";
+import { readPlanningWork } from "../src/modules/goals/planning-work-state.js";
+import {
+  initialRetryState,
+  defaultRetryPolicy,
+} from "../src/modules/execution/retry-policy.js";
 import type {
   AnalysisExecutor,
   AnalysisRequest,
@@ -624,7 +629,15 @@ test("unresolved or cancelled work cannot be renamed through a new plan even aft
   goalStore.change(goalId, "edit", 1, {
     definition: { ...definition, description: "Rename everything" },
   });
-  expect(reserve()).toBeNull();
+  const next = reserve();
+  expect(next.goalId).toBe(goalId);
+  const outcome = await execute(next.taskId);
+  expect(outcome.status).toBe("succeeded");
+  expect(runRow(next.taskId).planResult).toMatchObject({
+    reason: "suppressed_work",
+    createdTaskIds: [],
+    suppressed: [{ blockedByTaskIds: [work.id] }],
+  });
   expect(workRows()).toHaveLength(1);
   const another = goalStore.register(projectId, "other", definition).goal;
   expect(reserve()?.goalId).toBe(another.id);
@@ -645,6 +658,379 @@ test("a manual pending task on the same Goal prevents a new plan from bypassing 
     .run();
   expect(reserve()).toBeNull();
   expect(database.db.select().from(planningCycles).all()).toEqual([]);
+});
+
+const proposedWork = (paths: string[], title = "A new title") => ({
+  title,
+  instruction: "Improve the selected behavior",
+  paths,
+  acceptanceCriteria: "A regression test proves the behavior",
+  evidence: ["Observed in the example"],
+});
+async function terminalWork(
+  status: "cancelled" | "failed" | "blocked" = "cancelled",
+  paths = ["src/main.ts"],
+) {
+  await execute(reserve().taskId, { tasks: [proposedWork(paths)] });
+  const work = workRows()[0]!;
+  if (status === "cancelled")
+    createDrizzleRecoveryStore(database.db).request(
+      {
+        taskId: work.id,
+        runId: null,
+        action: "cancel",
+        requestKey: "cancel-work",
+        providerGateVersion: null,
+      },
+      null,
+      true,
+    );
+  else {
+    database.db
+      .update(tasks)
+      .set({
+        status,
+        retryState: {
+          ...initialRetryState(defaultRetryPolicy),
+          retries: 2,
+          totalRunMs: 12000,
+          consecutiveErrors: 2,
+          lastError: "transient",
+        },
+      })
+      .where(eq(tasks.id, work.id))
+      .run();
+    database.db
+      .insert(runs)
+      .values({
+        id: randomUUID(),
+        taskId: work.id,
+        attempt: 1,
+        goalVersion: 1,
+        instanceId: "fixture",
+        status,
+        model: "fixture",
+        effort: "medium",
+        startedAt: new Date(Date.now() - 12000),
+        lastActivityAt: new Date(),
+        finishedAt: new Date(),
+        terminationConfirmedAt: new Date(),
+        errorCode: "transient",
+      })
+      .run();
+  }
+  return database.db.select().from(tasks).where(eq(tasks.id, work.id)).get()!;
+}
+
+test.each(["cancelled", "failed", "blocked"] as const)(
+  "%s work suppresses its paths while allowing an unrelated task without resetting its limits",
+  async (status) => {
+    const original = await terminalWork(status);
+    const plan = reserve();
+    expect(readPlanningContext(database.db, plan.taskId)).toMatchObject({
+      suppressedWorkCount: 1,
+      suppressedWork: [{ taskId: original.id, status, paths: ["src/main.ts"] }],
+    });
+    const result = await execute(plan.taskId, {
+      tasks: [
+        proposedWork(["src/main.ts"], "Same title"),
+        proposedWork(["tests/main.test.ts"], "Same title"),
+      ],
+    });
+    expect(result.status).toBe("succeeded");
+    expect(result.result?.match(/기존 문제로 생성 제외/g)).toHaveLength(1);
+    expect(workRows()).toHaveLength(2);
+    expect(
+      workRows().find((task) => task.id !== original.id)?.plannedWork?.paths,
+    ).toEqual(["tests/main.test.ts"]);
+    expect(workRows().find((task) => task.id === original.id)).toEqual(
+      original,
+    );
+    expect(runRow(plan.taskId).planResult).toMatchObject({
+      reason: "work_with_suppression",
+      createdTaskIds: [expect.any(String)],
+      suppressed: [
+        {
+          proposalIndex: 0,
+          blockedByTaskIds: [original.id],
+          totalBlockingTasks: 1,
+        },
+      ],
+    });
+  },
+);
+
+test.each(
+  [
+    ["src/main.ts"],
+    ["src"],
+    ["src/main.ts/child"],
+    ["src/MAIN.ts"],
+    ["src/main.ts", "tests/new.ts"],
+  ].map((paths) => ({ paths })),
+)(
+  "changing title or target shape cannot bypass a cancelled problem: %j",
+  async ({ paths }) => {
+    const original = await terminalWork();
+    const plan = reserve(),
+      result = await execute(plan.taskId, { tasks: [proposedWork(paths)] });
+    expect(result.status).toBe("succeeded");
+    expect(workRows()).toEqual([original]);
+    expect(runRow(plan.taskId).planResult).toMatchObject({
+      reason: "suppressed_work",
+      createdTaskIds: [],
+      suppressed: [{ blockedByTaskIds: [original.id] }],
+    });
+    expect(goalStore.findById(goalId).nextCheckAt).not.toBeNull();
+    expect(reserve()).toBeNull();
+  },
+);
+
+test("Unicode-equivalent paths are suppressed but similar sibling names are allowed", async () => {
+  const original = await terminalWork("cancelled", ["src/café"]);
+  const plan = reserve();
+  await execute(plan.taskId, {
+    tasks: [
+      proposedWork(["src/cafe\u0301/new.ts"]),
+      proposedWork(["src/café-other/new.ts"]),
+    ],
+  });
+  expect(workRows()).toHaveLength(2);
+  expect(
+    workRows().find((task) => task.id !== original.id)?.plannedWork?.paths,
+  ).toEqual(["src/café-other/new.ts"]);
+});
+
+test("source changes and goal edits do not release a cancelled problem", async () => {
+  const original = await terminalWork();
+  writeFileSync(join(source, "src/main.ts"), "export const answer = 43;\n");
+  git("add", "--all");
+  git("commit", "--quiet", "-m", "another change");
+  goalStore.change(goalId, "edit-problem", 1, {
+    definition: { ...definition, description: "A different description" },
+  });
+  const plan = reserve();
+  await execute(plan.taskId);
+  expect(workRows()).toEqual([original]);
+  expect(runRow(plan.taskId).planResult?.reason).toBe("suppressed_work");
+});
+
+test("server suppression includes cancelled work older than the prompt's recent history", async () => {
+  const original = await terminalWork();
+  for (let index = 0; index < 25; index++)
+    database.db
+      .insert(tasks)
+      .values({
+        id: randomUUID(),
+        projectId,
+        goalId,
+        goalVersion: 1,
+        instruction: `Historical ${index}`,
+        requestKey: `history-${index}`,
+        status: "succeeded",
+        createdAt: new Date(Date.now() + index + 1),
+      })
+      .run();
+  const plan = reserve(),
+    context = readPlanningContext(database.db, plan.taskId)!;
+  expect(context.history.some((task) => task.id === original.id)).toBe(false);
+  expect(context.suppressedWork).toEqual([
+    expect.objectContaining({ taskId: original.id }),
+  ]);
+  await execute(plan.taskId);
+  expect(runRow(plan.taskId).planResult?.createdTaskIds).toEqual([]);
+  expect(workRows().filter((task) => task.status === "cancelled")).toHaveLength(
+    1,
+  );
+});
+
+test("the prompt may omit held problems but the server still enforces every one", async () => {
+  const original = await terminalWork();
+  for (let index = 0; index < 20; index++) {
+    const id = randomUUID();
+    database.db
+      .insert(tasks)
+      .values({
+        ...original,
+        id,
+        requestKey: id,
+        createdAt: new Date(original.createdAt.getTime() - index - 1),
+        plannedWork: {
+          ...original.plannedWork!,
+          paths: [`src/older-${index}.ts`],
+        },
+      })
+      .run();
+  }
+  const plan = reserve(),
+    context = readPlanningContext(database.db, plan.taskId)!;
+  expect(context.suppressedWork).toHaveLength(20);
+  expect(context.suppressedWorkCount).toBe(21);
+  expect(
+    context.suppressedWork.some((item) => item.taskId === original.id),
+  ).toBe(false);
+  await execute(plan.taskId);
+  expect(runRow(plan.taskId).planResult).toMatchObject({
+    createdTaskIds: [],
+    suppressed: [{ blockedByTaskIds: [original.id] }],
+  });
+});
+
+test("a recovery accepted after planning began prevents creating otherwise unrelated work", async () => {
+  const original = await terminalWork("failed"),
+    prior = runRow(original.id),
+    plan = reserve();
+  const outcome = await execute(
+    plan.taskId,
+    { tasks: [proposedWork(["tests/main.test.ts"])] },
+    () => {
+      database.client
+        .prepare(
+          "INSERT INTO recovery_requests (id,task_id,run_id,request_key,action,status,created_at) VALUES ('late',?,?,'late','reconcile','pending',?)",
+        )
+        .run(original.id, prior.id, Date.now());
+    },
+  );
+  expect(outcome).toMatchObject({
+    status: "blocked",
+    errorCode: "work_unresolved",
+  });
+  expect(workRows()).toEqual([original]);
+  expect(runRow(plan.taskId).planResult?.status).toBe("rejected");
+});
+
+test("three consecutive suppressed proposals stop a pointless planning loop", async () => {
+  await terminalWork();
+  for (let index = 0; index < 3; index++) {
+    database.db
+      .update(goals)
+      .set({ nextCheckAt: null })
+      .where(eq(goals.id, goalId))
+      .run();
+    const plan = reserve(),
+      outcome = await execute(plan.taskId);
+    expect(outcome.status).toBe(index === 2 ? "blocked" : "succeeded");
+    if (index === 2)
+      expect(runRow(plan.taskId).planResult).toMatchObject({
+        reason: "planning_no_progress",
+        suppressed: [{ totalBlockingTasks: 1 }],
+      });
+  }
+  expect(reserve()).toBeNull();
+  expect(workRows()).toHaveLength(1);
+});
+
+test("unconfirmed terminal work holds all planning instead of permitting unrelated calls", async () => {
+  const original = await terminalWork("failed");
+  database.db
+    .update(runs)
+    .set({ terminationConfirmedAt: null })
+    .where(eq(runs.taskId, original.id))
+    .run();
+  expect(reserve()).toBeNull();
+  expect(readPlanningWork(database.db, goalId).unresolved).toBe(true);
+  expect(workRows()).toEqual([original]);
+});
+
+test("a pending recovery keeps planning held until the recovery is resolved", async () => {
+  const original = await terminalWork("failed"),
+    prior = runRow(original.id);
+  database.client
+    .prepare(
+      "INSERT INTO recovery_requests (id,task_id,run_id,request_key,action,status,created_at) VALUES ('pending',?,?,'pending','reconcile','pending',?)",
+    )
+    .run(original.id, prior.id, Date.now());
+  expect(reserve()).toBeNull();
+  database.client.exec(
+    "UPDATE recovery_requests SET status = 'completed' WHERE id = 'pending'",
+  );
+  expect(reserve().goalId).toBe(goalId);
+});
+
+test("scope exclusion without an attempt can be planned again after expansion while the old task remains cancelled", async () => {
+  await execute(reserve().taskId);
+  const original = workRows()[0]!;
+  goalStore.change(goalId, "narrow", 1, {
+    definition: { ...definition, allowedPaths: ["tests"] },
+  });
+  goalStore.change(goalId, "expand", 2, { definition });
+  const plan = reserve();
+  await execute(plan.taskId);
+  expect(workRows()).toHaveLength(2);
+  expect(workRows().find((task) => task.id === original.id)).toMatchObject({
+    status: "cancelled",
+    cancelRequestedAt: null,
+    goalReview: { decision: "excluded" },
+  });
+  expect(runRow(plan.taskId).planResult?.createdTaskIds).toHaveLength(1);
+});
+
+test("scope exclusion after a failed attempt cannot reset task limits through a new plan", async () => {
+  const original = await terminalWork("failed");
+  goalStore.change(goalId, "narrow-failed", 1, {
+    definition: { ...definition, allowedPaths: ["tests"] },
+  });
+  goalStore.change(goalId, "expand-failed", 2, { definition });
+  const plan = reserve();
+  await execute(plan.taskId);
+  expect(workRows()).toHaveLength(1);
+  expect(workRows()[0]).toMatchObject({
+    status: "cancelled",
+    retryState: original.retryState,
+  });
+  expect(runRow(plan.taskId).planResult?.reason).toBe("suppressed_work");
+});
+
+test("a successful source change cannot hide a malformed legacy work scope", async () => {
+  const original = await terminalWork();
+  database.db
+    .update(tasks)
+    .set({ plannedWork: { ...original.plannedWork!, paths: [] } })
+    .where(eq(tasks.id, original.id))
+    .run();
+  expect(reserve()).toBeNull();
+});
+
+test("suppressed and unrelated proposals commit together, or leave the saved proposal recoverable", async () => {
+  const original = await terminalWork();
+  const plan = reserve();
+  database.client.exec(
+    "CREATE TRIGGER fail_unrelated_work BEFORE INSERT ON tasks WHEN NEW.planned_work IS NOT NULL BEGIN SELECT RAISE(ABORT, 'injected'); END",
+  );
+  await expect(
+    execute(plan.taskId, {
+      tasks: [
+        proposedWork(["src/main.ts"]),
+        proposedWork(["tests/main.test.ts"]),
+      ],
+    }),
+  ).rejects.toThrow("injected");
+  expect(workRows()).toEqual([original]);
+  expect(runRow(plan.taskId).planResult?.status).toBe("proposed");
+  database.client.exec("DROP TRIGGER fail_unrelated_work");
+  const recovery = createDrizzleRecoveryStore(database.db);
+  const request = recovery.request(
+    {
+      taskId: plan.taskId,
+      runId: runRow(plan.taskId).id,
+      requestKey: "recover-suppression",
+      action: "reconcile",
+      providerGateVersion: null,
+    },
+    null,
+    true,
+  ).request;
+  expect(await verifyPreparedResult(database.db, runRow(plan.taskId).id)).toBe(
+    true,
+  );
+  recovery.complete(request.id, new Date(), true);
+  recovery.complete(request.id, new Date(), true);
+  expect(workRows()).toHaveLength(2);
+  expect(runRow(plan.taskId).planResult).toMatchObject({
+    status: "applied",
+    reason: "work_with_suppression",
+    suppressed: [{ blockedByTaskIds: [original.id] }],
+  });
 });
 
 test("planning respects project budgets without allocating a Run or resetting a failed cycle", async () => {

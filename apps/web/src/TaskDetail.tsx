@@ -54,8 +54,8 @@ const retryReasons: Record<string, string> = {
 const runErrors: Record<string, string> = {
   scope_changed: "목표에서 허용한 경로가 줄어 실행 중단을 요청했습니다. 종료 확인 후 범위 변경에 따른 취소로 기록합니다.",
   verification_required: "목표 완료 제안은 받았지만 실제 코드와 테스트의 검증 근거가 없어 완료로 반영하지 않았습니다.",
-  work_unresolved: "이 목표의 기존 작업에 대기·실패·취소 기록이 있어 새 작업 생성을 보류했습니다.",
-  planning_no_progress: "코드가 바뀌지 않았는데 같은 작업을 반복 제안해 계획을 보류했습니다.",
+  work_unresolved: "진행·종료 확인·복구 중인 작업이 있거나 기존 작업의 범위를 확인할 수 없어 새 계획을 보류했습니다.",
+  planning_no_progress: "이미 처리했거나 재생성을 막은 작업만 반복 제안해 계획을 보류했습니다.",
   input_unavailable: "분석 자료를 준비하지 못했습니다. 원본 저장소의 미커밋 변경, 허용 경로와 파일 상한을 확인해 주세요.",
   input_changed: "분석 중 원본 코드가 바뀌어 결과를 반영하지 않았습니다. 최신 코드를 기준으로 다시 확인해야 합니다.",
   goal_changed: "목표의 상태나 버전이 바뀌어 이전 기준의 실행을 보류했습니다.",

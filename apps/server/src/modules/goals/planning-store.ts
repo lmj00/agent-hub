@@ -13,6 +13,7 @@ import { assertExecutionOwner } from "../execution/execution-owner.js";
 import { redactOutput } from "../execution/analysis.js";
 import type { PlanningContext } from "./goal-plan-policy.js";
 import { revalidateGoalWork } from "./revalidate-goal-work.js";
+import { readPlanningWork } from "./planning-work-state.js";
 
 type Db = ReturnType<typeof openDatabase>["db"];
 type QueryDb = Pick<Db, "select">;
@@ -37,10 +38,19 @@ export function readPlanningContext(
     .orderBy(desc(tasks.createdAt), desc(tasks.id))
     .limit(20)
     .all();
+  const work = readPlanningWork(db, goal.id);
   return {
     goalId: goal.id,
     goalVersion: goal.version,
     definition: goal.definition,
+    suppressedWork: work.suppressed
+      .slice(0, 20)
+      .map((item) => ({
+        ...item,
+        paths: item.paths.slice(0, 5),
+        acceptanceCriteria: redactOutput(item.acceptanceCriteria).slice(0, 500),
+      })),
+    suppressedWorkCount: work.suppressed.length,
     history: history
       .filter((task) => task.id !== taskId)
       .map((task) => {
@@ -153,14 +163,7 @@ export function createPlanningStore(db: Db, ownerToken?: string) {
               .from(tasks)
               .where(eq(tasks.goalId, goal.id))
               .all();
-            // A new plan cannot reset failed work, cancellation or an unresolved run.
-            // Explicit release/rebinding is connected before autonomous activation.
-            if (
-              history.some(
-                (task) => task.kind === "work" && task.status !== "succeeded",
-              )
-            )
-              continue;
+            if (readPlanningWork(tx, goal.id).unresolved) continue;
             if (
               history.some(
                 (task) =>
