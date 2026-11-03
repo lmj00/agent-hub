@@ -18,6 +18,7 @@ import { preparedGoalChanged, readGoalScope, savePreparedInput, savePlanningProp
 import { readPlanningContext } from "../goals/planning-store.js";
 import { applyPlanningCompletion } from "../goals/plan-application.js";
 import { pauseCancelledPlan } from "../goals/planning-cancellation.js";
+import { revalidateGoalWork } from "../goals/revalidate-goal-work.js";
 
 export const unresolvedRun = sql`${runs.status} = 'running' OR (${runs.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${runs.terminationConfirmedAt} IS NULL)`;
 
@@ -36,6 +37,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         .where(unresolvedRun)
         .orderBy(asc(runs.startedAt), asc(runs.id)).get();
       if (held) return { kind: "held", runId: held.id, reason: held.status };
+      revalidateGoalWork(tx);
       const gate = readProviderGate(tx);
       const probing = gate?.blocked === true;
       if (probing && (!gate.probeTaskId || gate.probeRunId || (gate.retryAt && gate.retryAt > new Date())

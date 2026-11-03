@@ -14,6 +14,7 @@ function toResponse(task: Task) {
     kind: task.kind ?? "work",
     goalId: task.goalId ?? null,
     goalVersion: task.goalVersion ?? null,
+    goalReview: task.goalReview ?? null,
     budgetWait: task.budgetWait ?? null,
     instruction: task.instruction,
     requestKey: task.requestKey,

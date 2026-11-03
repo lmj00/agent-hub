@@ -215,12 +215,21 @@ export const retryStateSchema = object({
   totalRunMs: Type.Integer(),
 });
 export type RetryState = Static<typeof retryStateSchema>;
+export const taskGoalReviewSchema = object({
+  fromVersion: Type.Integer({ minimum: 1 }),
+  toVersion: Type.Integer({ minimum: 1 }),
+  decision: enumeration(["retained", "excluded"] as const),
+  paths: Type.Array(text, { minItems: 1, maxItems: 20 }),
+  checkedAt: date,
+});
+export type TaskGoalReview = Static<typeof taskGoalReviewSchema>;
 export const taskSchema = object({
   id,
   projectId: id,
   kind: enumeration(taskKinds),
   goalId: nullable(id),
   goalVersion: nullable(Type.Integer({ minimum: 1 })),
+  goalReview: nullable(taskGoalReviewSchema),
   budgetWait: nullable(budgetWaitSchema),
   instruction: text,
   requestKey: text,

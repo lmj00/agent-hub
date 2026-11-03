@@ -215,6 +215,13 @@ export function TaskDetail({
         {task.instruction}
       </h2>
       <p className="detail-created">등록 {dateTime(task.createdAt)}</p>
+      {task.goalReview ? (
+        <div className="notice" aria-label="목표 범위 재검사">
+          <strong>{task.goalReview.decision === "retained" ? "변경된 목표에서도 허용된 작업입니다." : "목표의 허용 범위를 벗어나 제외한 작업입니다."}</strong>
+          <p>목표 버전 {task.goalReview.fromVersion} → {task.goalReview.toVersion} · 확인 {dateTime(task.goalReview.checkedAt)}</p>
+          <small>{task.goalReview.decision === "retained" ? "기존 실행 이력과 재시도·시간 제한은 유지합니다." : "사용자 취소와 구분해 기록하며 이 작업을 자동 재개하지 않습니다."}</small>
+        </div>
+      ) : null}
       {task.budgetWait ? (
         <div className="notice attention" aria-label="기간 예산 대기">
           <strong>{task.budgetWait.scope === "goal" ? "목표" : "프로젝트"} 실행 예산 대기</strong>
@@ -380,7 +387,7 @@ export function TaskDetail({
       ) : (
         <p className="empty-list">
           {records.data
-            ? task.budgetWait ? "예산 대기 중이며 아직 실행을 시작하지 않았습니다." : "아직 실행 기록이 없습니다. 대기 작업은 실행기가 순서대로 가져갑니다."
+            ? task.status === "cancelled" ? "실행 전에 취소된 작업입니다. 자동으로 시작하지 않습니다." : task.budgetWait ? "예산 대기 중이며 아직 실행을 시작하지 않았습니다." : "아직 실행 기록이 없습니다. 대기 작업은 실행기가 순서대로 가져갑니다."
             : "실행 기록을 불러오는 중…"}
         </p>
       )}

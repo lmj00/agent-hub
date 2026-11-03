@@ -4,7 +4,7 @@ import type { RetryState } from "../modules/execution/retry-policy.js";
 import type { PreparedInput } from "../modules/goals/prepared-workspace.js";
 import type { PlannedWork, PlanResult } from "../modules/goals/goal-plan-policy.js";
 import { sql } from "drizzle-orm";
-import type { ServiceSnapshot, CapacityState, AnalysisAssessment, GoalDefinition, Goal, PeriodBudgetPolicy, BudgetWait } from "@agent-hub/contracts";
+import type { ServiceSnapshot, CapacityState, AnalysisAssessment, GoalDefinition, Goal, PeriodBudgetPolicy, BudgetWait, TaskGoalReview } from "@agent-hub/contracts";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { taskStatuses } from "../modules/tasks/task-state.js";
 import { stopReasons, type ExecutionIdentity } from "../modules/execution/analysis.js";
@@ -32,6 +32,7 @@ export const tasks = sqliteTable(
     kind: text("kind", { enum: ["planning", "work"] }).notNull().default("work"),
     goalId: text("goal_id").references(() => goals.id, { onDelete: "restrict" }),
     goalVersion: integer("goal_version"),
+    goalReview: text("goal_review", { mode: "json" }).$type<TaskGoalReview>(),
     budgetWait: text("budget_wait", { mode: "json" }).$type<BudgetWait>(),
     plannedWork: text("planned_work", { mode: "json" }).$type<PlannedWork>(),
     instruction: text("instruction").notNull(),

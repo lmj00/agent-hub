@@ -12,6 +12,7 @@ import { readBudgetWait } from "../budgets/budget-store.js";
 import { assertExecutionOwner } from "../execution/execution-owner.js";
 import { redactOutput } from "../execution/analysis.js";
 import type { PlanningContext } from "./goal-plan-policy.js";
+import { revalidateGoalWork } from "./revalidate-goal-work.js";
 
 type Db = ReturnType<typeof openDatabase>["db"];
 type QueryDb = Pick<Db, "select">;
@@ -80,6 +81,7 @@ export function createPlanningStore(db: Db, ownerToken?: string) {
       return db.transaction(
         (tx) => {
           assertExecutionOwner(tx, ownerToken);
+          revalidateGoalWork(tx, undefined, now);
           const candidates = tx
             .select({ goal: goals })
             .from(goals)

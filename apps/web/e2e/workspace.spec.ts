@@ -39,6 +39,38 @@ async function createTask(page: Page, instruction: string) {
   await expect(page.locator("#detail-heading")).toHaveText(instruction);
 }
 
+test("rechecks planned work after resume and distinguishes excluded work from retained work", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: /범위 재검사 예제 example/ }).click();
+  const panel = page.getByRole("region", { name: "프로젝트 목표", exact: true });
+  await panel.locator("summary").first().click();
+  await panel.getByRole("button", { name: "목표 일시정지" }).click();
+  await expect(panel).toContainText("일시정지 · 버전 2");
+  await panel.getByRole("button", { name: "목표 재개" }).click();
+  await expect(panel).toContainText("활성 · 버전 3");
+  await page.getByRole("button", { name: /예제 코드 개선 작업/ }).click();
+  const review = page.getByLabel("목표 범위 재검사", { exact: true });
+  await expect(review).toContainText("변경된 목표에서도 허용된 작업입니다.");
+  await expect(review).toContainText("1 → 3");
+  await panel.getByRole("button", { name: "목표 수정" }).click();
+  await panel.getByText("허용 범위와 실행 예산", { exact: true }).click();
+  await page.getByLabel("허용 경로", { exact: true }).fill("tests");
+  await panel.getByRole("button", { name: "목표 저장", exact: true }).click();
+  await expect(panel).toContainText("활성 · 버전 4");
+  await expect(page.locator(".detail-top .status-cancelled")).toBeVisible();
+  await expect(review).toContainText("허용 범위를 벗어나 제외한 작업");
+  await expect(review).toContainText("3 → 4");
+  await expect(page.locator(".task-detail .empty-list")).toContainText("자동으로 시작하지 않습니다.");
+  await expect(page.getByRole("button", { name: "작업 재개", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: /예제 테스트 추가 작업/ }).click();
+  await expect(page.locator(".detail-top .status-queued")).toBeVisible();
+  await expect(review).toContainText("변경된 목표에서도 허용된 작업입니다.");
+  await page.reload();
+  await page.getByRole("button", { name: /범위 재검사 예제 example/ }).click();
+  await page.getByRole("button", { name: /예제 코드 개선 작업/ }).click();
+  await expect(review).toContainText("허용 범위를 벗어나 제외한 작업");
+});
+
 test("enforces project call budgets, keeps current usage after policy edits, and can cancel an unstarted waiting task", async ({ page }, testInfo) => {
   await login(page);
   await createProject(page, "예산 관리 예제");

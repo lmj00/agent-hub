@@ -18,6 +18,8 @@ import { AnalysisError } from "../../server/dist/modules/execution/analysis.js";
 import { createServer } from "node:http";
 import { openDatabase } from "../../server/dist/db/connection.js";
 import { createDrizzleProjectStore } from "../../server/dist/modules/projects/drizzle-project-store.js";
+import { createDrizzleGoalStore } from "../../server/dist/modules/goals/drizzle-goal-store.js";
+import { tasks } from "../../server/dist/db/schema.js";
 import { loadServiceConfig } from "../../server/dist/modules/services/service-config.js";
 
 const directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-browser-")));
@@ -122,6 +124,18 @@ createDrizzleProjectStore(database.db).save({
   workspaceKey: "example",
   createdAt: new Date(),
 });
+const reviewProjectId = randomUUID();
+createDrizzleProjectStore(database.db).save({ id: reviewProjectId, name: "범위 재검사 예제", workspaceKey: "example", createdAt: new Date() });
+const reviewGoal = createDrizzleGoalStore(database.db).register(reviewProjectId, "scope-review", {
+  description: "예제 코드와 테스트 개선", completionCriteria: "테스트로 결과 확인", kind: "finite", priority: 50,
+  allowedPaths: ["src", "tests"], excludedPaths: [], checkIntervalMs: 60000, budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
+}).goal;
+for (const [title, path] of [["예제 코드 개선 작업", "src/main.ts"], ["예제 테스트 추가 작업", "tests/main.ts"]]) {
+  const id = randomUUID();
+  database.db.insert(tasks).values({ id, projectId: reviewProjectId, goalId: reviewGoal.id, goalVersion: 1, instruction: title, requestKey: id, createdAt: new Date(),
+    plannedWork: { planningTaskId: randomUUID(), problemKey: path, sourceRevision: "a".repeat(40), sourceDigest: "b".repeat(64), title, paths: [path], acceptanceCriteria: "테스트 통과", evidence: ["예제 파일"] },
+  }).run();
+}
 database.close();
 let serviceMode = "waiting";
 const service = createServer((request, response) => {
