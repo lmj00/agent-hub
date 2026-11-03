@@ -3,6 +3,7 @@ export { recoveryActions, type RecoveryAction };
 import type { AnalysisUsage, ExecutionIdentity, StopReason } from "./analysis.js";
 import type { TaskStatus } from "../tasks/task-state.js";
 import { settleStoppedCompletion, type RunCompletion } from "./run-task.js";
+import type { PlanResult } from "../goals/goal-plan-policy.js";
 
 export type RecoveryInput = { taskId: string; runId: string | null; requestKey: string; action: RecoveryAction; providerGateVersion: number | null };
 export type RecoveryRequest = RecoveryInput & {
@@ -17,8 +18,8 @@ export type RecoveryStore = {
   request(input: RecoveryInput, activeRunId: string | null, canTrackTermination: boolean): { request: RecoveryRequest; created: boolean };
   findById(id: string): RecoveryRequest | undefined;
   nextPending(): RecoveryRequest | undefined;
-  candidate(id: string): { request: RecoveryRequest; run: { execution: ExecutionIdentity | null; terminationConfirmedAt: Date | null } | null } | undefined;
-  complete(id: string, terminationConfirmedAt: Date | null): { proofSaved: boolean };
+  candidate(id: string): { request: RecoveryRequest; run: { execution: ExecutionIdentity | null; terminationConfirmedAt: Date | null; planResult?: PlanResult | null } | null } | undefined;
+  complete(id: string, terminationConfirmedAt: Date | null, inputVerified?: boolean): { proofSaved: boolean };
 };
 export type ExecutionObserver = {
   confirm: (identity: ExecutionIdentity) => Promise<Date | null>;
@@ -45,7 +46,7 @@ export function reconcileCompletion(
   return { ...completion, status: "blocked" };
 }
 
-export function createRecoveryProcessor(store: RecoveryStore, observer: ExecutionObserver, cleanupRun?: (runId: string) => void) {
+export function createRecoveryProcessor(store: RecoveryStore, observer: ExecutionObserver, cleanupRun?: (runId: string) => void, verifyInput?: (runId: string) => Promise<boolean>) {
   return {
     next: () => store.nextPending(),
     async process(id: string) {
@@ -62,7 +63,9 @@ export function createRecoveryProcessor(store: RecoveryStore, observer: Executio
         } finally { clearTimeout(deadline); }
       }
       // DB 저장에 실패하면 종료된 컨테이너도 보존하여 재시작 뒤 다시 관측할 수 있게 합니다.
-      const result = store.complete(id, confirmedAt);
+      const inputVerified = confirmedAt && candidate.run?.planResult?.status === "proposed" && candidate.request.runId
+        ? await verifyInput?.(candidate.request.runId) ?? false : false;
+      const result = store.complete(id, confirmedAt, inputVerified);
       if (result.proofSaved && candidate.run?.execution) await observer.cleanup(candidate.run.execution);
       if (result.proofSaved && candidate.request.runId) cleanupRun?.(candidate.request.runId);
     },

@@ -30,7 +30,7 @@ import { createDrizzleGoalStore } from "./modules/goals/drizzle-goal-store.js";
 import { goalRoutes } from "./modules/goals/routes.js";
 import { budgetRoutes } from "./modules/budgets/routes.js";
 import { createProjectBudgetStore } from "./modules/budgets/project-budget-store.js";
-import { cleanupConfirmedInputs, cleanupPreparedRun, createPreparedExecutor } from "./modules/goals/prepared-executor.js";
+import { cleanupConfirmedInputs, cleanupPreparedRun, createPreparedExecutor, verifyPreparedResult } from "./modules/goals/prepared-executor.js";
 import { preparedInputRoot } from "./modules/goals/prepared-workspace.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
@@ -91,7 +91,7 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
             executor,
             ...(execution.config.automaticRecovery ? { automaticRecovery: createAutomaticRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()], recovery }) } : {}),
             ...(execution.config.automaticRecovery && execution.config.capacityRecovery ? { capacityRecovery: createCapacityRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.capacityRecovery, retryPolicy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()] }) } : {}),
-            recovery: createRecoveryProcessor(recovery, execution.observer ?? { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }, runId => cleanupPreparedRun(database.db, inputRoot, runId)),
+            recovery: createRecoveryProcessor(recovery, execution.observer ?? { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }, runId => cleanupPreparedRun(database.db, inputRoot, runId), runId => verifyPreparedResult(database.db, runId)),
             validate: () => validateExecutionEnvironment(execution.config, databasePath, protectedFiles),
             reportDiagnostic: (diagnostic) => {
               if (diagnostic.event === "execution_queue.error") scope.log.error(diagnostic, "Execution queue check failed");

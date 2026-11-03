@@ -11,8 +11,21 @@ vi.mock("@openai/codex-sdk", () => ({ Codex: class {
 } }));
 import { codexOptions, createCodexExecutor, threadOptions } from "../src/modules/execution/codex-executor.js";
 import { type AnalysisEvent, classifyCodexError } from "../src/modules/execution/analysis.js";
+import { goalPlanSchema } from "@agent-hub/contracts";
 
 const request = { instruction: "Analyze", workspace: "/tmp/prepared", model: "test-model", signal: new AbortController().signal };
+
+test("planning selects the server-owned structured schema without changing read-only permissions", async () => {
+  fake.events = [
+    { type: "item.completed", item: { type: "agent_message", text: "{}" } },
+    { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } },
+  ];
+  await createCodexExecutor("/tmp/private-auth").analyze({ ...request, responseMode: "goal-plan", outputSchema: { untrusted: true } }, () => {});
+  expect(fake.run).toHaveBeenLastCalledWith(expect.stringContaining("Return JSON matching the supplied schema"), expect.objectContaining({ outputSchema: goalPlanSchema }));
+  // The actual provider rejected this JSON Schema keyword with HTTP 400.
+  expect(JSON.stringify(fake.run.mock.lastCall?.[1])).not.toContain('"uniqueItems"');
+  expect(fake.start).toHaveBeenLastCalledWith(expect.objectContaining({ approvalPolicy: "never", webSearchMode: "disabled" }));
+});
 
 test("uses explicit ChatGPT auth, scoped read-only permissions, medium effort and no API-key inheritance", () => {
   const options = codexOptions("/tmp/private-auth", request.workspace);
@@ -72,6 +85,12 @@ test("classifies a failed turn without returning its raw error", async () => {
   await expect(createCodexExecutor("/tmp/private-auth").analyze(request, () => {})).rejects.toMatchObject({ code: "capacity", message: "capacity" });
   expect(classifyCodexError("401 Unauthorized").code).toBe("authentication");
   expect(classifyCodexError("model not supported").code).toBe("unsupported_settings");
+});
+
+test("a rejected structured output schema is a settings block, without exposing provider details", async () => {
+  fake.events = [{ type: "turn.failed", error: { message: "Invalid schema for response_format: uniqueItems is not permitted; sk-fixture_secret" } }];
+  await expect(createCodexExecutor("/tmp/private-auth").analyze(request, () => {})).rejects.toMatchObject({ code: "unsupported_settings", message: "unsupported_settings" });
+  expect(classifyCodexError("invalid_response_format_schema").code).toBe("unsupported_settings");
 });
 
 test("accepts only explicit, timezone-qualified provider retry times", () => {

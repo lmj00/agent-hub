@@ -12,6 +12,8 @@ import { ProviderGateError, providerScope, readProviderGate, recordProviderOutco
 import { reconcileCompletion, RecoveryError, type RecoveryStore } from "./recover-task.js";
 import { preparedGoalChanged } from "../goals/prepared-input-store.js";
 import { saveRunCompletion } from "./run-completion-store.js";
+import { applyPlanningCompletion } from "../goals/plan-application.js";
+import { pauseCancelledPlan } from "../goals/planning-cancellation.js";
 
 type Db = ReturnType<typeof openDatabase>["db"];
 type Transaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -71,6 +73,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
           tx.update(recoveryRequests).set({ status: "rejected", errorCode: "TASK_CANCELLED", finishedAt: now }).where(eq(recoveryRequests.id, pending.id)).run();
         }
         if (input.action === "cancel") {
+          pauseCancelledPlan(tx, task, input.requestKey, now);
           tx.update(tasks).set({ cancelRequestedAt: task.cancelRequestedAt ?? now }).where(eq(tasks.id, task.id)).run();
           if (run?.status === "running" && !run.stopReason) {
             tx.update(runs).set({ stopReason: "user_cancel", stopRequestedAt: now }).where(eq(runs.id, run.id)).run();
@@ -99,7 +102,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         return { request, run: run?.id === request.runId ? run : null };
       });
     },
-    complete(id, confirmedAt) {
+    complete(id, confirmedAt, inputVerified = false) {
       return db.transaction(tx => {
         assertExecutionOwner(tx, ownerToken);
         const request = tx.select().from(recoveryRequests).where(eq(recoveryRequests.id, id)).get();
@@ -121,6 +124,10 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
           if (run.status === "running" || run.status === "interrupted") {
             const usage = tx.select({ usage: steps.usage }).from(steps).where(eq(steps.runId, run.id)).orderBy(asc(steps.sequence)).get()?.usage ?? null;
             let completion = reconcileCompletion(run, usage, proof, task.cancelRequestedAt !== null);
+            if (proof && run.planResult?.status === "proposed" && !run.stopReason && !task.cancelRequestedAt && [null, "owner_lost", "termination_unconfirmed"].includes(run.errorCode)) {
+              completion = { ...completion, status: inputVerified ? "succeeded" : "blocked", result: inputVerified ? run.planResult.proposal : null, errorCode: inputVerified ? null : "input_changed" };
+            }
+            completion = applyPlanningCompletion(tx, run, completion, now);
             if (completion.status === "succeeded" && preparedGoalChanged(tx, run)) completion = { ...completion, status: "blocked", result: null, errorCode: "goal_changed" };
             saveRunCompletion(tx, run, completion, now);
             finalStatus = completion.status;

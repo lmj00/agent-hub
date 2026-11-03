@@ -12,8 +12,10 @@ async function main() {
   const lines = input[Symbol.asyncIterator]();
   const line = (await lines.next()).value as string | undefined;
   if (!line || Buffer.byteLength(line) > 65536) throw new Error("Invalid runner input");
-  const request = JSON.parse(line) as { instruction?: unknown; model?: unknown; effort?: unknown; workflow?: unknown; effortPolicy?: { mode?: unknown; maxEffort?: unknown } };
+  const request = JSON.parse(line) as { instruction?: unknown; model?: unknown; effort?: unknown; workflow?: unknown; responseMode?: unknown; effortPolicy?: { mode?: unknown; maxEffort?: unknown } };
   if (typeof request.instruction !== "string" || typeof request.model !== "string") throw new Error("Invalid runner input");
+  if (request.responseMode !== undefined && request.responseMode !== "goal-plan") throw new AnalysisError("unsupported_settings");
+  if (request.responseMode && request.workflow) throw new AnalysisError("unsupported_settings");
   const effort = request.effort ?? "medium";
   if (!efforts.includes(effort as Effort)) throw new AnalysisError("unsupported_settings");
   const workflow = request.workflow ? parseAnalysisWorkflow(request.workflow) : undefined;
@@ -22,7 +24,7 @@ async function main() {
   process.once("SIGTERM", () => controller.abort());
   try {
     const result = await createAnalysisWorkflow(createCodexExecutor("/codex-home", "/usr/local/lib/codex/bin/codex")).analyze({
-      instruction: request.instruction, model: request.model, effort: effort as Effort, ...(effortPolicy ? { effortPolicy } : {}), ...(workflow ? { workflow } : {}), workspace: "/workspace", signal: controller.signal,
+      instruction: request.instruction, model: request.model, effort: effort as Effort, ...(request.responseMode === "goal-plan" ? { responseMode: "goal-plan" as const } : {}), ...(effortPolicy ? { effortPolicy } : {}), ...(workflow ? { workflow } : {}), workspace: "/workspace", signal: controller.signal,
     }, async event => {
       send({ type: "event", event });
       if (event.step) {

@@ -161,7 +161,7 @@ test("adds tasks to a projects-only database and preserves existing projects", (
   upgraded.close();
 
   const reopened = connect();
-  expect(reopened.db.select().from(tasks).all()).toEqual([{ ...task, kind: "work", goalId: null, goalVersion: null, budgetWait: null, cancelRequestedAt: null, retryState: null }]);
+  expect(reopened.db.select().from(tasks).all()).toEqual([{ ...task, kind: "work", goalId: null, goalVersion: null, plannedWork: null, budgetWait: null, cancelRequestedAt: null, retryState: null }]);
   expect(reopened.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: migrationCount });
 });
 
@@ -177,5 +177,5 @@ test("enforces task foreign keys, request uniqueness, and status in SQLite", () 
   expect(() => db.insert(tasks).values({ ...task, id: "duplicate-task" }).run()).toThrow();
   expect(() => client.prepare("UPDATE tasks SET status = ?").run("invalid")).toThrow();
   expect(() => client.prepare("DELETE FROM projects WHERE id = ?").run(project.id)).toThrow();
-  expect(db.select().from(tasks).all()).toEqual([{ ...task, kind: "work", goalId: null, goalVersion: null, budgetWait: null, status: "queued", cancelRequestedAt: null, retryState: null }]);
+  expect(db.select().from(tasks).all()).toEqual([{ ...task, kind: "work", goalId: null, goalVersion: null, plannedWork: null, budgetWait: null, status: "queued", cancelRequestedAt: null, retryState: null }]);
 });

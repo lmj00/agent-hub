@@ -5,8 +5,9 @@ import { AnalysisError, redactOutput, signalStopReason, type AnalysisEvent, type
 import type { TaskStatus } from "../tasks/task-state.js";
 import type { ProviderGateView } from "./provider-gate.js";
 import type { GoalScope } from "../goals/prepared-workspace.js";
+import type { PlanningContext } from "../goals/goal-plan-policy.js";
 
-export type ClaimedRun = { id: string; taskId: string; instruction: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; providerCheck?: boolean; remainingRunMs?: number; budgetDeadlineAt?: number; budgetRunMs?: number; scope?: GoalScope };
+export type ClaimedRun = { id: string; taskId: string; instruction: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; providerCheck?: boolean; remainingRunMs?: number; budgetDeadlineAt?: number; budgetRunMs?: number; scope?: GoalScope; planning?: PlanningContext };
 export type RunCompletion = {
   status: Exclude<TaskStatus, "queued" | "running">;
   result: string | null;
@@ -113,7 +114,7 @@ export async function runClaimedTask(
     // 중단 신호에 응답하지 않는 실행도 기다림을 끝냅니다. Promise.race는 뒤늦은 실패도 처리합니다.
     const result = await Promise.race([
       executor.analyze({
-        instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal, runId: run.id, effort: run.effort ?? "medium", ...(run.effortPolicy ? { effortPolicy: run.effortPolicy } : {}), ...(run.workflow ? { workflow: run.workflow } : {}), ...(run.scope ? { scope: run.scope } : {}),
+        instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal, runId: run.id, effort: run.effort ?? "medium", ...(run.effortPolicy ? { effortPolicy: run.effortPolicy } : {}), ...(run.workflow ? { workflow: run.workflow } : {}), ...(run.scope ? { scope: run.scope } : {}), ...(run.planning ? { planning: run.planning } : {}),
       }, (event) => {
         if (acceptingEvents && !controller.signal.aborted) store.record(run.id, event);
       }),

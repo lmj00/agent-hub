@@ -2,6 +2,7 @@ import type { AnalysisWorkflowPolicy } from "../modules/execution/analysis-workf
 import type { EffortPolicy } from "../modules/execution/effort-policy.js";
 import type { RetryState } from "../modules/execution/retry-policy.js";
 import type { PreparedInput } from "../modules/goals/prepared-workspace.js";
+import type { PlannedWork, PlanResult } from "../modules/goals/goal-plan-policy.js";
 import { sql } from "drizzle-orm";
 import type { ServiceSnapshot, CapacityState, AnalysisAssessment, GoalDefinition, Goal, PeriodBudgetPolicy, BudgetWait } from "@agent-hub/contracts";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
@@ -32,6 +33,7 @@ export const tasks = sqliteTable(
     goalId: text("goal_id").references(() => goals.id, { onDelete: "restrict" }),
     goalVersion: integer("goal_version"),
     budgetWait: text("budget_wait", { mode: "json" }).$type<BudgetWait>(),
+    plannedWork: text("planned_work", { mode: "json" }).$type<PlannedWork>(),
     instruction: text("instruction").notNull(),
     requestKey: text("request_key").notNull(),
     status: text("status", { enum: taskStatuses }).notNull().default("queued"),
@@ -75,6 +77,7 @@ export const runs = sqliteTable("runs", {
   terminationConfirmedAt: integer("termination_confirmed_at", { mode: "timestamp_ms" }),
   execution: text("execution", { mode: "json" }).$type<ExecutionIdentity>(),
   preparedInput: text("prepared_input", { mode: "json" }).$type<PreparedInput>(),
+  planResult: text("plan_result", { mode: "json" }).$type<PlanResult>(),
   retryAt: integer("retry_at", { mode: "timestamp_ms" }),
   providerGateVersion: integer("provider_gate_version"),
   accountedDurationMs: integer("accounted_duration_ms").notNull().default(0),
@@ -128,6 +131,21 @@ export const goals = sqliteTable("goals", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 }, table => [uniqueIndex("goals_project_request_unique").on(table.projectId, table.requestKey)]);
+
+export const planningCycles = sqliteTable("planning_cycles", {
+  taskId: text("task_id").primaryKey().references(() => tasks.id),
+  goalId: text("goal_id").notNull().references(() => goals.id),
+  goalVersion: integer("goal_version").notNull(),
+  status: text("status", { enum: ["reserved", "applied", "rejected"] }).notNull(),
+  resultRunId: text("result_run_id").references(() => runs.id),
+  reason: text("reason"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+}, table => [
+  uniqueIndex("planning_cycles_one_reservation").on(table.goalId).where(sql`${table.status} = 'reserved'`),
+  index("planning_cycles_goal_created_idx").on(table.goalId, table.createdAt),
+  check("planning_cycles_status_valid", sql`${table.status} IN ('reserved', 'applied', 'rejected')`),
+]);
 
 export const projectBudgets = sqliteTable("project_budgets", {
   projectId: text("project_id").primaryKey().references(() => projects.id),

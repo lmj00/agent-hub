@@ -20,8 +20,11 @@ import { runTask } from "../src/modules/execution/run-task.js";
 import { loadExecutionConfig } from "../src/modules/execution/execution-config.js";
 import { createProjectBudgetStore } from "../src/modules/budgets/project-budget-store.js";
 import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
-import { createPreparedExecutor } from "../src/modules/goals/prepared-executor.js";
+import { createPreparedExecutor, cleanupPreparedRun, verifyPreparedResult } from "../src/modules/goals/prepared-executor.js";
 import { preparedInputRoot } from "../src/modules/goals/prepared-workspace.js";
+import { createPlanningStore } from "../src/modules/goals/planning-store.js";
+import { createDrizzleRecoveryStore } from "../src/modules/execution/drizzle-recovery-store.js";
+import { createRecoveryProcessor } from "../src/modules/execution/recover-task.js";
 
 const exec = promisify(execFile);
 const image = "agent-hub-execution-test:local";
@@ -96,6 +99,35 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     expect(stored.preparedInput!.id).not.toBe("forged");
     expect(existsSync(stored.preparedInput!.directory)).toBe(false);
     expect(readFileSync(join(workspace, "main.ts"), "utf8")).toBe("allowed source\n");
+  }, 20000);
+
+  test.each([false, true])("applies a structured container plan exactly once; completion write fails=%s", async failWrite => {
+    const git = (...args: string[]) => exec("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args], { cwd: workspace, env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
+    await git("init", "--quiet", "--template="); writeFileSync(join(workspace, "main.ts"), "fixture source\n"); await git("add", "--all"); await git("commit", "--quiet", "-m", "fixture");
+    const projectId = database.db.select().from(tasks).get()!.projectId;
+    createDrizzleGoalStore(database.db).register(projectId, "plan-goal", { description: "Improve fixture", completionCriteria: "Verified", kind: "finite", priority: 50, allowedPaths: ["main.ts"], excludedPaths: [], checkIntervalMs: 60000, budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 } });
+    const plan = createPlanningStore(database.db).reserveNext(["example"])!;
+    const root = preparedInputRoot(join(directory, "hub.sqlite"));
+    store = createDrizzleRunStore(database.db, undefined, { analysisWorkflow: parseAnalysisWorkflow({}) });
+    if (failWrite) database.client.exec("CREATE TRIGGER fail_plan_apply BEFORE INSERT ON tasks WHEN NEW.planned_work IS NOT NULL BEGIN SELECT RAISE(ABORT,'injected failure'); END");
+    const pending = runTask({ taskId: plan.taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, createPreparedExecutor(createContainerExecutor(image, home), root));
+    if (failWrite) {
+      await expect(pending).rejects.toThrow("injected failure");
+      const run = database.db.select().from(runs).get()!;
+      expect(run.planResult?.status).toBe("proposed");
+      expect(database.client.prepare("SELECT count(*) AS count FROM tasks WHERE planned_work IS NOT NULL").get()).toEqual({ count: 0 });
+      database.client.exec("DROP TRIGGER fail_plan_apply");
+      const recovery = createDrizzleRecoveryStore(database.db);
+      const request = recovery.request({ taskId: plan.taskId, runId: run.id, requestKey: "plan-recovery", action: "reconcile", providerGateVersion: null }, null, true).request;
+      const processor = createRecoveryProcessor(recovery, { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }, id => cleanupPreparedRun(database.db, root, id), id => verifyPreparedResult(database.db, id));
+      await processor.process(request.id); await processor.process(request.id);
+    } else expect((await pending).status).toBe("succeeded");
+    const run = database.db.select().from(runs).get()!;
+    expect(run).toMatchObject({ status: "succeeded", terminationConfirmedAt: expect.any(Date), planResult: { status: "applied", createdTaskIds: [expect.any(String)] } });
+    expect(run.planResult!.proposal).not.toBe("forged");
+    expect(database.client.prepare("SELECT count(*) AS count FROM tasks WHERE planned_work IS NOT NULL").get()).toEqual({ count: 1 });
+    expect(existsSync(run.preparedInput!.directory)).toBe(false);
+    expect(readFileSync(join(workspace, "main.ts"), "utf8")).toBe("fixture source\n");
   }, 20000);
 
   test("acknowledges persisted workflow steps before the child starts each next call", async () => {

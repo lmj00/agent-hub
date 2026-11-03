@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { goals, runs, tasks } from "../../db/schema.js";
-import { AnalysisError } from "../execution/analysis.js";
+import { goals, planningCycles, runs, tasks } from "../../db/schema.js";
+import { AnalysisError, redactOutput } from "../execution/analysis.js";
 import { readGoalExecutionBlock } from "./goal-execution-store.js";
 import type { GoalScope, PreparedInput } from "./prepared-workspace.js";
 
@@ -87,4 +87,11 @@ export function savePreparedInput(
     .set({ preparedInput: input })
     .where(eq(runs.id, run.id))
     .run();
+}
+
+export function savePlanningProposal(db: Db, run: Run, proposal: string, kind: string) {
+  const cycle = db.select().from(planningCycles).where(eq(planningCycles.taskId, run.taskId)).get();
+  if (!cycle || cycle.status !== "reserved" || run.planResult || run.preparedInput?.phase !== "ready" || kind !== "planning.proposed"
+    || typeof proposal !== "string" || !proposal.trim() || Buffer.byteLength(proposal) > 65536) throw new AnalysisError("invalid_plan");
+  db.update(runs).set({ planResult: { status: "proposed", proposal: redactOutput(proposal), createdTaskIds: [], reason: null } }).where(eq(runs.id, run.id)).run();
 }

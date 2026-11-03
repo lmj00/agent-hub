@@ -5,6 +5,7 @@ import {
   type TSchema,
 } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+export { goalPlanSchema, type GoalPlan } from "./goal-plan.js";
 
 // 서버는 같은 JSON Schema를 Fastify에 전달하고, 화면은 응답을 받은 뒤 검사합니다.
 FormatRegistry.Set("uuid", (value) =>

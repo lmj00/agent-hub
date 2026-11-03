@@ -2,12 +2,13 @@ import { stopReasons, type StopReason, type Effort } from "@agent-hub/contracts"
 import type { AnalysisWorkflowPolicy, StepUpdate } from "./analysis-workflow.js";
 import type { EffortPolicy } from "./effort-policy.js";
 import type { GoalScope, PreparedInput } from "../goals/prepared-workspace.js";
+import type { PlanningContext } from "../goals/goal-plan-policy.js";
 export { stopReasons, type StopReason };
 
 export type AnalysisUsage = { inputTokens: number; cachedInputTokens: number; outputTokens: number };
 export type ExecutionIdentity = { kind: "docker"; containerId: string; token: string; engineId: string };
-export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity; step?: StepUpdate; preparedInput?: PreparedInput };
-export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; outputSchema?: unknown; scope?: GoalScope };
+export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity; step?: StepUpdate; preparedInput?: PreparedInput; planningProposal?: string };
+export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; outputSchema?: unknown; scope?: GoalScope; planning?: PlanningContext; responseMode?: "goal-plan" };
 export type AnalysisResult = { output: string; usage: AnalysisUsage | null };
 
 // 이유가 없는 외부 중단 신호는 재실행하지 않는 사용자 취소로 취급합니다.
@@ -49,7 +50,7 @@ export function classifyCodexError(message: string): AnalysisError {
   if (isSandboxSetupError(message)) return new AnalysisError("unsupported_settings");
   if (/usage limit|quota|rate.?limit|too many requests|\b429\b/i.test(message)) return new AnalysisError("capacity", false, providerRetryAt(message));
   if (/unauthori[sz]ed|\b401\b|authentication|not logged in|sign in|refresh.token/i.test(message)) return new AnalysisError("authentication");
-  if (/unsupported|not supported|model.*not found|invalid.*model|invalid.*config/i.test(message)) return new AnalysisError("unsupported_settings");
+  if (/unsupported|not supported|model.*not found|invalid.*model|invalid.*config|invalid(?:_response_format)?[\s_]+schema/i.test(message)) return new AnalysisError("unsupported_settings");
   if (/network|ECONNRESET|ECONNREFUSED|ETIMEDOUT|fetch failed|connection (?:reset|closed|timed out)|\b50[234]\b|temporarily unavailable|server error|overloaded/i.test(message)) return new AnalysisError("transient");
   return new AnalysisError("provider_error");
 }

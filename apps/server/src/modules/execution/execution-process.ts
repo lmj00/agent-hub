@@ -86,7 +86,7 @@ export function createContainerExecutor(image: string, codexHome: string): Analy
           else if (code !== 0 || buffer || !result) reject(new AnalysisError("provider_error", true));
           else resolve(result);
         });
-        child.stdin!.write(JSON.stringify({ instruction: request.instruction, model: request.model, effort: request.effort ?? "medium", effortPolicy: request.effortPolicy, workflow: request.workflow }) + "\n");
+        child.stdin!.write(JSON.stringify({ instruction: request.instruction, model: request.model, effort: request.effort ?? "medium", effortPolicy: request.effortPolicy, workflow: request.workflow, responseMode: request.responseMode }) + "\n");
       });
     },
     async confirmTermination(runId) {

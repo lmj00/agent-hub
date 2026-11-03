@@ -247,7 +247,7 @@ function ExecutionBar({ queue, gate }: { queue: Queue; gate: ProviderGate }) {
     >
       <div>
         <span className="eyebrow">실행기</span>
-        <strong>{queue.reason === "period_budget" ? "기간 예산 대기" : queueLabels[queue.state]}</strong>
+        <strong>{queue.reason === "period_budget" ? "기간 예산 대기" : queue.reason === "development_pending" ? "개발 실행 연결 대기" : queueLabels[queue.state]}</strong>
       </div>
       <p>
         {gate.blocked
@@ -256,6 +256,8 @@ function ExecutionBar({ queue, gate }: { queue: Queue; gate: ProviderGate }) {
             ? "서버에 실행 설정을 연결하면 대기 작업을 순서대로 처리합니다."
             : queue.reason === "period_budget"
               ? "실행 예산이 있는 작업을 기다립니다. 각 작업에서 대기 이유와 다음 확인 시각을 볼 수 있습니다."
+            : queue.reason === "development_pending"
+              ? "계획에서 개발 작업을 생성했습니다. 코드 수정·검증 실행기가 연결돼야 시작할 수 있습니다."
             : queue.state === "held"
               ? "종료가 확인되지 않은 실행을 먼저 확인해 주세요."
               : queue.state === "error"

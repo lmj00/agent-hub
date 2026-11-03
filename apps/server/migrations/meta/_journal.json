@@ -134,6 +134,13 @@
       "when": 1793706991168,
       "tag": "0018_prepared_goal_input",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793708650194,
+      "tag": "0019_goal_planning",
+      "breakpoints": true
     }
   ]
 }
