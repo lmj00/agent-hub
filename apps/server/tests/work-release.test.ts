@@ -722,20 +722,21 @@ test("upgrades the pre-release database without changing tasks, runs or recovery
       createdAt: new Date(),
     })
     .run();
-  old.db
-    .insert(runs)
-    .values({
-      id: runId,
-      taskId: id,
-      instanceId: "old",
-      status: "cancelled",
-      model: "fixture",
-      effort: "medium",
-      startedAt: new Date(),
-      lastActivityAt: new Date(),
-      terminationConfirmedAt: new Date(),
-    })
-    .run();
+  old.client
+    .prepare(
+      "INSERT INTO runs(id,task_id,instance_id,status,model,effort,started_at,last_activity_at,termination_confirmed_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    )
+    .run(
+      runId,
+      id,
+      "old",
+      "cancelled",
+      "fixture",
+      "medium",
+      Date.now(),
+      Date.now(),
+      Date.now(),
+    );
   old.db
     .insert(recoveryRequests)
     .values({
@@ -750,16 +751,16 @@ test("upgrades the pre-release database without changing tasks, runs or recovery
     .run();
   const before = [
     old.db.select().from(tasks).all(),
-    old.db.select().from(runs).all(),
+    old.client.prepare("SELECT * FROM runs").all(),
     old.db.select().from(recoveryRequests).all(),
   ];
   old.close();
   database = openDatabase(oldPath);
   expect([
     database.db.select().from(tasks).all(),
-    database.db.select().from(runs).all(),
+    database.client.prepare("SELECT * FROM runs").all(),
     database.db.select().from(recoveryRequests).all(),
-  ]).toEqual(before);
+  ]).toMatchObject(before);
   expect(database.db.select().from(taskReleases).all()).toEqual([]);
   expect(() => database.checkReady()).not.toThrow();
   database.client.exec("DROP TABLE task_releases");

@@ -15,6 +15,7 @@ import {
 } from "@agent-hub/contracts";
 import { api, ApiError, errorMessage } from "./api.js";
 import { dateTime, elapsed, Status, statusLabels } from "./format.js";
+import { PlanningEvidencePanel } from "./PlanningEvidencePanel.js";
 import { usePolling } from "./use-polling.js";
 
 const actions: Record<RecoveryAction, string> = {
@@ -59,7 +60,7 @@ const runErrors: Record<string, string> = {
   verification_required: "목표 완료 제안은 받았지만 실제 코드와 테스트의 검증 근거가 없어 완료로 반영하지 않았습니다.",
   work_unresolved: "진행·종료 확인·복구 중인 작업이 있거나 기존 작업의 범위를 확인할 수 없어 새 계획을 보류했습니다.",
   planning_no_progress: "이미 처리했거나 재생성을 막은 작업만 반복 제안해 계획을 보류했습니다.",
-  input_unavailable: "분석 자료를 준비하지 못했습니다. 원본 저장소의 미커밋 변경, 허용 경로와 파일 상한을 확인해 주세요.",
+  input_unavailable: "분석 자료를 준비하지 못했습니다. 원본 저장소의 미커밋 변경, 허용 경로와 파일·목표 입력의 크기 제한을 확인해 주세요.",
   input_changed: "분석 중 원본 코드가 바뀌어 결과를 반영하지 않았습니다. 최신 코드를 기준으로 다시 확인해야 합니다.",
   goal_changed: "목표의 상태나 버전이 바뀌어 이전 기준의 실행을 보류했습니다.",
   budget_limit: "프로젝트 또는 목표의 기간 예산을 다 썼습니다. 기존 결과를 보존하고 다음 기간에 실행 조건을 다시 확인합니다.",
@@ -571,6 +572,7 @@ function RunRecord({
         <h3>분석 결과</h3>
         {run.finishedAt ? <small>{dateTime(run.finishedAt)}</small> : null}
       </div>
+      {run.planningEvidence ? <PlanningEvidencePanel evidence={run.planningEvidence} /> : null}
       {run.result ? (
         <pre className="analysis-result">{run.result}</pre>
       ) : (

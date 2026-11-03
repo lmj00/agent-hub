@@ -33,6 +33,70 @@ export type ObserverStatus = {
   nextChecks: ReadonlyMap<string, Date>;
 };
 
+export function readServiceViews(
+  db: Pick<ReturnType<typeof openDatabase>["db"], "select">,
+  projectId: string,
+  observer: ObserverStatus,
+  now = new Date(),
+  configuredOnly = false,
+): Service[] {
+  return db
+    .select()
+    .from(serviceTargets)
+    .where(
+      and(
+        eq(serviceTargets.projectId, projectId),
+        configuredOnly ? eq(serviceTargets.configured, true) : undefined,
+      ),
+    )
+    .orderBy(serviceTargets.name, serviceTargets.key)
+    .all()
+    .map((target) => {
+      const filter = and(
+        eq(serviceObservations.targetKey, target.key),
+        eq(serviceObservations.fingerprint, target.fingerprint),
+      );
+      const latest = observation(
+        db
+          .select()
+          .from(serviceObservations)
+          .where(filter)
+          .orderBy(desc(serviceObservations.sequence))
+          .get(),
+      );
+      const lastSuccessful = observation(
+        db
+          .select()
+          .from(serviceObservations)
+          .where(and(filter, eq(serviceObservations.success, true)))
+          .orderBy(desc(serviceObservations.sequence))
+          .get(),
+      );
+      const enabled = target.configured && observer.enabledKeys.has(target.key);
+      const verdict = !enabled
+        ? { state: "unknown" as const, reason: "observer_disabled" }
+        : observer.errors.has(target.key)
+          ? { state: "unknown" as const, reason: "observer_error" }
+          : interpretObservation(target, latest, now);
+      return {
+        key: target.key,
+        name: target.name,
+        projectId: target.projectId,
+        enabled,
+        intervalMs: target.intervalMs,
+        staleAfterMs: target.staleAfterMs,
+        allowWaiting: target.allowWaiting,
+        activityTimeoutMs: target.activityTimeoutMs,
+        ...verdict,
+        nextCheckAt: enabled
+          ? (observer.nextChecks.get(target.key)?.toISOString() ?? null)
+          : null,
+        latest,
+        lastSuccessful,
+      };
+    });
+}
+
 export function createDrizzleServiceStore(
   db: ReturnType<typeof openDatabase>["db"],
   ownerToken?: string,
@@ -112,57 +176,7 @@ export function createDrizzleServiceStore(
       observer: ObserverStatus,
       now = new Date(),
     ): Service[] {
-      return db
-        .select()
-        .from(serviceTargets)
-        .where(eq(serviceTargets.projectId, projectId))
-        .orderBy(serviceTargets.name, serviceTargets.key)
-        .all()
-        .map((target) => {
-          const filter = and(
-            eq(serviceObservations.targetKey, target.key),
-            eq(serviceObservations.fingerprint, target.fingerprint),
-          );
-          const latest = observation(
-            db
-              .select()
-              .from(serviceObservations)
-              .where(filter)
-              .orderBy(desc(serviceObservations.sequence))
-              .get(),
-          );
-          const lastSuccessful = observation(
-            db
-              .select()
-              .from(serviceObservations)
-              .where(and(filter, eq(serviceObservations.success, true)))
-              .orderBy(desc(serviceObservations.sequence))
-              .get(),
-          );
-          const enabled =
-            target.configured && observer.enabledKeys.has(target.key);
-          const verdict = !enabled
-            ? { state: "unknown" as const, reason: "observer_disabled" }
-            : observer.errors.has(target.key)
-              ? { state: "unknown" as const, reason: "observer_error" }
-              : interpretObservation(target, latest, now);
-          return {
-            key: target.key,
-            name: target.name,
-            projectId: target.projectId,
-            enabled,
-            intervalMs: target.intervalMs,
-            staleAfterMs: target.staleAfterMs,
-            allowWaiting: target.allowWaiting,
-            activityTimeoutMs: target.activityTimeoutMs,
-            ...verdict,
-            nextCheckAt: enabled
-              ? (observer.nextChecks.get(target.key)?.toISOString() ?? null)
-              : null,
-            latest,
-            lastSuccessful,
-          };
-        });
+      return readServiceViews(db, projectId, observer, now);
     },
   };
 }

@@ -262,8 +262,59 @@ export const runSchema = object({
   finishedAt: nullable(date),
 });
 export const runsSchema = object({ runs: Type.Array(runSchema) });
+export const serviceSnapshotSchema = object({
+  observedAt: date,
+  processState: enumeration(["running", "stopped", "unknown"] as const),
+  activityState: enumeration([
+    "working",
+    "waiting",
+    "degraded",
+    "unknown",
+  ] as const),
+  lastSuccessAt: nullable(date),
+  nextExpectedAt: nullable(date),
+  errorCount: Type.Integer({ minimum: 0, maximum: 2147483647 }),
+  summary: Type.String({ maxLength: 500 }),
+});
+export type ServiceSnapshot = Static<typeof serviceSnapshotSchema>;
+export const serviceObservationSchema = object({
+  id,
+  receivedAt: date,
+  success: Type.Boolean(),
+  errorCode: nullable(text),
+  snapshot: nullable(serviceSnapshotSchema),
+});
+export type ServiceObservation = Static<typeof serviceObservationSchema>;
+export const serviceStates = [
+  "healthy",
+  "waiting",
+  "degraded",
+  "stopped",
+  "stale",
+  "unavailable",
+  "unknown",
+] as const;
+export type ServiceState = (typeof serviceStates)[number];
+export const planningServiceSchema = object({
+  key: text,
+  name: text,
+  enabled: Type.Boolean(),
+  state: enumeration(serviceStates),
+  reason: text,
+  latest: nullable(serviceObservationSchema),
+  lastSuccessful: nullable(serviceObservationSchema),
+});
+export type PlanningService = Static<typeof planningServiceSchema>;
+const inputCountSchema = object({ total: Type.Integer({ minimum: 0 }), included: Type.Integer({ minimum: 0 }) });
+export const planningEvidenceSchema = object({
+  capturedAt: date,
+  services: Type.Array(planningServiceSchema, { maxItems: 10 }),
+  counts: object({ files: inputCountSchema, history: inputCountSchema, suppressedWork: inputCountSchema, services: inputCountSchema }),
+});
+export type PlanningEvidence = Static<typeof planningEvidenceSchema>;
 export const runDetailsSchema = object({
   ...runSchema.properties,
+  planningEvidence: nullable(planningEvidenceSchema),
   lastActivityAt: date,
   result: nullable(text),
   errorCode: nullable(text),
@@ -380,39 +431,6 @@ export const loginSchema = object({
   password: Type.String({ minLength: 1, maxLength: 1024 }),
 });
 
-export const serviceSnapshotSchema = object({
-  observedAt: date,
-  processState: enumeration(["running", "stopped", "unknown"] as const),
-  activityState: enumeration([
-    "working",
-    "waiting",
-    "degraded",
-    "unknown",
-  ] as const),
-  lastSuccessAt: nullable(date),
-  nextExpectedAt: nullable(date),
-  errorCount: Type.Integer({ minimum: 0, maximum: 2147483647 }),
-  summary: Type.String({ maxLength: 500 }),
-});
-export type ServiceSnapshot = Static<typeof serviceSnapshotSchema>;
-export const serviceObservationSchema = object({
-  id,
-  receivedAt: date,
-  success: Type.Boolean(),
-  errorCode: nullable(text),
-  snapshot: nullable(serviceSnapshotSchema),
-});
-export type ServiceObservation = Static<typeof serviceObservationSchema>;
-export const serviceStates = [
-  "healthy",
-  "waiting",
-  "degraded",
-  "stopped",
-  "stale",
-  "unavailable",
-  "unknown",
-] as const;
-export type ServiceState = (typeof serviceStates)[number];
 export const serviceSchema = object({
   key: text,
   name: text,

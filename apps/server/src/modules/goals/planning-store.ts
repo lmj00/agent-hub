@@ -1,5 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  lte,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import {
   goals,
@@ -15,12 +26,23 @@ import type { PlanningContext } from "./goal-plan-policy.js";
 import { revalidateGoalWork } from "./revalidate-goal-work.js";
 import { readPlanningWork } from "./planning-work-state.js";
 
+import {
+  readServiceViews,
+  type ObserverStatus,
+} from "../services/drizzle-service-store.js";
+
 type Db = ReturnType<typeof openDatabase>["db"];
 type QueryDb = Pick<Db, "select">;
 
 export function readPlanningContext(
   db: QueryDb,
   taskId: string,
+  observer: ObserverStatus = {
+    enabledKeys: new Set(),
+    errors: new Set(),
+    nextChecks: new Map(),
+  },
+  now = new Date(),
 ): PlanningContext | undefined {
   const cycle = db
     .select()
@@ -34,7 +56,7 @@ export function readPlanningContext(
   const history = db
     .select()
     .from(tasks)
-    .where(eq(tasks.goalId, goal.id))
+    .where(and(eq(tasks.goalId, goal.id), ne(tasks.id, taskId)))
     .orderBy(desc(tasks.createdAt), desc(tasks.id))
     .limit(20)
     .all();
@@ -43,41 +65,68 @@ export function readPlanningContext(
     goalId: goal.id,
     goalVersion: goal.version,
     definition: goal.definition,
-    suppressedWork: work.suppressed
-      .slice(0, 20)
-      .map((item) => ({
-        ...item,
-        paths: item.paths.slice(0, 5),
-        acceptanceCriteria: redactOutput(item.acceptanceCriteria).slice(0, 500),
-      })),
-    suppressedWorkCount: work.suppressed.length,
-    history: history
-      .filter((task) => task.id !== taskId)
-      .map((task) => {
-        const last = db
-          .select()
-          .from(runs)
-          .where(eq(runs.taskId, task.id))
-          .orderBy(desc(runs.attempt))
-          .get();
-        return {
-          id: task.id,
-          kind: task.kind,
-          status: task.status,
-          instruction: redactOutput(task.instruction.slice(0, 500)),
-          problemKey: task.plannedWork?.problemKey ?? null,
-          lastRun: last
+    capturedAt: now.toISOString(),
+    historyCount: db
+      .select({ total: count() })
+      .from(tasks)
+      .where(and(eq(tasks.goalId, goal.id), ne(tasks.id, taskId)))
+      .get()!.total,
+    services: readServiceViews(db, goal.projectId, observer, now, true).map(
+      (service) => {
+        const clean = (value: typeof service.latest) =>
+          value
             ? {
-                status: last.status,
-                result: last.result
-                  ? redactOutput(last.result).slice(0, 1000)
+                ...value,
+                snapshot: value.snapshot
+                  ? {
+                      ...value.snapshot,
+                      summary: redactOutput(value.snapshot.summary),
+                    }
                   : null,
-                errorCode: last.errorCode,
-                terminationConfirmed: !!last.terminationConfirmedAt,
               }
-            : null,
+            : null;
+        return {
+          key: service.key,
+          name: redactOutput(service.name),
+          enabled: service.enabled,
+          state: service.state,
+          reason: service.reason,
+          latest: clean(service.latest),
+          lastSuccessful: clean(service.lastSuccessful),
         };
-      }),
+      },
+    ),
+    suppressedWork: work.suppressed.slice(0, 20).map((item) => ({
+      ...item,
+      paths: item.paths.slice(0, 5),
+      acceptanceCriteria: redactOutput(item.acceptanceCriteria).slice(0, 500),
+    })),
+    suppressedWorkCount: work.suppressed.length,
+    history: history.map((task) => {
+      const last = db
+        .select()
+        .from(runs)
+        .where(eq(runs.taskId, task.id))
+        .orderBy(desc(runs.attempt))
+        .get();
+      return {
+        id: task.id,
+        kind: task.kind,
+        status: task.status,
+        instruction: redactOutput(task.instruction.slice(0, 500)),
+        problemKey: task.plannedWork?.problemKey ?? null,
+        lastRun: last
+          ? {
+              status: last.status,
+              result: last.result
+                ? redactOutput(last.result).slice(0, 1000)
+                : null,
+              errorCode: last.errorCode,
+              terminationConfirmed: !!last.terminationConfirmedAt,
+            }
+          : null,
+      };
+    }),
   };
 }
 

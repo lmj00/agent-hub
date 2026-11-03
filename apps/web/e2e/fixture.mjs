@@ -19,7 +19,8 @@ import { createServer } from "node:http";
 import { openDatabase } from "../../server/dist/db/connection.js";
 import { createDrizzleProjectStore } from "../../server/dist/modules/projects/drizzle-project-store.js";
 import { createDrizzleGoalStore } from "../../server/dist/modules/goals/drizzle-goal-store.js";
-import { tasks } from "../../server/dist/db/schema.js";
+import { tasks, runs } from "../../server/dist/db/schema.js";
+import { buildPlanningInput } from "../../server/dist/modules/goals/goal-plan-policy.js";
 import { loadServiceConfig } from "../../server/dist/modules/services/service-config.js";
 
 const directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-browser-")));
@@ -146,6 +147,19 @@ database.db.insert(tasks).values({ id: releaseTaskId, projectId: releaseProjectI
   instruction: "취소 기록을 이어받을 개선 작업", requestKey: releaseTaskId, status: "cancelled", cancelRequestedAt: new Date(), createdAt: new Date(),
   plannedWork: { planningTaskId: randomUUID(), problemKey: "release", sourceRevision: "a".repeat(40), sourceDigest: "b".repeat(64), title: "개선", paths: ["src/main.ts"], acceptanceCriteria: "테스트 통과", evidence: ["예제 파일"] },
 }).run();
+const evidenceProjectId = randomUUID();
+createDrizzleProjectStore(database.db).save({ id: evidenceProjectId, name: "관측 계획 예제", workspaceKey: "example", createdAt: new Date() });
+const evidenceGoal = createDrizzleGoalStore(database.db).register(evidenceProjectId, "evidence", { ...reviewGoal.definition, description: "관측을 참고한 다음 작업 계획" }).goal;
+const evidenceTaskId = randomUUID(), evidenceRunId = randomUUID(), capturedAt = new Date().toISOString();
+const planningInput = buildPlanningInput({ goalId: evidenceGoal.id, goalVersion: 1, definition: evidenceGoal.definition, capturedAt, history: [], historyCount: 0, suppressedWork: [], suppressedWorkCount: 0,
+  services: [{ key: "sample", name: "기록 처리 서비스", enabled: true, state: "unavailable", reason: "http_error",
+    latest: { id: randomUUID(), receivedAt: capturedAt, success: false, errorCode: "http_error", snapshot: null },
+    lastSuccessful: { id: randomUUID(), receivedAt: new Date(Date.now() - 60000).toISOString(), success: true, errorCode: null,
+      snapshot: { observedAt: new Date(Date.now() - 60000).toISOString(), processState: "running", activityState: "waiting", lastSuccessAt: null, nextExpectedAt: null, errorCount: 0, summary: "과거 입력 대기 <script>window.planningUnwanted=true</script>" } },
+  }],
+}, { id: randomUUID(), runId: evidenceRunId, directory: "/fixture-only/prepared", source: "/fixture-only/source", scope: { goalId: evidenceGoal.id, goalVersion: 1, allowedPaths: ["src"], excludedPaths: [] }, phase: "ready", revision: "a".repeat(40), digest: "b".repeat(64), files: [{ path: "src/main.ts", blob: "c".repeat(40), bytes: 10 }] });
+database.db.insert(tasks).values({ id: evidenceTaskId, projectId: evidenceProjectId, kind: "planning", goalId: evidenceGoal.id, goalVersion: 1, instruction: "관측을 확인한 계획 기록", requestKey: evidenceTaskId, status: "succeeded", createdAt: new Date() }).run();
+database.db.insert(runs).values({ id: evidenceRunId, taskId: evidenceTaskId, instanceId: "fixture", status: "succeeded", goalVersion: 1, model: "fixture", effort: "medium", startedAt: new Date(), lastActivityAt: new Date(), finishedAt: new Date(), terminationConfirmedAt: new Date(), result: "최신 관측을 다시 수집한 뒤 판단합니다.", planningInput }).run();
 database.close();
 let serviceMode = "waiting";
 const service = createServer((request, response) => {

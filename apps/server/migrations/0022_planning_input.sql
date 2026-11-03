@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `planning_input` text;

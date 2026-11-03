@@ -4,9 +4,50 @@ import { goals, planningCycles, runs, tasks } from "../../db/schema.js";
 import { AnalysisError, redactOutput } from "../execution/analysis.js";
 import { readGoalExecutionBlock } from "./goal-execution-store.js";
 import type { GoalScope, PreparedInput } from "./prepared-workspace.js";
+import { planningInstruction, type PlanningInput } from "./goal-plan-policy.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update">;
 type Run = typeof runs.$inferSelect;
+
+export function savePlanningInput(
+  db: Db,
+  run: Run,
+  input: PlanningInput,
+  kind: string,
+) {
+  const cycle = db
+    .select()
+    .from(planningCycles)
+    .where(eq(planningCycles.taskId, run.taskId))
+    .get();
+  const goal = cycle
+    ? db.select().from(goals).where(eq(goals.id, cycle.goalId)).get()
+    : null;
+  if (
+    kind !== "planning.input_ready" ||
+    !goal ||
+    goal.status !== "active" ||
+    cycle?.status !== "reserved" ||
+    run.planningInput ||
+    run.execution ||
+    run.stopReason ||
+    run.preparedInput?.phase !== "ready" ||
+    input.version !== 1 ||
+    input.goalId !== goal.id ||
+    input.goalVersion !== goal.version ||
+    run.goalVersion !== goal.version ||
+    input.inputDigest !== run.preparedInput.digest ||
+    input.sourceRevision !== run.preparedInput.revision ||
+    JSON.stringify(input.definition) !== JSON.stringify(goal.definition) ||
+    preparedGoalChanged(db, run)
+  )
+    throw new AnalysisError("input_unavailable");
+  planningInstruction(input);
+  db.update(runs)
+    .set({ planningInput: input })
+    .where(eq(runs.id, run.id))
+    .run();
+}
 
 export function readGoalScope(
   db: Db,
@@ -89,9 +130,37 @@ export function savePreparedInput(
     .run();
 }
 
-export function savePlanningProposal(db: Db, run: Run, proposal: string, kind: string) {
-  const cycle = db.select().from(planningCycles).where(eq(planningCycles.taskId, run.taskId)).get();
-  if (!cycle || cycle.status !== "reserved" || run.planResult || run.preparedInput?.phase !== "ready" || kind !== "planning.proposed"
-    || typeof proposal !== "string" || !proposal.trim() || Buffer.byteLength(proposal) > 65536) throw new AnalysisError("invalid_plan");
-  db.update(runs).set({ planResult: { status: "proposed", proposal: redactOutput(proposal), createdTaskIds: [], reason: null } }).where(eq(runs.id, run.id)).run();
+export function savePlanningProposal(
+  db: Db,
+  run: Run,
+  proposal: string,
+  kind: string,
+) {
+  const cycle = db
+    .select()
+    .from(planningCycles)
+    .where(eq(planningCycles.taskId, run.taskId))
+    .get();
+  if (
+    !cycle ||
+    cycle.status !== "reserved" ||
+    run.planResult ||
+    run.preparedInput?.phase !== "ready" ||
+    kind !== "planning.proposed" ||
+    typeof proposal !== "string" ||
+    !proposal.trim() ||
+    Buffer.byteLength(proposal) > 65536
+  )
+    throw new AnalysisError("invalid_plan");
+  db.update(runs)
+    .set({
+      planResult: {
+        status: "proposed",
+        proposal: redactOutput(proposal),
+        createdTaskIds: [],
+        reason: null,
+      },
+    })
+    .where(eq(runs.id, run.id))
+    .run();
 }

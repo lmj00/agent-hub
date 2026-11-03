@@ -2,7 +2,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { runs } from "../../db/schema.js";
 import { AnalysisError, type AnalysisExecutor } from "../execution/analysis.js";
-import { planningInstruction } from "./goal-plan-policy.js";
+import { buildPlanningInput, planningInstruction } from "./goal-plan-policy.js";
 import {
   assertSourceUnchanged,
   inputIntent,
@@ -55,7 +55,10 @@ export function createPreparedExecutor(
       }
       request.signal.throwIfAborted();
       const { scope: _scope, planning, workflow, ...rest } = request;
-      const analysisRequest = { ...rest, workspace: current.input.directory, ...(planning ? { instruction: planningInstruction(planning, current.input), responseMode: "goal-plan" as const } : workflow ? { workflow } : {}) };
+      const input = planning ? buildPlanningInput(planning, current.input) : null;
+      if (input) await onEvent({ kind: "planning.input_ready", planningInput: input });
+      request.signal.throwIfAborted();
+      const analysisRequest = { ...rest, workspace: current.input.directory, ...(input ? { instruction: planningInstruction(input), responseMode: "goal-plan" as const } : workflow ? { workflow } : {}) };
       current.started = true;
       const result = await executor.analyze(
         analysisRequest,

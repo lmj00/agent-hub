@@ -33,6 +33,7 @@ export const executionRoutes: FastifyPluginAsync<{
     const run = store.findById(request.params.id);
     if (!run) return reply.code(404).send({ error: "RUN_NOT_FOUND", message: "Run not found" });
     return {
+      planningEvidence: run.planningEvidence ?? null,
       ...summary(run), result: run.result, errorCode: run.errorCode, lastActivityAt: run.lastActivityAt.toISOString(),
       stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt?.toISOString() ?? null,
       terminationConfirmedAt: run.terminationConfirmedAt?.toISOString() ?? null,

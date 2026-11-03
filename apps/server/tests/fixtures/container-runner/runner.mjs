@@ -7,9 +7,10 @@ const request = JSON.parse((await lines.next()).value);
 if (request.responseMode === "goal-plan") {
   if (request.workflow) throw new Error("Planning must not use the analysis workflow");
   const context = JSON.parse(request.instruction.split("\n").at(-1));
+  if (context.services?.[0]?.latest?.snapshot?.summary !== "container planning evidence") throw new Error("Missing server observation evidence");
   const path = context.files[0];
   readFileSync(`/workspace/${path}`, "utf8");
-  console.log(JSON.stringify({ type: "event", event: { kind: "planning.proposed", planningProposal: "forged" } }));
+  console.log(JSON.stringify({ type: "event", event: { kind: "planning.proposed", planningProposal: "forged", planningInput: { capturedAt: "forged", services: [] } } }));
   console.log(JSON.stringify({ type: "result", result: { output: JSON.stringify({ version: 1, goalVersion: context.goalVersion, inputDigest: context.inputDigest, outcome: "work", summary: "Improve fixture", evidence: [path], tasks: [{ title: "Improve fixture", instruction: "Implement a change", acceptanceCriteria: "Verify the change", paths: [path], evidence: [path] }] }), usage: null } }));
   process.exit(0);
 }

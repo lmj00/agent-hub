@@ -2,7 +2,7 @@ import type { AnalysisWorkflowPolicy } from "../modules/execution/analysis-workf
 import type { EffortPolicy } from "../modules/execution/effort-policy.js";
 import type { RetryState } from "../modules/execution/retry-policy.js";
 import type { PreparedInput } from "../modules/goals/prepared-workspace.js";
-import type { PlannedWork, PlanResult } from "../modules/goals/goal-plan-policy.js";
+import type { PlannedWork, PlanResult, PlanningInput } from "../modules/goals/goal-plan-policy.js";
 import { sql } from "drizzle-orm";
 import type { ServiceSnapshot, CapacityState, AnalysisAssessment, GoalDefinition, Goal, PeriodBudgetPolicy, BudgetWait, TaskGoalReview } from "@agent-hub/contracts";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
@@ -95,6 +95,7 @@ export const runs = sqliteTable("runs", {
   terminationConfirmedAt: integer("termination_confirmed_at", { mode: "timestamp_ms" }),
   execution: text("execution", { mode: "json" }).$type<ExecutionIdentity>(),
   preparedInput: text("prepared_input", { mode: "json" }).$type<PreparedInput>(),
+  planningInput: text("planning_input", { mode: "json" }).$type<PlanningInput>(),
   planResult: text("plan_result", { mode: "json" }).$type<PlanResult>(),
   retryAt: integer("retry_at", { mode: "timestamp_ms" }),
   providerGateVersion: integer("provider_gate_version"),

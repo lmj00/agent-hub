@@ -1,3 +1,4 @@
+import { createDrizzleServiceStore } from "../src/modules/services/drizzle-service-store.js";
 import { parseEffortPolicy } from "../src/modules/execution/effort-policy.js";
 import { parseAnalysisWorkflow } from "../src/modules/execution/analysis-workflow.js";
 import { execFile, fork } from "node:child_process";
@@ -108,7 +109,11 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     createDrizzleGoalStore(database.db).register(projectId, "plan-goal", { description: "Improve fixture", completionCriteria: "Verified", kind: "finite", priority: 50, allowedPaths: ["main.ts"], excludedPaths: [], checkIntervalMs: 60000, budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 } });
     const plan = createPlanningStore(database.db).reserveNext(["example"])!;
     const root = preparedInputRoot(join(directory, "hub.sqlite"));
-    store = createDrizzleRunStore(database.db, undefined, { analysisWorkflow: parseAnalysisWorkflow({}) });
+    const serviceStore = createDrizzleServiceStore(database.db);
+    const target = { key: "planning-fixture", projectId, name: "Planning fixture service", fingerprint: "fixture", url: "http://127.0.0.1:4321/unused", intervalMs: 1000, timeoutMs: 1000, staleAfterMs: 60000, allowWaiting: true, activityTimeoutMs: null };
+    serviceStore.configure([target]);
+    serviceStore.save(target, { receivedAt: new Date(), success: true, errorCode: null, snapshot: { observedAt: new Date().toISOString(), processState: "running", activityState: "waiting", lastSuccessAt: null, nextExpectedAt: null, errorCount: 0, summary: "container planning evidence" } });
+    store = createDrizzleRunStore(database.db, undefined, { analysisWorkflow: parseAnalysisWorkflow({}) }, { getObserverStatus: () => ({ enabledKeys: new Set([target.key]), errors: new Set(), nextChecks: new Map() }) });
     if (failWrite) database.client.exec("CREATE TRIGGER fail_plan_apply BEFORE INSERT ON tasks WHEN NEW.planned_work IS NOT NULL BEGIN SELECT RAISE(ABORT,'injected failure'); END");
     const pending = runTask({ taskId: plan.taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, createPreparedExecutor(createContainerExecutor(image, home), root));
     if (failWrite) {
@@ -125,6 +130,8 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     const run = database.db.select().from(runs).get()!;
     expect(run).toMatchObject({ status: "succeeded", terminationConfirmedAt: expect.any(Date), planResult: { status: "applied", createdTaskIds: [expect.any(String)] } });
     expect(run.planResult!.proposal).not.toBe("forged");
+    expect(run.planningInput).toMatchObject({ version: 1, capturedAt: expect.any(String), services: [{ state: "waiting", latest: { snapshot: { summary: "container planning evidence" } } }], inputDigest: run.preparedInput!.digest });
+    expect(run.planningInput!.capturedAt).not.toBe("forged");
     expect(database.client.prepare("SELECT count(*) AS count FROM tasks WHERE planned_work IS NOT NULL").get()).toEqual({ count: 1 });
     expect(existsSync(run.preparedInput!.directory)).toBe(false);
     expect(readFileSync(join(workspace, "main.ts"), "utf8")).toBe("fixture source\n");

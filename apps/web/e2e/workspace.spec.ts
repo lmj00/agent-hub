@@ -39,6 +39,26 @@ async function createTask(page: Page, instruction: string) {
   await expect(page.locator("#detail-heading")).toHaveText(instruction);
 }
 
+test("shows dated planning evidence and keeps a failed collection separate from historical success", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: /관측 계획 예제 example/ }).click();
+  await page.getByRole("button", { name: /관측을 확인한 계획 기록/ }).click();
+  const evidence = page.getByRole("region", { name: "계획에 사용한 관측", exact: true });
+  await expect(evidence).toContainText("당시 기록이며 현재 상태는 서비스 화면에서 확인하세요");
+  await expect(evidence).toContainText("서비스 1 / 1개");
+  await evidence.locator("summary").click();
+  await expect(evidence).toContainText("관측 실패");
+  await expect(evidence).toContainText("당시 최신 수집");
+  await expect(evidence).toContainText("과거 수집 성공 · 최신 상태를 대신하지 않습니다");
+  await expect(evidence).toContainText("<script>");
+  expect(await page.evaluate(() => "planningUnwanted" in window)).toBe(false);
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: /관측 계획 예제 example/ }).click();
+  await expect(evidence).toContainText("서비스 1 / 1개");
+});
+
 test("releases cancelled planned work once after a lost response and preserves both linked records", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: /취소 재허용 예제 example/ }).click();
