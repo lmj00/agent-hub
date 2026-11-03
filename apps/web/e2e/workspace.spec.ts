@@ -1,7 +1,28 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test as base, expect, type Page, type BrowserContext } from "@playwright/test";
+
+// Application scenarios share one valid login while keeping separate browser
+// contexts. Repeated setup sign-ins must not consume the real rate-limit window.
+const test = base.extend<{}, { authenticatedCookies: Awaited<ReturnType<BrowserContext["cookies"]>> }>({
+  authenticatedCookies: [async ({ browser }, use) => {
+    const context = await browser.newContext({ baseURL: "http://127.0.0.1:4320" });
+    try {
+      await login(await context.newPage());
+      await use(await context.cookies());
+    } finally {
+      await context.close();
+    }
+  }, { scope: "worker" }],
+  context: async ({ context, authenticatedCookies }, use) => {
+    await context.addCookies(authenticatedCookies);
+    await use(context);
+  },
+});
 
 async function login(page: Page) {
   await page.goto("/");
+  const signedIn = page.getByRole("button", { name: "로그아웃", exact: true });
+  await expect(signedIn.or(page.getByLabel("비밀번호", { exact: true }))).toBeVisible();
+  if (await signedIn.isVisible()) return;
   await page
     .getByLabel("비밀번호", { exact: true })
     .fill("browser-fixture-password");
@@ -12,15 +33,8 @@ async function login(page: Page) {
   );
   await page.getByRole("button", { name: "작업 공간 열기" }).click();
   const result = await response;
-  if (result.status() === 429) {
-    // 여러 시나리오가 같은 임시 서버를 사용합니다. 제품의 인증 제한을 끄지 않고 기다립니다.
-    const seconds = Number(result.headers()["retry-after"]);
-    expect(seconds).toBeGreaterThan(0);
-    expect(seconds).toBeLessThanOrEqual(60);
-    await page.waitForTimeout((seconds + 1) * 1000);
-    await page.getByRole("button", { name: "작업 공간 열기" }).click();
-  }
-  await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
+  expect(result.status()).toBe(200);
+  await expect(signedIn).toBeVisible();
 }
 async function createProject(page: Page, name: string) {
   await page
@@ -38,6 +52,49 @@ async function createTask(page: Page, instruction: string) {
   await page.getByRole("button", { name: "분석 요청", exact: true }).click();
   await expect(page.locator("#detail-heading")).toHaveText(instruction);
 }
+
+test("shows failed development feedback and the later verified candidate without declaring the Task complete", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: /개발 검증 예제 example/ }).click();
+  await page.getByRole("button", { name: /계산 오류 수정 기록/ }).click();
+  const evidence = page.getByRole("region", { name: "개발·검증 기록", exact: true });
+  await expect(page.locator(".detail-top .status-blocked")).toBeVisible();
+  await expect(evidence).toContainText("2 / 3회 수정");
+  await expect(evidence).toContainText("검증을 통과해도 변경 반영이 확인되기 전에는 작업이 완료되지 않습니다");
+  const latest = evidence.locator(".development-round").last();
+  await expect(latest).toHaveAttribute("open", "");
+  await expect(latest).toContainText("검증 완료 · 변경 반영 대기");
+  await expect(latest).toContainText("종료 코드 0");
+  await expect(latest.getByText("승인", { exact: true })).toBeVisible();
+  await latest.getByText("변경 파일 1개", { exact: true }).click();
+  await expect(latest).toContainText("src/calculate.ts");
+  const failed = evidence.locator(".development-round").first();
+  await failed.locator("summary").first().click();
+  await expect(failed).toContainText("보완 필요");
+  await expect(failed).toContainText("종료 코드 1");
+  await expect(failed).toContainText("곱셈으로 계산식을 수정하세요");
+  await failed.getByText("테스트 출력", { exact: true }).click();
+  await expect(failed.locator(".development-output")).toContainText("AssertionError");
+  await expect(failed.locator(".development-output")).toContainText("<script>");
+  expect(await page.evaluate(() => "developmentUnwanted" in window)).toBe(false);
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: /개발 검증 예제 example/ }).click();
+  await page.getByRole("button", { name: /계산 오류 수정 기록/ }).click();
+  await expect(evidence).toContainText("2 / 3회 수정");
+  await expect(page.locator(".detail-top .status-blocked")).toBeVisible();
+});
+
+test("does not describe a cancelled development preparation as still in progress", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: /개발 검증 예제 example/ }).click();
+  await page.getByRole("button", { name: /준비 중단 기록/ }).click();
+  await expect(page.locator(".detail-top .status-cancelled")).toBeVisible();
+  const evidence = page.getByRole("region", { name: "개발·검증 기록", exact: true });
+  await expect(evidence).toContainText("저장된 개발 회차가 없습니다.");
+  await expect(evidence).not.toContainText("준비하고 있습니다");
+});
 
 test("shows dated planning evidence and keeps a failed collection separate from historical success", async ({ page }) => {
   await login(page);

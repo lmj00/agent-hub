@@ -312,9 +312,34 @@ export const planningEvidenceSchema = object({
   counts: object({ files: inputCountSchema, history: inputCountSchema, suppressedWork: inputCountSchema, services: inputCountSchema }),
 });
 export type PlanningEvidence = Static<typeof planningEvidenceSchema>;
+export const developmentPhases = ["preparing", "developing", "preparing_test", "testing", "reviewing", "needs_changes", "verified"] as const;
+const developmentRoundSchema = object({
+  sequence: Type.Integer({ minimum: 1, maximum: 3 }),
+  phase: enumeration(developmentPhases),
+  createdAt: date,
+  capturedAt: nullable(date),
+  candidateDigest: nullable(text),
+  changes: Type.Array(object({ path: text, action: enumeration(["add", "modify", "delete"] as const), bytes: Type.Integer({ minimum: 0 }) }), { maxItems: 500 }),
+  test: nullable(object({
+    status: enumeration(["passed", "failed", "timed_out", "output_limit"] as const),
+    exitCode: Type.Integer({ minimum: 0, maximum: 255 }),
+    oomKilled: Type.Boolean(),
+    elapsedMs: Type.Integer({ minimum: 0 }),
+    output: text,
+    recordedAt: date,
+  })),
+  review: nullable(object({ assessment: analysisAssessmentSchema, recordedAt: date })),
+});
+export const developmentEvidenceSchema = object({
+  phase: enumeration(developmentPhases),
+  maxRounds: Type.Literal(3),
+  rounds: Type.Array(developmentRoundSchema, { maxItems: 3 }),
+});
+export type DevelopmentEvidence = Static<typeof developmentEvidenceSchema>;
 export const runDetailsSchema = object({
   ...runSchema.properties,
   planningEvidence: nullable(planningEvidenceSchema),
+  developmentEvidence: nullable(developmentEvidenceSchema),
   lastActivityAt: date,
   result: nullable(text),
   errorCode: nullable(text),

@@ -19,7 +19,8 @@ import { createServer } from "node:http";
 import { openDatabase } from "../../server/dist/db/connection.js";
 import { createDrizzleProjectStore } from "../../server/dist/modules/projects/drizzle-project-store.js";
 import { createDrizzleGoalStore } from "../../server/dist/modules/goals/drizzle-goal-store.js";
-import { tasks, runs } from "../../server/dist/db/schema.js";
+import { tasks, runs, developmentRepositories, developmentRounds } from "../../server/dist/db/schema.js";
+import { preparedInputRoot } from "../../server/dist/modules/goals/prepared-workspace.js";
 import { buildPlanningInput } from "../../server/dist/modules/goals/goal-plan-policy.js";
 import { loadServiceConfig } from "../../server/dist/modules/services/service-config.js";
 
@@ -160,6 +161,32 @@ const planningInput = buildPlanningInput({ goalId: evidenceGoal.id, goalVersion:
 }, { id: randomUUID(), runId: evidenceRunId, directory: "/fixture-only/prepared", source: "/fixture-only/source", scope: { goalId: evidenceGoal.id, goalVersion: 1, allowedPaths: ["src"], excludedPaths: [] }, phase: "ready", revision: "a".repeat(40), digest: "b".repeat(64), files: [{ path: "src/main.ts", blob: "c".repeat(40), bytes: 10 }] });
 database.db.insert(tasks).values({ id: evidenceTaskId, projectId: evidenceProjectId, kind: "planning", goalId: evidenceGoal.id, goalVersion: 1, instruction: "관측을 확인한 계획 기록", requestKey: evidenceTaskId, status: "succeeded", createdAt: new Date() }).run();
 database.db.insert(runs).values({ id: evidenceRunId, taskId: evidenceTaskId, instanceId: "fixture", status: "succeeded", goalVersion: 1, model: "fixture", effort: "medium", startedAt: new Date(), lastActivityAt: new Date(), finishedAt: new Date(), terminationConfirmedAt: new Date(), result: "최신 관측을 다시 수집한 뒤 판단합니다.", planningInput }).run();
+// Historical read-side fixture: no real model, Git write or test execution is
+// represented by these rows. Runtime suites cover their authoritative writers.
+const developmentProjectId = randomUUID(), developmentTaskId = randomUUID(), developmentRunId = randomUUID(), repositoryId = randomUUID();
+const timestamp = new Date();
+createDrizzleProjectStore(database.db).save({ id: developmentProjectId, name: "개발 검증 예제", workspaceKey: "example", createdAt: timestamp });
+database.db.insert(tasks).values({ id: developmentTaskId, projectId: developmentProjectId, instruction: "계산 오류 수정 기록", requestKey: developmentTaskId, status: "blocked", createdAt: timestamp }).run();
+database.db.insert(runs).values({ id: developmentRunId, taskId: developmentTaskId, instanceId: "fixture", status: "blocked", developmentVersion: 1, model: "fixture", effort: "medium", startedAt: timestamp, lastActivityAt: timestamp, finishedAt: timestamp, terminationConfirmedAt: timestamp, errorCode: "development_incomplete" }).run();
+database.db.insert(developmentRepositories).values({ id: repositoryId, projectId: developmentProjectId, createdByRunId: developmentRunId, intent: { id: repositoryId, projectId: developmentProjectId, directory: join(directory, "private-repository"), source: join(directory, "workspace") }, createdAt: timestamp }).run();
+const developmentInputRoot = preparedInputRoot(join(directory, "hub.sqlite"));
+const stoppedTaskId = randomUUID();
+database.db.insert(tasks).values({ id: stoppedTaskId, projectId: developmentProjectId, instruction: "준비 중단 기록", requestKey: stoppedTaskId, status: "cancelled", createdAt: timestamp }).run();
+database.db.insert(runs).values({ id: randomUUID(), taskId: stoppedTaskId, instanceId: "fixture", status: "cancelled", developmentVersion: 1, model: "fixture", effort: "medium", startedAt: timestamp, lastActivityAt: timestamp, finishedAt: timestamp, terminationConfirmedAt: timestamp, stopReason: "user_cancel" }).run();
+for (const sequence of [1, 2]) {
+  const inputId = randomUUID(), testInputId = randomUUID();
+  const intent = { id: inputId, runId: developmentRunId, repositoryId, directory: join(developmentInputRoot, `${developmentRunId}-${inputId}`, "workspace"), revision: "a".repeat(40), tree: "b".repeat(40), previousCandidate: null, scope: { goalId: randomUUID(), goalVersion: 1, allowedPaths: ["src"], excludedPaths: [] }, writePaths: ["src"] };
+  const input = { ...intent, files: [{ path: "src/calculate.ts", blob: "c".repeat(40), bytes: 24 }], digest: "d".repeat(64) };
+  const candidate = { repositoryId, runId: developmentRunId, baseRevision: input.revision, inputDigest: input.digest, tree: "e".repeat(40), digest: String(sequence).repeat(64), changes: [{ path: "src/calculate.ts", before: "c".repeat(40), after: "b".repeat(40), mode: "100644", bytes: 32 }] };
+  const testIntent = { ...intent, id: testInputId, directory: join(developmentInputRoot, `${developmentRunId}-${testInputId}`, "workspace"), previousCandidate: candidate.digest, tree: candidate.tree };
+  const configuration = { image: "fixture:local", command: ["node", "tests/calculate.js"], timeoutMs: 1000 };
+  const execution = { kind: "docker", containerId: "1".repeat(64), engineId: "fixture", token: randomUUID() };
+  database.db.insert(developmentRounds).values({ runId: developmentRunId, sequence, repositoryId, inputId, planningRevision: input.revision, intent, input, candidate, executionOffset: (sequence - 1) * 3, createdAt: timestamp, preparedAt: timestamp, capturedAt: timestamp,
+    verificationIntent: { candidateDigest: candidate.digest, input: testIntent, configuration }, verificationInput: { ...testIntent, files: input.files, digest: "f".repeat(64) }, verificationPreparedAt: timestamp,
+    verificationResult: { candidateDigest: candidate.digest, inputDigest: "f".repeat(64), configurationDigest: "2".repeat(64), configuration, execution, imageId: `sha256:${"3".repeat(64)}`, status: sequence === 1 ? "failed" : "passed", exitCode: sequence === 1 ? 1 : 0, oomKilled: false, elapsedMs: 280, output: sequence === 1 ? "AssertionError: expected 6, received -1\n<script>window.developmentUnwanted=true</script>" : "1 test passed" }, verifiedAt: timestamp,
+    review: { candidateDigest: candidate.digest, verificationDigest: "4".repeat(64), execution, stepSequence: sequence * 2, assessment: { report: sequence === 1 ? "계산식이 기대 결과와 다릅니다." : "수정된 계산식과 실제 테스트 결과를 확인했습니다.", evidence: ["src/calculate.ts"], unresolved: sequence === 1 ? ["곱셈 결과 확인 필요"] : [], complete: sequence === 2, next: sequence === 1 ? { purpose: "곱셈으로 계산식을 수정하세요.", effort: "medium", reason: "테스트 실패" } : null } }, reviewedAt: timestamp,
+  }).run();
+}
 database.close();
 let serviceMode = "waiting";
 const service = createServer((request, response) => {

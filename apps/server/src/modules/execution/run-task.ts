@@ -57,6 +57,7 @@ export type RunSummary = {
 };
 export type RunDetails = RunSummary & {
   planningEvidence?: import("@agent-hub/contracts").PlanningEvidence | null;
+  developmentEvidence?: import("@agent-hub/contracts").DevelopmentEvidence | null;
   lastActivityAt: Date; result: string | null; errorCode: string | null;
   stopReason: StopReason | null; stopRequestedAt: Date | null; terminationConfirmedAt: Date | null;
   retryAt: Date | null;

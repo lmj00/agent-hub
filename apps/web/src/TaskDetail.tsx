@@ -16,6 +16,7 @@ import {
 import { api, ApiError, errorMessage } from "./api.js";
 import { dateTime, elapsed, Status, statusLabels } from "./format.js";
 import { PlanningEvidencePanel } from "./PlanningEvidencePanel.js";
+import { DevelopmentEvidencePanel, developmentPhaseLabels } from "./DevelopmentEvidencePanel.js";
 import { usePolling } from "./use-polling.js";
 
 const actions: Record<RecoveryAction, string> = {
@@ -514,9 +515,9 @@ function RunRecord({
           </dd>
         </div>
         <div>
-          <dt>현재 단계</dt>
+          <dt>{run.developmentEvidence && run.finishedAt ? "마지막 단계" : "현재 단계"}</dt>
           <dd>
-            {run.steps.length
+            {run.developmentEvidence ? developmentPhaseLabels[run.developmentEvidence.phase] : run.steps.length
               ? `분석 · 단계 ${run.steps.at(-1)!.sequence}`
               : "실행 준비"}
           </dd>
@@ -571,23 +572,24 @@ function RunRecord({
         </div>
       ) : null}
       <div className="section-heading report-heading">
-        <h3>분석 결과</h3>
+        <h3>{run.developmentEvidence ? "개발 결과" : "분석 결과"}</h3>
         {run.finishedAt ? <small>{dateTime(run.finishedAt)}</small> : null}
       </div>
       {run.planningEvidence ? <PlanningEvidencePanel evidence={run.planningEvidence} /> : null}
+      {run.developmentEvidence ? <DevelopmentEvidencePanel evidence={run.developmentEvidence} /> : null}
       {run.result ? (
         <pre className="analysis-result">{run.result}</pre>
       ) : (
         <p className="empty-list">
-          {run.status === "running"
+          {run.developmentEvidence ? (run.developmentEvidence.phase === "verified" ? "검증을 통과했습니다. 변경 반영은 아직 확인되지 않았습니다." : run.status === "running" ? "개발·검증이 진행 중입니다. 저장된 단계별 기록을 확인할 수 있습니다." : "저장된 개발 완료 결과가 없습니다.") : run.status === "running"
             ? "분석이 진행 중입니다. 결과가 저장되면 여기에 표시됩니다."
             : "저장된 분석 결과가 없습니다."}
         </p>
       )}
       {run.steps.some((step) => step.purpose) ? (
-        <section className="step-history" aria-label="단계별 분석 기록">
+        <section className="step-history" aria-label={run.developmentEvidence ? "AI 호출 기록" : "단계별 분석 기록"}>
           <div className="section-heading">
-            <h3>단계별 분석 기록</h3>
+            <h3>{run.developmentEvidence ? "AI 호출 기록" : "단계별 분석 기록"}</h3>
             <span className="count">{run.steps.length}</span>
           </div>
           {run.steps.map((step) => (

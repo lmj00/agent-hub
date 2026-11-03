@@ -1219,6 +1219,20 @@ a {
   gap: 6px;
 }
 
+.development-evidence { margin: 18px 0; overflow-wrap: anywhere; }
+.development-round { border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin: 12px 0; }
+.development-round > summary { cursor: pointer; font-size: 13px; font-weight: 700; }
+.development-round p, .development-round li { font-size: 12px; line-height: 1.8; }
+.development-round ul { padding-left: 20px; }
+.development-round summary { cursor: pointer; }
+.development-files { margin: 14px 0; font-size: 12px; }
+.development-files li > span { color: var(--muted); margin-right: 5px; }
+.development-check { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 16px; font-size: 13px; }
+.development-check > .status { margin-left: 10px; }
+.development-check details { margin-top: 12px; }
+.development-output { margin-top: 10px; max-height: 24rem; overflow: auto; }
+.development-failure { color: var(--amber); }
+
 .execution-bar > .capacity-summary {
   display: grid;
   flex-basis: 100%;
