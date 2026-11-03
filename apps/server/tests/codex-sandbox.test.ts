@@ -9,7 +9,7 @@ import { containerSecurityOptions } from "../src/modules/execution/container-run
 import { createHash, randomUUID } from "node:crypto";
 import { createContainerExecutor } from "../src/modules/execution/execution-process.js";
 import type { ExecutionIdentity } from "../src/modules/execution/analysis.js";
-import { developmentRepositoryIntent, developmentRoot, prepareDevelopmentRepository, prepareDevelopmentInput, stageDevelopmentCandidate } from "../src/modules/goals/development-workspace.js";
+import { developmentInputIntent, developmentRepositoryIntent, developmentRoot, prepareDevelopmentRepository, prepareDevelopmentInput, stageDevelopmentCandidate } from "../src/modules/goals/development-workspace.js";
 import { preparedInputRoot } from "../src/modules/goals/prepared-workspace.js";
 
 const exec = promisify(execFile);
@@ -96,7 +96,7 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("Codex container sandbo
     try {
       const repo = await prepareDevelopmentRepository(developmentRepositoryIntent(developmentRoot(join(directory, "hub.sqlite")), source, randomUUID()), controller.signal);
       const scope = { goalId: "goal", goalVersion: 1, allowedPaths: ["."], excludedPaths: [] };
-      const prepared = await prepareDevelopmentInput(preparedInputRoot(join(directory, "hub.sqlite")), repo, runId, scope, ["src"], controller.signal);
+      const prepared = await prepareDevelopmentInput(developmentInputIntent(preparedInputRoot(join(directory, "hub.sqlite")), repo, runId, scope, ["src"]), repo, controller.signal);
       const development = { baseRevision: prepared.revision, inputDigest: prepared.digest, scope, writePaths: prepared.writePaths, files: prepared.files };
       const pending = executor.analyze({ instruction: mode, workspace: prepared.directory, model: "fixture", runId, signal: controller.signal, development }, async event => {
         if (event.execution) identity = event.execution;

@@ -20,6 +20,7 @@ import { readPlanningContext } from "../goals/planning-store.js";
 import { applyPlanningCompletion } from "../goals/plan-application.js";
 import { pauseCancelledPlan } from "../goals/planning-cancellation.js";
 import { revalidateGoalWork } from "../goals/revalidate-goal-work.js";
+import { assertDevelopmentExecutionReady, saveDevelopmentUpdate } from "../goals/development-journal.js";
 
 import type { ObserverStatus } from "../services/drizzle-service-store.js";
 
@@ -188,6 +189,8 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         if (event.planningInput) savePlanningInput(tx, run, event.planningInput, event.kind);
         if (event.planningProposal !== undefined) savePlanningProposal(tx, run, event.planningProposal, event.kind);
         const now = new Date();
+        if (event.development) saveDevelopmentUpdate(tx, run, event.development, event.kind, now);
+        if (event.execution) assertDevelopmentExecutionReady(tx, run);
         recordExecution(tx, run, event, now);
         tx.update(runs).set({ lastActivityAt: now }).where(eq(runs.id, runId)).run();
         if (event.step) saveWorkflowStep(tx, run, event.step, now);
@@ -204,6 +207,10 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         assertOwner(tx);
         const run = tx.select().from(runs).where(and(eq(runs.id, runId), eq(runs.instanceId, instanceId), eq(runs.status, "running"))).get();
         if (!run) throw new Error("Cannot finish a run not owned by this executor");
+        // Development candidates are not completion evidence. T4 will replace
+        // this hold with the verified ChangeApplication completion check.
+        if (completion.status === "succeeded" && tx.select().from(tasks).where(eq(tasks.id, run.taskId)).get()?.plannedWork)
+          completion = { ...completion, status: "blocked", result: null, errorCode: "development_incomplete" };
         if (run.workflowPolicy && completion.status === "succeeded") {
           const lastStep = tx.select().from(steps).where(eq(steps.runId, runId)).orderBy(desc(steps.sequence)).get();
           if (!lastStep?.assessment?.complete || lastStep.assessment.report !== completion.result) completion = { ...completion, status: "blocked", result: null, errorCode: "invalid_plan" };

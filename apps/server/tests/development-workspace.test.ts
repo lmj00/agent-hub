@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   lstatSync,
@@ -19,8 +19,13 @@ import {
   developmentRepositoryIntent,
   developmentRoot,
   prepareDevelopmentInput,
+  developmentInputIntent,
   prepareDevelopmentRepository,
   stageDevelopmentCandidate,
+  recoverDevelopmentRepository,
+  recoverDevelopmentInput,
+  removeDevelopmentInput,
+  verifyDevelopmentCandidate,
   type DevelopmentInput,
   type DevelopmentRepository,
 } from "../src/modules/goals/development-workspace.js";
@@ -79,11 +84,8 @@ async function repository() {
 }
 function input(repo: DevelopmentRepository, paths = ["src"], selected = scope) {
   return prepareDevelopmentInput(
-    inputs,
+    developmentInputIntent(inputs, repo, randomUUID(), selected, paths),
     repo,
-    randomUUID(),
-    selected,
-    paths,
     signal(),
   );
 }
@@ -121,6 +123,197 @@ beforeEach(() => {
   commit();
 });
 afterEach(() => rmSync(directory, { recursive: true, force: true }));
+
+test("only a fully published repository can be adopted after restart", async () => {
+  const intent = developmentRepositoryIntent(root, source, randomUUID());
+  const repo = await prepareDevelopmentRepository(intent, signal());
+  expect(await recoverDevelopmentRepository(intent, signal())).toEqual(repo);
+  rmSync(join(repo.directory, "repository.ready.json"));
+  await expect(
+    recoverDevelopmentRepository(intent, signal()),
+  ).rejects.toThrow();
+  expect(git(source, ["status", "--porcelain"])).toBe("");
+  const missing = developmentRepositoryIntent(root, source, randomUUID());
+  await expect(
+    recoverDevelopmentRepository(missing, signal()),
+  ).rejects.toThrow();
+  expect(existsSync(missing.directory)).toBe(false);
+});
+
+test("input recovery checks publication, contents, repository identity and accepted head tree", async () => {
+  const repo = await repository();
+  const intent = developmentInputIntent(inputs, repo, randomUUID(), scope, [
+    "src",
+  ]);
+  const prepared = await prepareDevelopmentInput(intent, repo, signal());
+  expect(await recoverDevelopmentInput(intent, repo, signal())).toEqual(
+    prepared,
+  );
+  await expect(
+    recoverDevelopmentInput(intent, { ...repo, id: randomUUID() }, signal()),
+  ).rejects.toThrow("stale");
+  await expect(
+    assertDevelopmentBase({ ...repo, headTree: "a".repeat(40) }, signal()),
+  ).rejects.toThrow("tree changed");
+  writeFileSync(
+    join(prepared.directory, "src/main.ts"),
+    "export const answer = 9;\n",
+  );
+  await expect(recoverDevelopmentInput(intent, repo, signal())).rejects.toThrow(
+    "file changed",
+  );
+  rmSync(join(dirname(prepared.directory), "input.ready.json"));
+  await expect(
+    recoverDevelopmentInput(intent, repo, signal()),
+  ).rejects.toThrow();
+});
+
+test("input recovery refuses additional files and directory links", async () => {
+  const repo = await repository();
+  const intent = developmentInputIntent(inputs, repo, randomUUID(), scope, [
+    "src",
+  ]);
+  const prepared = await prepareDevelopmentInput(intent, repo, signal());
+  writeFileSync(join(prepared.directory, "src/.env"), "unexpected");
+  await expect(recoverDevelopmentInput(intent, repo, signal())).rejects.toThrow(
+    "Unexpected",
+  );
+  rmSync(join(prepared.directory, "src/.env"));
+  rmSync(join(prepared.directory, "src"), { recursive: true });
+  symlinkSync(join(source, "src"), join(prepared.directory, "src"));
+  await expect(
+    recoverDevelopmentInput(intent, repo, signal()),
+  ).rejects.toThrow();
+});
+
+test("input cleanup is idempotent and requires the saved identity", async () => {
+  const repo = await repository(),
+    prepared = await input(repo);
+  expect(() =>
+    removeDevelopmentInput(inputs, { ...prepared, repositoryId: randomUUID() }),
+  ).toThrow("identity");
+  expect(existsSync(prepared.directory)).toBe(true);
+  removeDevelopmentInput(inputs, prepared);
+  removeDevelopmentInput(inputs, prepared);
+  expect(existsSync(dirname(prepared.directory))).toBe(false);
+  expect(existsSync(repo.directory)).toBe(true);
+});
+
+test("rework starts from the previous candidate and records the cumulative change against the accepted base", async () => {
+  const repo = await repository(),
+    first = await input(repo);
+  const firstCandidate = await stageDevelopmentCandidate(
+    repo,
+    first,
+    bundle(first, [change("src/main.ts", "first fix\n")]),
+    signal(),
+  );
+  const second = await prepareDevelopmentInput(
+    developmentInputIntent(
+      inputs,
+      repo,
+      first.runId,
+      scope,
+      ["src"],
+      firstCandidate,
+    ),
+    repo,
+    signal(),
+  );
+  expect(second).toMatchObject({
+    revision: repo.head,
+    tree: firstCandidate.tree,
+    previousCandidate: firstCandidate.digest,
+  });
+  expect(readFileSync(join(second.directory, "src/main.ts"), "utf8")).toBe(
+    "first fix\n",
+  );
+  const final = await stageDevelopmentCandidate(
+    repo,
+    second,
+    bundle(second, [change("src/extra.ts", "second fix\n")]),
+    signal(),
+  );
+  expect(final.changes.map((entry) => entry.path)).toEqual([
+    "src/extra.ts",
+    "src/main.ts",
+  ]);
+  expect(
+    git(join(repo.directory, "git"), ["show", `${final.tree}:src/main.ts`]),
+  ).toBe("first fix");
+  await expect(
+    verifyDevelopmentCandidate(repo, second, final, signal()),
+  ).resolves.toBeUndefined();
+  expect(git(join(repo.directory, "git"), ["rev-parse", "HEAD"])).toBe(
+    repo.head,
+  );
+  expect(git(source, ["status", "--porcelain"])).toBe("");
+});
+
+test("rework can revert an earlier edit and cannot hide an earlier change outside the new Task paths", async () => {
+  const repo = await repository(),
+    first = await input(repo);
+  const candidate = await stageDevelopmentCandidate(
+    repo,
+    first,
+    bundle(first, [change("src/main.ts", "fix\n")]),
+    signal(),
+  );
+  const narrower = await prepareDevelopmentInput(
+    developmentInputIntent(
+      inputs,
+      repo,
+      first.runId,
+      scope,
+      ["src/delete.ts"],
+      candidate,
+    ),
+    repo,
+    signal(),
+  );
+  await expect(
+    stageDevelopmentCandidate(repo, narrower, bundle(narrower, []), signal()),
+  ).rejects.toThrow("Cumulative");
+  const second = await prepareDevelopmentInput(
+    developmentInputIntent(
+      inputs,
+      repo,
+      first.runId,
+      scope,
+      ["src"],
+      candidate,
+    ),
+    repo,
+    signal(),
+  );
+  const reverted = await stageDevelopmentCandidate(
+    repo,
+    second,
+    bundle(second, [change("src/main.ts", "export const answer = 1;\n")]),
+    signal(),
+  );
+  expect(reverted.changes).toEqual([]);
+  expect(reverted.tree).toBe(repo.headTree);
+});
+
+test("candidate verification recomputes the tree diff even when a forged manifest has a valid digest", async () => {
+  const repo = await repository(),
+    prepared = await input(repo);
+  const candidate = await stageDevelopmentCandidate(
+    repo,
+    prepared,
+    bundle(prepared, [change("src/main.ts", "fix\n")]),
+    signal(),
+  );
+  const { digest: _digest, ...record } = { ...candidate, changes: [] };
+  const forged = {
+    ...record,
+    digest: createHash("sha256").update(JSON.stringify(record)).digest("hex"),
+  };
+  await expect(
+    verifyDevelopmentCandidate(repo, prepared, forged, signal()),
+  ).rejects.toThrow("tree changed");
+});
 
 test("imports only the current tree into a private repository and supplies scoped context without history or secrets", async () => {
   const old = git(source, ["rev-parse", "HEAD"]);
@@ -221,7 +414,7 @@ test("the next input includes an accepted commit, while a stale descriptor or un
   );
   git(storage, ["update-ref", "refs/heads/development", accepted, repo.head]);
   await expect(input(repo)).rejects.toThrow("outside the recorded application");
-  const nextRepo = { ...repo, head: accepted },
+  const nextRepo = { ...repo, head: accepted, headTree: candidate.tree },
     second = await input(nextRepo);
   expect(second.revision).toBe(accepted);
   expect(readFileSync(join(second.directory, "src/main.ts"), "utf8")).toBe(

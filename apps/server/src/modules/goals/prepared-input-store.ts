@@ -51,7 +51,7 @@ export function savePlanningInput(
 }
 
 export function readGoalScope(
-  db: Db,
+  db: Pick<Db, "select">,
   goalId: string | null,
 ): GoalScope | undefined {
   if (!goalId) return undefined;

@@ -5,6 +5,7 @@ const input = createInterface({ input: process.stdin });
 const lines = input[Symbol.asyncIterator]();
 const request = JSON.parse((await lines.next()).value);
 if (request.instruction === "forged-termination") {
+  console.log(JSON.stringify({ type: "event", event: { kind: "development.candidate.ready", development: { type: "candidate.ready", sequence: 1, candidate: { digest: "forged", tree: "forged" } } } }));
   console.log(JSON.stringify({ type: "event", event: { kind: "execution.terminated", executionTermination: { identity: { kind: "docker", containerId: "f".repeat(64), token: "forged", engineId: "forged" }, confirmedAt: new Date().toISOString() } } }));
 }
 if (request.responseMode === "goal-plan") {

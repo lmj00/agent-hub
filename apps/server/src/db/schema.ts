@@ -2,6 +2,7 @@ import type { AnalysisWorkflowPolicy } from "../modules/execution/analysis-workf
 import type { EffortPolicy } from "../modules/execution/effort-policy.js";
 import type { RetryState } from "../modules/execution/retry-policy.js";
 import type { PreparedInput } from "../modules/goals/prepared-workspace.js";
+import type { DevelopmentRepositoryIntent, DevelopmentRepository, DevelopmentInputIntent, DevelopmentInput, DevelopmentCandidate } from "../modules/goals/development-workspace.js";
 import type { PlannedWork, PlanResult, PlanningInput } from "../modules/goals/goal-plan-policy.js";
 import { sql } from "drizzle-orm";
 import type { ServiceSnapshot, CapacityState, AnalysisAssessment, GoalDefinition, Goal, PeriodBudgetPolicy, BudgetWait, TaskGoalReview } from "@agent-hub/contracts";
@@ -188,6 +189,41 @@ export const projectBudgets = sqliteTable("project_budgets", {
   policy: text("policy", { mode: "json" }).$type<PeriodBudgetPolicy>().notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+export const developmentRepositories = sqliteTable("development_repositories", {
+  id: text("id").primaryKey().notNull(),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "restrict" }),
+  createdByRunId: text("created_by_run_id").notNull().references(() => runs.id, { onDelete: "restrict" }),
+  intent: text("intent", { mode: "json" }).$type<DevelopmentRepositoryIntent>().notNull(),
+  prepared: text("prepared", { mode: "json" }).$type<DevelopmentRepository>(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  preparedAt: integer("prepared_at", { mode: "timestamp_ms" }),
+}, table => [
+  uniqueIndex("development_repositories_project_unique").on(table.projectId),
+  check("development_repository_preparation_valid", sql`(${table.prepared} IS NULL AND ${table.preparedAt} IS NULL) OR (${table.prepared} IS NOT NULL AND ${table.preparedAt} IS NOT NULL)`),
+]);
+
+export const developmentRounds = sqliteTable("development_rounds", {
+  runId: text("run_id").notNull().references(() => runs.id, { onDelete: "restrict" }),
+  sequence: integer("sequence").notNull(),
+  repositoryId: text("repository_id").notNull().references(() => developmentRepositories.id, { onDelete: "restrict" }),
+  inputId: text("input_id").notNull(),
+  planningRevision: text("planning_revision").notNull(),
+  intent: text("intent", { mode: "json" }).$type<DevelopmentInputIntent>().notNull(),
+  input: text("input", { mode: "json" }).$type<DevelopmentInput>(),
+  candidate: text("candidate", { mode: "json" }).$type<DevelopmentCandidate>(),
+  executionOffset: integer("execution_offset").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  preparedAt: integer("prepared_at", { mode: "timestamp_ms" }),
+  capturedAt: integer("captured_at", { mode: "timestamp_ms" }),
+}, table => [
+  primaryKey({ columns: [table.runId, table.sequence] }),
+  uniqueIndex("development_rounds_input_unique").on(table.inputId),
+  check("development_rounds_sequence_valid", sql`${table.sequence} BETWEEN 1 AND 3`),
+  check("development_rounds_execution_offset_valid", sql`${table.executionOffset} BETWEEN 0 AND 11`),
+  check("development_rounds_preparation_valid", sql`(${table.input} IS NULL AND ${table.preparedAt} IS NULL) OR (${table.input} IS NOT NULL AND ${table.preparedAt} IS NOT NULL)`),
+  check("development_rounds_capture_valid", sql`(${table.candidate} IS NULL AND ${table.capturedAt} IS NULL) OR (${table.input} IS NOT NULL AND ${table.candidate} IS NOT NULL AND ${table.capturedAt} IS NOT NULL)`),
+]);
 
 export const budgetPeriods = sqliteTable("budget_periods", {
   id: text("id").primaryKey(),

@@ -3,7 +3,9 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -48,6 +50,7 @@ export type DevelopmentRepository = DevelopmentRepositoryIntent & {
   sourceRevision: string;
   // The caller persists this expected head. Never infer acceptance from a changed ref.
   head: string;
+  headTree: string;
 };
 export type DevelopmentInput = {
   id: string;
@@ -55,11 +58,14 @@ export type DevelopmentInput = {
   repositoryId: string;
   directory: string;
   revision: string;
+  tree: string;
+  previousCandidate: string | null;
   scope: GoalScope;
   writePaths: string[];
   files: ScopedGitFile[];
   digest: string;
 };
+export type DevelopmentInputIntent = Omit<DevelopmentInput, "files" | "digest">;
 export type DevelopmentCandidate = {
   repositoryId: string;
   runId: string;
@@ -188,6 +194,7 @@ export async function prepareDevelopmentRepository(
     ...intent,
     sourceRevision: revision,
     head: revision,
+    headTree: tree,
   };
   writeFileSync(join(intent.directory, marker), JSON.stringify(repository), {
     mode: 0o600,
@@ -223,6 +230,69 @@ export async function prepareDevelopmentRepository(
     timeout: 15000,
   });
   await assertDevelopmentBase(repository, signal);
+  publishRecord(intent.directory, "repository.ready.json", repository);
+  return repository;
+}
+
+function publishRecord(directory: string, name: string, value: unknown) {
+  const temporary = join(directory, `${name}-${randomUUID()}.tmp`);
+  writeFileSync(temporary, JSON.stringify(value), {
+    mode: 0o600,
+    flag: "wx",
+    flush: true,
+  });
+  renameSync(temporary, join(directory, name));
+}
+
+function readPrivateRecord(path: string, maxBytes: number): unknown {
+  const stat = lstatSync(path);
+  if (
+    !stat.isFile() ||
+    stat.isSymbolicLink() ||
+    stat.uid !== process.getuid?.() ||
+    (stat.mode & 0o077) !== 0 ||
+    stat.size > maxBytes
+  )
+    throw new Error("Development record identity changed");
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function assertPrivateDirectory(path: string) {
+  const stat = lstatSync(path);
+  if (
+    !stat.isDirectory() ||
+    stat.isSymbolicLink() ||
+    realpathSync(path) !== path ||
+    stat.uid !== process.getuid?.() ||
+    (stat.mode & 0o077) !== 0
+  )
+    throw new Error("Development directory identity changed");
+}
+
+export async function recoverDevelopmentRepository(
+  intent: DevelopmentRepositoryIntent,
+  signal: AbortSignal,
+): Promise<DevelopmentRepository> {
+  assertPrivateDirectory(intent.directory);
+  const repository = readPrivateRecord(
+    join(intent.directory, "repository.ready.json"),
+    16384,
+  ) as DevelopmentRepository;
+  if (
+    repository.id !== intent.id ||
+    repository.projectId !== intent.projectId ||
+    repository.directory !== intent.directory ||
+    repository.source !== intent.source
+  )
+    throw new Error("Development repository identity changed");
+  await assertDevelopmentBase(repository, signal);
+  await git(
+    join(repository.directory, "git"),
+    ["fsck", "--connectivity-only"],
+    signal,
+    undefined,
+    { timeout: 15000 },
+  );
   return repository;
 }
 
@@ -230,7 +300,11 @@ export async function assertDevelopmentBase(
   repository: DevelopmentRepository,
   signal: AbortSignal,
 ) {
-  if (!oid.test(repository.sourceRevision) || !oid.test(repository.head))
+  if (
+    !oid.test(repository.sourceRevision) ||
+    !oid.test(repository.head) ||
+    !oid.test(repository.headTree)
+  )
     throw new Error("Invalid development revision");
   privateDirectory(repository.directory);
   const path = join(repository.directory, marker),
@@ -263,6 +337,12 @@ export async function assertDevelopmentBase(
     throw new Error(
       "Development branch changed outside the recorded application",
     );
+  if (
+    (await git(storage, ["rev-parse", `${actual}^{tree}`], signal))
+      .toString()
+      .trim() !== repository.headTree
+  )
+    throw new Error("Development branch tree changed");
 }
 
 function inputIdentity(input: Omit<DevelopmentInput, "digest">) {
@@ -271,21 +351,22 @@ function inputIdentity(input: Omit<DevelopmentInput, "digest">) {
     runId: input.runId,
     repositoryId: input.repositoryId,
     revision: input.revision,
+    tree: input.tree,
+    previousCandidate: input.previousCandidate,
     scope: input.scope,
     writePaths: input.writePaths,
     files: input.files,
   };
 }
 
-export async function prepareDevelopmentInput(
+export function developmentInputIntent(
   root: string,
   repository: DevelopmentRepository,
   runId: string,
   scope: GoalScope,
   writePaths: string[],
-  signal: AbortSignal,
-): Promise<DevelopmentInput> {
-  signal.throwIfAborted();
+  previous?: DevelopmentCandidate,
+): DevelopmentInputIntent {
   privateDirectory(root);
   if (
     !uuid.test(runId) ||
@@ -304,25 +385,56 @@ export async function prepareDevelopmentInput(
     )
   )
     throw new Error("Task write paths exceed Goal scope");
-  await assertDevelopmentBase(repository, signal);
-  const storage = join(repository.directory, "git");
-  const files = scopedGitFiles(
-    await readGitTree(storage, repository.head, signal),
-    scope,
-  );
-  const contents = await readGitBlobs(storage, files, signal);
-  const id = randomUUID(),
-    directory = join(root, `${runId}-${id}`);
-  const prepared = {
+  if (
+    previous &&
+    (previous.repositoryId !== repository.id ||
+      previous.baseRevision !== repository.head ||
+      !validCandidateDigest(previous))
+  )
+    throw new Error(
+      "Previous development candidate does not match this repository",
+    );
+  const id = randomUUID();
+  return {
     id,
     runId,
     repositoryId: repository.id,
-    directory,
+    directory: join(root, `${runId}-${id}`, "workspace"),
     revision: repository.head,
+    tree: previous?.tree ?? repository.headTree,
+    previousCandidate: previous?.digest ?? null,
     scope: structuredClone(scope),
     writePaths: [...writePaths],
-    files,
   };
+}
+
+export async function prepareDevelopmentInput(
+  intent: DevelopmentInputIntent,
+  repository: DevelopmentRepository,
+  signal: AbortSignal,
+): Promise<DevelopmentInput> {
+  signal.throwIfAborted();
+  if (
+    intent.repositoryId !== repository.id ||
+    intent.revision !== repository.head ||
+    !oid.test(intent.tree)
+  )
+    throw new Error("Development input is stale");
+  await assertDevelopmentBase(repository, signal);
+  const storage = join(repository.directory, "git");
+  const files = scopedGitFiles(
+    await readGitTree(storage, intent.tree, signal),
+    intent.scope,
+  );
+  const contents = await readGitBlobs(storage, files, signal);
+  const directory = intent.directory,
+    parent = dirname(directory);
+  const prepared = { ...intent, files };
+  mkdirSync(parent, { mode: 0o700 });
+  writeFileSync(join(parent, "input.intent.json"), JSON.stringify(intent), {
+    mode: 0o600,
+    flag: "wx",
+  });
   mkdirSync(directory, { mode: 0o700 });
   for (const [index, file] of files.entries()) {
     const path = join(directory, file.path);
@@ -335,7 +447,116 @@ export async function prepareDevelopmentInput(
   // Empty Git root only; no private objects, configuration, remotes or source history.
   await git(directory, ["init", "--quiet", "--template="], signal);
   await assertDevelopmentBase(repository, signal);
-  return { ...prepared, digest: digest(inputIdentity(prepared)) };
+  const input = { ...prepared, digest: digest(inputIdentity(prepared)) };
+  publishRecord(parent, "input.ready.json", input);
+  return input;
+}
+
+export function validInputDigest(input: DevelopmentInput) {
+  return input.digest === digest(inputIdentity(input));
+}
+
+export function validCandidateDigest(candidate: DevelopmentCandidate) {
+  const { digest: expected, ...record } = candidate;
+  return expected === digest(record);
+}
+
+export async function recoverDevelopmentInput(
+  intent: DevelopmentInputIntent,
+  repository: DevelopmentRepository,
+  signal: AbortSignal,
+): Promise<DevelopmentInput> {
+  if (
+    intent.repositoryId !== repository.id ||
+    intent.revision !== repository.head ||
+    !oid.test(intent.tree)
+  )
+    throw new Error("Development input is stale");
+  assertPrivateDirectory(dirname(intent.directory));
+  assertPrivateDirectory(intent.directory);
+  const input = readPrivateRecord(
+    join(dirname(intent.directory), "input.ready.json"),
+    1024 * 1024,
+  ) as DevelopmentInput;
+  const { files, digest: _digest, ...identity } = input;
+  if (
+    JSON.stringify(identity) !== JSON.stringify(intent) ||
+    !validInputDigest(input)
+  )
+    throw new Error("Development input identity changed");
+  await assertDevelopmentBase(repository, signal);
+  const expected = scopedGitFiles(
+    await readGitTree(join(repository.directory, "git"), input.tree, signal),
+    input.scope,
+  );
+  if (JSON.stringify(expected) !== JSON.stringify(files))
+    throw new Error("Development input manifest changed");
+  const expectedPaths = new Set(files.map((file) => file.path));
+  const walk = (directory: string, prefix = "") => {
+    for (const name of readdirSync(directory)) {
+      if (!prefix && name === ".git") continue;
+      const relative = prefix ? `${prefix}/${name}` : name,
+        path = join(directory, name);
+      const stat = lstatSync(path);
+      if (stat.isDirectory()) {
+        assertPrivateDirectory(path);
+        if (!files.some((file) => file.path.startsWith(`${relative}/`)))
+          throw new Error("Unexpected development input directory");
+        walk(path, relative);
+      } else if (!stat.isFile() || !expectedPaths.has(relative))
+        throw new Error("Unexpected development input file");
+    }
+  };
+  walk(input.directory);
+  for (const file of files) {
+    const path = join(input.directory, file.path);
+    if (realpathSync(path) !== path)
+      throw new Error("Development input file became a link");
+    const stat = lstatSync(path);
+    if (
+      !stat.isFile() ||
+      stat.nlink !== 1 ||
+      stat.size !== file.bytes ||
+      (stat.mode & 0o111 ? "100755" : "100644") !== file.mode
+    )
+      throw new Error("Development input file changed");
+    const content = readFileSync(path);
+    const hash = createHash(input.revision.length === 64 ? "sha256" : "sha1")
+      .update(`blob ${content.length}\0`)
+      .update(content)
+      .digest("hex");
+    if (hash !== file.blob) throw new Error("Development input file changed");
+  }
+  return input;
+}
+
+export function removeDevelopmentInput(
+  root: string,
+  input: DevelopmentInputIntent,
+) {
+  privateDirectory(root);
+  const parent = join(root, `${input.runId}-${input.id}`);
+  if (input.directory !== join(parent, "workspace") || !isWithin(root, parent))
+    throw new Error("Development input identity mismatch");
+  try {
+    lstatSync(parent);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  assertPrivateDirectory(parent);
+  const stored = readPrivateRecord(
+    join(parent, "input.intent.json"),
+    1024 * 1024,
+  ) as DevelopmentInputIntent;
+  if (
+    stored.id !== input.id ||
+    stored.runId !== input.runId ||
+    stored.repositoryId !== input.repositoryId ||
+    stored.directory !== input.directory
+  )
+    throw new Error("Development input identity mismatch");
+  rmSync(parent, { recursive: true });
 }
 
 type Change = {
@@ -407,13 +628,13 @@ export async function stageDevelopmentCandidate(
   if (
     input.repositoryId !== repository.id ||
     input.revision !== repository.head ||
-    input.digest !== digest(inputIdentity(input))
+    !validInputDigest(input)
   )
     throw new Error("Development input is stale or changed");
   const changes = readChanges(input, result);
   await assertDevelopmentBase(repository, signal);
   const storage = join(repository.directory, "git");
-  const entries = (await readGitTree(storage, input.revision, signal)).filter(
+  const entries = (await readGitTree(storage, input.tree, signal)).filter(
     (entry) => entry.type !== "tree",
   );
   const final = new Map(entries.map((entry) => [entry.path, entry]));
@@ -434,18 +655,15 @@ export async function stageDevelopmentCandidate(
   // The complete scoped result must still fit, including unchanged context files.
   scopedGitFiles([...final.values()], input.scope);
   const indexFile = join(repository.directory, `index-${randomUUID()}`);
-  const manifest: DevelopmentCandidate["changes"] = [];
   const updates: string[] = [];
   try {
-    await git(storage, ["read-tree", input.revision], signal, undefined, {
+    await git(storage, ["read-tree", input.tree], signal, undefined, {
       indexFile,
     });
     // Delete first so an explicitly authorized file -> directory replacement can succeed.
     for (const change of [...changes].sort(
       (a, b) => Number(a.content !== null) - Number(b.content !== null),
     )) {
-      const before =
-        entries.find((entry) => entry.path === change.path)?.blob ?? null;
       const after =
         change.content === null
           ? null
@@ -464,13 +682,6 @@ export async function stageDevelopmentCandidate(
           ? `0 ${"0".repeat(input.revision.length)}\t${change.path}\0`
           : `${change.mode} ${after}\t${change.path}\0`;
       updates.push(line);
-      manifest.push({
-        path: change.path,
-        before,
-        after,
-        mode: change.mode,
-        bytes: change.content?.length ?? 0,
-      });
     }
     if (updates.length)
       await git(
@@ -485,7 +696,7 @@ export async function stageDevelopmentCandidate(
     )
       .toString()
       .trim();
-    checkBaseline(await readGitTree(storage, tree, signal));
+    const manifest = await describeChanges(repository, input, tree, signal);
     await assertDevelopmentBase(repository, signal);
     const candidate = {
       repositoryId: repository.id,
@@ -493,11 +704,87 @@ export async function stageDevelopmentCandidate(
       baseRevision: input.revision,
       inputDigest: input.digest,
       tree,
-      changes: manifest.sort((a, b) => a.path.localeCompare(b.path, "en")),
+      changes: manifest,
     };
     return { ...candidate, digest: digest(candidate) };
   } finally {
     rmSync(indexFile, { force: true });
     rmSync(`${indexFile}.lock`, { force: true });
   }
+}
+
+async function describeChanges(
+  repository: DevelopmentRepository,
+  input: DevelopmentInput,
+  tree: string,
+  signal: AbortSignal,
+): Promise<DevelopmentCandidate["changes"]> {
+  const storage = join(repository.directory, "git");
+  const original = new Map(
+    (await readGitTree(storage, repository.headTree, signal))
+      .filter((entry) => entry.type !== "tree")
+      .map((entry) => [entry.path, entry]),
+  );
+  const entries = await readGitTree(storage, tree, signal);
+  checkBaseline(entries);
+  scopedGitFiles(entries, input.scope);
+  const final = new Map(
+    entries
+      .filter((entry) => entry.type !== "tree")
+      .map((entry) => [entry.path, entry]),
+  );
+  const changes: DevelopmentCandidate["changes"] = [];
+  for (const path of new Set([...original.keys(), ...final.keys()])) {
+    const before = original.get(path),
+      after = final.get(path);
+    if (before?.blob === after?.blob && before?.mode === after?.mode) continue;
+    if (
+      !allowedGoalPath(path, input.scope) ||
+      !allowedGoalPath(path, {
+        allowedPaths: input.writePaths,
+        excludedPaths: [],
+      }) ||
+      privateInputPath(path) ||
+      (after &&
+        (after.type !== "blob" || !["100644", "100755"].includes(after.mode)))
+    )
+      throw new Error("Cumulative development changes exceed permitted scope");
+    changes.push({
+      path,
+      before: before?.blob ?? null,
+      after: after?.blob ?? null,
+      mode: after?.mode ?? null,
+      bytes: after?.bytes ?? 0,
+    });
+  }
+  if (changes.length > maxChanges)
+    throw new Error("Cumulative development changes exceed limits");
+  return changes.sort((a, b) => a.path.localeCompare(b.path, "en"));
+}
+
+export async function verifyDevelopmentCandidate(
+  repository: DevelopmentRepository,
+  input: DevelopmentInput,
+  candidate: DevelopmentCandidate,
+  signal: AbortSignal,
+) {
+  if (
+    !validCandidateDigest(candidate) ||
+    !validInputDigest(input) ||
+    input.repositoryId !== repository.id ||
+    candidate.repositoryId !== repository.id ||
+    candidate.runId !== input.runId ||
+    candidate.baseRevision !== repository.head ||
+    input.revision !== repository.head ||
+    candidate.inputDigest !== input.digest
+  )
+    throw new Error("Development candidate identity changed");
+  await assertDevelopmentBase(repository, signal);
+  if (
+    JSON.stringify(candidate.changes) !==
+    JSON.stringify(
+      await describeChanges(repository, input, candidate.tree, signal),
+    )
+  )
+    throw new Error("Development candidate tree changed");
 }

@@ -4,13 +4,14 @@ import type { EffortPolicy } from "./effort-policy.js";
 import type { GoalScope, PreparedInput } from "../goals/prepared-workspace.js";
 import type { PlanningContext, PlanningInput } from "../goals/goal-plan-policy.js";
 import type { DevelopmentExecutionInput, DevelopmentChanges } from "./development-capture.js";
+import type { DevelopmentUpdate } from "../goals/development-journal.js";
 export { stopReasons, type StopReason };
 
 export type AnalysisUsage = { inputTokens: number; cachedInputTokens: number; outputTokens: number };
 export type ExecutionIdentity = { kind: "docker"; containerId: string; token: string; engineId: string };
 export const maxRunExecutions = 12;
 export type ExecutionRecord = { sequence: number; identity: ExecutionIdentity; createdAt: Date; terminationConfirmedAt: Date | null };
-export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity; executionTermination?: { identity: ExecutionIdentity; confirmedAt: Date }; step?: StepUpdate; preparedInput?: PreparedInput; planningProposal?: string; planningInput?: PlanningInput };
+export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity; executionTermination?: { identity: ExecutionIdentity; confirmedAt: Date }; step?: StepUpdate; preparedInput?: PreparedInput; planningProposal?: string; planningInput?: PlanningInput; development?: DevelopmentUpdate };
 export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; outputSchema?: unknown; scope?: GoalScope; planning?: PlanningContext; responseMode?: "goal-plan"; development?: DevelopmentExecutionInput };
 export type AnalysisResult = { output: string; usage: AnalysisUsage | null; development?: DevelopmentChanges };
 

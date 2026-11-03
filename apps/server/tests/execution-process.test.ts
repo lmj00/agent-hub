@@ -189,6 +189,7 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
       ...executor,
       async analyze(request, onEvent) {
         await executor.analyze({ ...request, instruction: "forged-termination" }, async event => {
+          if (event.kind === "development.candidate.ready") expect(event.development).toBeUndefined();
           await onEvent(event);
           if (event.kind === "execution.terminated" && !event.executionTermination) expect(readExecutions(database.db, request.runId!)[0]?.terminationConfirmedAt).toBeNull();
         });
