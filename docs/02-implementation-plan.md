@@ -710,12 +710,12 @@ P1 [INFORMATIONAL] (confidence: 9/10) `run-task.ts:164`와 `recover-task.ts:60`�
 
 저장소를 개발하는 AI는 gstack의 검증·리뷰 절차를 사용합니다. 별도로 **agent-hub가 실행하는 에이전트도 역할에 맞는 gstack 지침을 사용할 수 있게 하는 것**을 필수 구현 범위에 추가합니다. 로컬 개발 도구에 설치한 것만으로 제품 내부 연동이 완료되지는 않습니다.
 
-- [ ] 기존 T3·T4 설계를 반복하지 않고, 내부 지침 제공·실행 경계의 추가 설계를 `plan-eng-review`로 검토합니다.
+- [x] 기존 T3·T4 설계를 반복하지 않고, 내부 지침 제공·실행 경계의 추가 설계를 `plan-eng-review`로 검토합니다.
 - [ ] 역할별 사용할 지침, 고정 버전·라이선스 표시, 지침 제공 방식과 기록할 버전을 결정합니다. 모델 제공자 교체와 컨테이너 실행 환경도 고려합니다.
 - [ ] 허용한 지침만 실행 입력에 연결합니다. 지침 속 명령이 서버의 고정 테스트 설정·예산·취소·접근 제한을 우회하지 않도록 합니다.
 - [ ] 실제 실행에서 사용한 지침과 버전을 확인하고, 누락·변경·실행 실패를 검증합니다. 단순 프롬프트 주입만으로 gstack 도구 실행까지 완료했다고 보고하지 않습니다.
 
-현재는 요구와 완료 기준을 기록한 상태이며 내부 연동은 미구현입니다. 현재 진행 중인 개발·검증 조회 화면을 마친 뒤 추가 설계를 검토합니다.
+추가 설계는 아래 「내부 에이전트의 gstack 지침 검토」에 기록했습니다. 제품 내부 연동은 아직 미구현이며, 지침 제공·기록·실제 호출 검증을 순서대로 연결합니다.
 
 검증 명령은 `pnpm typecheck`, `RUN_CONTAINER_TESTS=1 pnpm test`, `pnpm build`, `pnpm test:browser`입니다. 각 단위에는 변경한 경계의 실제 검사만 먼저 실행하고 최종 연결 뒤 전체 검증을 수행합니다. 이전 검토 T1~T4는 위 구현 후 확인과 기존 커밋으로 완료되어 새 목록에서 중복 구현하지 않습니다. 새 TODOS 항목은 없고 필수 작업은 모두 이 단계에 포함합니다.
 
@@ -755,18 +755,138 @@ Scope accepted as-is. Architecture 4건, Code Quality 1건, Test GAP 10개, Perf
 
 실제 SQLite 검사 10개와 Docker 검사 5개를 추가했습니다. 전체 테스트 **585개(실제 Docker 26개)**, Chromium 시나리오 **11개**, 타입 검사·빌드를 통과했습니다. 이전 스키마의 실행 ID·종료 시각 보존과 재적용 방지, 두 컨테이너의 순차 실행·정리, 비동기 저장 실패·중복 종료 확인·자식의 위조 메타데이터를 검증했습니다. 모델 호출은 테스트 대역이며 실제 개발 에이전트 품질 검증은 T3에 남아 있습니다. Git 변경 반영·자동 계획 시작은 아직 완료하지 않았습니다.
 
+## 내부 에이전트의 gstack 지침 검토
+
+검토 대상은 이 문서의 「추가 요구: 내부 에이전트의 gstack 사용」입니다. 기존 T4 변경 반영 설계와 5f 자율 실행 범위는 유지합니다. 사용자는 개발 과정과 제품 내부 적용을 모두 요청했고, 일반적인 구현 선택과 순서의 자율 판단을 위임했습니다. 아래 결정은 그 범위의 구현 방식이며 배포·실제 거래 변경 권한을 추가하지 않습니다.
+
+### 적용 방식과 대안
+
+내부 에이전트에는 **gstack에서 가져와 실행 환경에 맞게 수정한 역할별 지침**을 제공합니다. 첫 연동의 모드는 `adapted_instructions`입니다. 원본 버전·원본 파일·수정한 내용·지침 해시를 공개 파일에 남깁니다. 실제 gstack CLI 실행이나 전체 스킬 절차를 끝냈다는 의미로 사용하지 않습니다. 테스트 실행·취소·예산·변경 반영은 기존 서버가 담당합니다.
+
+| 역할 | 참고하는 gstack 지침 | 적용할 행동 |
+| --- | --- | --- |
+| 총괄·계획 | `plan-eng-review`의 구조·품질·테스트·성능 검토 | 기존 코드와 근거를 읽고 실행 가능한 다음 작업·완료 기준 제안 |
+| 개발 | `verify`의 검증 원칙, `investigate`의 원인 분석 | 작은 수정, 실패 원인과 근거 확인, 서버가 수행하지 않은 테스트를 통과했다고 주장하지 않기 |
+| 독립 검토 | `review/checklist.md` | 신뢰 경계·데이터·동시성·검증 약화·빠진 요구를 확인하고 구체적인 보완 의견 반환 |
+| 수동 분석 | 같은 리뷰 체크리스트의 읽기 전용 적용 | 요청 범위의 근거를 확인하고 파일을 바꾸지 않기 |
+
+두 구조를 비교했습니다. **A 선택 [Layer 1]:** 서버와 이미지에 고정한 지침 묶음을 포함하고, 기존 요청·이벤트·Step 저장 경계로 연결합니다. **B:** 전체 gstack 설치와 Bun·Git·상태 폴더·추가 모델·브라우저를 각 실행 환경에 제공하고 무인 실행 계약을 구현합니다. B는 원본 도구 활용 범위가 넓지만 현재 입력에는 Git 이력·도구 상태 저장 공간이 없고 검토자는 읽기 전용입니다. A는 현재 역할의 판단 기준을 적용하면서 기존 실행 제약을 유지합니다. 전체 CLI·브라우저·배포 스킬 지원은 별도 능력으로 구분하며, 이 지침 연동의 완료 결과로 주장하지 않습니다. 필요 기능이 원본 도구 실행을 요구하면 해당 실행기와 검증을 추가한 뒤 지원한다고 표시합니다.
+
+지침 파일의 명령을 그대로 실행하거나 프로젝트의 `SKILL.md`를 자동으로 읽지 않습니다. 사용자 질문·자동 업그레이드·텔레메트리·외부 모델·원격 배포 지시는 제품용 지침에 포함하지 않습니다. 수정·검증·승인의 권한은 서버 규칙에 남습니다. 이 차이는 묶음의 NOTICE와 적용 모드에 명시합니다.
+
+### 이미 있는 경계와 전제
+
+| 전제 | 근거 | 판정 |
+| --- | --- | --- |
+| 호스트 스킬 자동 검색을 꺼둠 | `codex-executor.ts:19`의 `skip_host_skill_discovery: true` | 확인 |
+| 총괄은 별도 출력 형식, 개발·검토는 별도 호출 | `prepared-executor.ts:62`, `development-executor.ts:190` | 확인 |
+| 자식 이벤트의 부가 정보는 제한적으로 전달 | `execution-process.ts:246` | 확인 |
+| 실행 이미지에 지침 파일 배포가 없음 | `docker/analysis-runner.Dockerfile:19` | 확인 |
+| 지침 적용 이후 실제 모델의 수행 품질 | 구현 후 실제 호출 필요 | 미검증 |
+| 새 묶음의 이미지 포함·버전 불일치 차단 | 구현 후 Docker 확인 필요 | 미검증 |
+
+현재 설치 원본은 gstack `1.93.11.0`, 커밋 `24a47db3d9e12a1f6ead6919306ef0da3b5696d9`입니다. 해당 커밋의 파일만 기준으로 삼고 로컬 수정이나 최신 브랜치를 섞지 않습니다. MIT LICENSE와 관련 출처 표시를 묶음에 함께 보존합니다. [고정 커밋의 라이선스](https://github.com/garrytan/gstack/blob/24a47db3d9e12a1f6ead6919306ef0da3b5696d9/LICENSE), [원본 무인 실행 계약](https://github.com/garrytan/gstack/blob/24a47db3d9e12a1f6ead6919306ef0da3b5696d9/docs/unattended.md)을 확인했습니다. 후자는 전체 도구 연동의 대안이며 현재 지침 적용과 혼동하지 않습니다.
+
+### 1. 구조 검토
+
+S1 [CRITICAL] (confidence: 9/10) `codex-executor.ts:19`의 `skip_host_skill_discovery: true` 때문에 로컬 설치만으로 실행 에이전트가 gstack을 쓰지는 않습니다. **채택:** 서버가 역할을 선택하고 패키지 안의 고정 파일을 읽습니다. 원본 버전과 제품용 프로필 버전은 별도로 기록합니다. 역할과 경로는 모델 입력으로 정하지 않습니다.
+
+S2 [CRITICAL] (confidence: 9/10) `execution-process.ts:246`의 `await onEvent({` 경계는 임의 자식 정보를 저장하지 않습니다. **채택:** 지침 로드 확인을 별도의 제한된 이벤트로 추가합니다. 부모가 선택한 값·현재 Step·역할과 일치해야 저장하고, 저장 확인을 받은 후에만 SDK 호출을 시작합니다. 일반 로그의 문자열이나 모델이 작성한 “gstack 사용” 문장은 적용 증거가 아닙니다.
+
+S3 [CRITICAL] (confidence: 9/10) `docker/analysis-runner.Dockerfile:19`의 `COPY ... /dist`만으로 비코드 파일은 포함되지 않습니다. **채택:** 서버 배포와 이미지에 같은 지침 묶음을 포함합니다. 원본/프로필 버전·내용 해시를 대조하며 누락·변조·부모와 이미지의 버전 차이는 호출 전 `unsupported_settings`로 보류합니다. 무지침 실행으로 조용히 바꾸지 않습니다.
+
+상태 소유자는 하나입니다. 묶음은 역할 선택과 무결성 검사를, Run/Step 저장소는 선택·로드 기록을, 실행기는 실제 읽기와 호출 순서를 담당합니다. 전달용 클래스나 범용 플러그인 시스템은 만들지 않습니다. 같은 역할 목록은 묶음에서 도출하고 중복 선언이 필요하면 계약 검증으로 차이를 거부합니다. Dispositions: S1~S3 채택, 사용자 자율 구현 위임에 따른 R5~R7.
+
+```text
+Run 배정 -> 지침 정책 버전 보존
+  -> Step 예산 예약/역할 선택
+  -> 부모가 지침 ID·해시를 지정
+  -> 실행기가 배포 파일 읽기·해시 대조
+       +-- 누락/불일치 -> 호출 없이 보류
+       +-- 일치 -> loaded 이벤트
+                     -> 부모가 현재 Step/역할/해시 검사·저장
+                     -> 저장 확인 -> SDK에 지침 전달
+  -> 기존 실제 테스트/독립 검토/변경 반영 규칙
+```
+
+### 2. 코드 품질 검토
+
+S4 [CRITICAL] (confidence: 9/10) `codex-executor.ts:57`의 `thread.runStreamed([`에는 지침 입력과 적용 기록의 연결이 없습니다. **채택:** 제공자와 무관한 작은 묶음 모듈을 부모와 실행기가 함께 사용합니다. ID만 보고 성공을 기록하지 않고, 실제 전달할 문자열을 읽고 검증한 뒤 로드 이벤트를 보냅니다. SDK 어댑터가 바뀌어도 선택·무결성·기록 계약을 유지합니다.
+
+기존 Step 저장 확인·취소·출력 제한·오류 분류를 재사용합니다. 이전 Run/Step에는 nullable 기록을 유지하고 새 값을 추정해 채우지 않습니다. 새 기록은 원본 경로·인증·프롬프트 전체를 공개 응답에 넣지 않습니다. 제안된 공통 모듈의 호출자는 부모 실행 요청 구성과 컨테이너 SDK 진입점입니다. 단순 코드 축약용 추출은 없고, 새 계약과 검사 때문에 전체 코드량은 증가할 것으로 예상합니다. Disposition: S4 채택(R5~R7).
+
+### 3. 테스트 검토
+
+Vitest·실제 SQLite·Docker·Chromium을 재사용합니다. 다음 여덟 계약은 아직 구현 전 GAP이며 기존 731개 테스트가 새 지침 기능의 통과 증거는 아닙니다.
+
+```text
+지침 선택/실행                         사용자 확인
+  +-- 고정 버전·라이선스·해시 [G11 GAP]  적용 모드/역할/버전 확인 [G17 GAP, E2E]
+  +-- 누락/변조/다른 이미지 [G12 GAP]   과거 실행에는 기록 없음 [G17 GAP]
+  +-- 현재 역할·Step 대조   [G13 GAP]
+  +-- 저장 확인 뒤 호출     [G14 GAP, E2E]
+  +-- 취소/예산/종료 유지   [G15 GAP, E2E]
+  +-- 서버/이미지 배포      [G16 GAP, E2E]
+  +-- 실제 모델 적용 흐름   [G18 GAP, EVAL]
+```
+
+G11~G12는 실제 묶음과 잘못된 바이트·ID·버전을 검사합니다. G13~G15는 SQLite와 프로토콜 검사에서 다른 Step·다른 역할·위조 일반 로그·저장 실패·취소 이후 호출을 거부합니다. G16은 실제 이미지의 파일과 실행기 진입점을 확인합니다. G17은 인증된 조회와 화면에서 로드 확인과 단순 선택, 과거 null을 구분합니다. G18은 실제 Codex의 계획·개발·독립 검토 예제로 적용 기록과 결과를 확인합니다. 프롬프트 문자열 테스트만으로 실제 호출이나 판단 품질을 증명하지 않습니다. 기존 무스킬 실행·스키마 이전·종료·예산 검사는 회귀 범위입니다. 폐기할 테스트는 없습니다. Dispositions: G11~G18 채택(R5~R7)의 필수 검증.
+
+### 4. 성능 검토
+
+S5 [INFORMATIONAL] (confidence: 8/10) `analysis-runner.ts:25`는 일반 요청 입력을 65,536바이트로 제한합니다. 원본 스킬 전체를 요청 문자열에 붙이면 기존 작업 입력의 여유를 줄입니다. **채택:** 요청에는 ID·버전·해시만 보내고 배포 파일을 실행기에서 읽습니다. 프로필별 최대 32KiB, 묶음 전체 최대 128KiB를 초기 상한으로 정합니다(정책값이며 측정 결과가 아님). 현재 한 Run·제한된 호출 수를 유지하며 새 AI 호출이나 컨테이너를 추가하지 않습니다. 프로필 크기와 프롬프트 비용은 실제 호출 결과에 기록합니다. Disposition: S5 채택(R5).
+
+### 결정 기록과 구현 순서
+
+| ID | 채택한 구현 | 권한·요구 근거 | 실패 처리 |
+| --- | --- | --- | --- |
+| R5 | 고정된 gstack 출처·역할 지침·모드와 해시 | 사용자 “둘 다!”와 일반 선택 자율 위임 | 누락/변조 거부, 전체 CLI 실행으로 표시하지 않음 |
+| R6 | 실행 전 선택·로드 확인·저장 응답 계약 | 기존 저장 확인 뒤 실행·예산·취소 계약 | 응답 실패/취소/다른 역할이면 SDK 호출하지 않음 |
+| R7 | Run/Step 이력과 API/UI·실제 모델 검증 | 사용한 지침과 버전을 확인한다는 요구 | 과거 기록 추정 금지, 모델 주장만으로 완료 금지 |
+
+State: R5~R7 승인된 요구 안에서 자율 결정. Actual answer: 사용자의 “둘 다!”와 일반 구현·순서 독립 판단 지시. Accepted scope: 역할 지침 제공·무결성·실행 기록·실제 호출 증명. 기존 T4/5f는 그대로 필요합니다. Approval readiness: PASS(R5~R7). 별도 사용자 질문은 없으며 Lake Score는 N/A입니다.
+
+구현 변경 파일은 약 20~25개 예상이며 대부분 기존 실행·저장·계약·화면과 테스트입니다. 새로운 서비스/프로세스는 0개, 역할 묶음 모듈 1개를 추가합니다(모두 추정). 별도 스킬 서버를 두는 구조는 채택하지 않습니다. 공통 실행 경계를 수정하므로 **Sequential implementation, no parallelization opportunity.** 기능을 줄이지 않고 아래 단위로 나눕니다. 병렬 PR은 만들지 않으며 후속 단위는 앞선 계약에 의존합니다.
+
+### Implementation Tasks — gstack 추가 범위
+
+- [ ] **S1 (P1, human: 0.5~1일 / CC: 20~40분 추정)** — 고정 지침 묶음·출처·로더·무결성 검사. S1·S3·S4·S5, G11~G12. `apps/server/skills/gstack/`, `execution/runtime-skills.ts`, 관련 테스트와 Docker 배포. 독립적으로 검증하되 이 단위만으로 내부 적용 완료라 하지 않습니다.
+- [ ] **S2 (P1, human: 1~2일 / CC: 1~2시간 추정)** — 역할 선택·로드 응답·Step 기록 연결. S2·S4, G13~G16. 실행 요청/SDK/프로토콜/저장소·마이그레이션·테스트. 기존 종료·취소·예산 계약을 유지합니다.
+- [ ] **S3 (P1, human: 0.5~1일 / CC: 30~60분 추정)** — 적용 내역 조회·화면·실제 호출 확인. G17~G18. 계약/화면·브라우저·실제 Codex 예제. 모델 품질 향상의 일반적 보장은 주장하지 않습니다.
+
+T1~T3는 기존 커밋으로 완료했고 T4는 기존 계획 그대로 이어갑니다. 스킬 추가와 변경 반영은 같은 실행 경계를 공유하므로 작은 단위로 순차 연결합니다. 신규 TODOS 항목은 없으며 S1~S3와 T4·5f가 필수 작업입니다. 시간은 기존 저장·실행 구조를 재사용한다는 가정의 추정이고 일정 보장은 아닙니다.
+
+### 검토 범위·현실 확인
+
+이번 지침 연동에 전체 gstack CLI·브라우저·추가 모델 설치를 포함하지 않습니다. 실제 운영 배포와 거래 변경도 기존 권한 밖입니다. Aside와 Brain 캐시는 사용할 수 없어 로컬 소스와 공식 웹 문서를 확인했습니다. 기존 제품 목적·결정은 사용자 메시지와 이 저장소 문서에 있으므로 다시 질문하지 않았습니다. 외부 Claude 검토는 기존 disabled 설정을 유지했습니다. 선택 기능의 사용 동의나 업그레이드는 변경하지 않았습니다.
+
+REALITY: premise-table pass unverified=2 지침 적용 품질과 이미지 배포는 구현 후 확인 docs/02-implementation-plan.md:709
+REALITY: already-done pass 기존 개발용 gstack 설정은 fba3447로 반영, 내부 지침은 미구현 docs/02-implementation-plan.md:709
+REALITY: surface-check pass SDK 입력·호스트 스킬 비활성·Docker 배포 경로를 소스에서 확인 apps/server/src/modules/execution/codex-executor.ts:19
+REALITY: binding-decisions pass 역할별 내부 사용과 기존 예산·취소·접근 제한 유지 AGENTS.md:28
+REALITY: numbers pass 파일 수와 일정은 추정, 바이트 상한은 새 정책값 apps/server/src/modules/execution/analysis-runner.ts:25
+REALITY: deferred-asks pass 연결 이슈 없음, 내부 적용과 T4·5f 요구 모두 유지 docs/02-implementation-plan.md:709
+REALITY: pr-count pass S1~S3 순차 커밋, 별도 병렬 PR 없음 AGENTS.md:16
+REALITY: prior-art pass 원본 무인 계약과 역할 지침을 비교하고 현재 실행 제약에 맞는 수정 지침 채택 apps/server/src/modules/execution/codex-executor.ts:19
+REALITY: transaction-semantics pass 파일 읽기는 DB 트랜잭션 밖, 저장 응답 뒤 SDK 호출 apps/server/src/modules/execution/workflow-step-store.ts:16
+REALITY: contract-assumptions pass 원본 고정 커밋 사용, 미지원 CLI를 사용할 수 있다고 가정하지 않음 docker/analysis-runner.Dockerfile:19
+REALITY: dependency-fallback pass S1 독립 검증, S2·S3 완료 전 내부 적용 완료 표시 금지 docs/02-implementation-plan.md:709
+REALITY: obligation-tiers pass S1~S3 필수, 전체 도구 설치는 별도 능력으로 명시 docs/02-implementation-plan.md:709
+
+검토 요약: scope accepted as-is. Architecture 3건, Code Quality 1건, Test GAP 8개, Performance 1건으로 13건을 구현에 연결했습니다. 현실 확인 12개와 미검증 전제 2개를 기록했습니다. 오류 처리와 검증 계획이 모두 빠진 무음 실패 경로는 0개, 미결정 선택은 0개입니다. Suppressed findings: 없음.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 | --- | --- | --- | --- | --- | --- |
 | CEO Review | `/plan-ceo-review` | 제품 범위 | 0 | NOT RUN | 기존 범위 유지 |
-| Outside Review | 설정 disabled | 독립 모델 검토 | 1 | DISABLED | 외부 검토 없음 |
-| Eng Review | `/plan-eng-review` | 5e 구조·검증 계획 | 2 | ISSUES OPEN | T1~T3 검증 완료. T4 구현·검증 대기 |
+| Outside Review | 설정 disabled | 독립 모델 검토 | 2 | DISABLED | 외부 검토 없음 |
+| Eng Review | `/plan-eng-review` | 내부 gstack 지침·실행 경계 | 3 | ISSUES OPEN | 13건 구현 계획 확정. S1~S3·기존 T4 검증 대기 |
 | Design Review | `/plan-design-review` | UI/UX | 0 | NOT RUN | 화면 반영은 T4 검증에 포함 |
 | DX Review | `/plan-devex-review` | 개발 경험 | 0 | NOT RUN | 별도 검토 없음 |
 
 **OUTSIDE COVERAGE:** host=Codex, provider=claude-code, phase=plan-review, outside_status=disabled. 외부 모델 호출 없음.
 
-**VERDICT:** 구현 순서와 검증 계약을 확정했습니다. 기능 검증은 아직 통과한 것으로 표시하지 않습니다. Eng review 기록은 구현할 보완 사항이 남아 있는 ISSUES OPEN입니다.
+**VERDICT:** 내부 에이전트의 gstack 지침 적용·무결성·실행 이력 검증 계획을 확정했습니다. 개발용 gstack 설정은 완료됐고 내부 적용 S1~S3와 기존 변경 반영 T4는 구현·검증 대기입니다. 계획 검토를 기능 검증 통과로 표시하지 않습니다.
 
 NO UNRESOLVED DECISIONS
