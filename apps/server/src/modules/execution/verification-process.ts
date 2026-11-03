@@ -82,11 +82,15 @@ export async function runVerificationContainer(
       throw new AnalysisError("provider_error", true);
     request.signal.throwIfAborted();
     const exit = await readContainerExit(identity);
-    const output = Buffer.from(
+    const redacted = Buffer.from(
       redactOutput(Buffer.concat(chunks).toString("utf8")),
-    )
-      .subarray(0, 65533)
-      .toString("utf8");
+    );
+    // Preserve the final assertion/stack trace as well as startup context.
+    // Leave byte margin for UTF-8 replacement characters at either cut.
+    const output =
+      redacted.length <= 65533
+        ? redacted.toString("utf8")
+        : `${redacted.subarray(0, 32700).toString("utf8")}\n... test output truncated ...\n${redacted.subarray(-32700).toString("utf8")}`;
     const result: VerificationResult = {
       candidateDigest: verification.candidateDigest,
       inputDigest: request.development!.inputDigest,

@@ -24,6 +24,7 @@ import {
   goals,
   projects,
   runs,
+  steps,
   tasks,
 } from "../src/db/schema.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
@@ -48,7 +49,14 @@ import {
   captureRecordedDevelopment,
   cleanupRecordedDevelopment,
   prepareRecordedDevelopment,
+  prepareRecordedVerification,
 } from "../src/modules/goals/recorded-development.js";
+import {
+  verificationConfigDigest,
+  verificationResultDigest,
+  type VerificationResult,
+} from "../src/modules/execution/verification-config.js";
+import type { AnalysisAssessment } from "@agent-hub/contracts";
 import {
   preparedInputRoot,
   type GoalScope,
@@ -150,7 +158,9 @@ beforeEach(() => {
       createdAt: new Date(),
     })
     .run();
-  store = createDrizzleRunStore(database.db);
+  store = createDrizzleRunStore(database.db, undefined, {
+    analysisWorkflow: { version: 1, maxSteps: 6, maxEffortChanges: 2 },
+  });
   // Public dispatch remains disabled until tests, review and ChangeApplication
   // are connected. Simulate only the internal development Run in this fixture.
   run = store.claim(taskId, "fixture");
@@ -223,6 +233,84 @@ async function capture(
     signal(),
     record,
   );
+}
+
+const configuration = {
+  image: "agent-hub-verification-node:local",
+  command: [
+    "node",
+    "-e",
+    "require('node:assert/strict').match(require('node:fs').readFileSync('src/main.ts','utf8'), /answer = 42;/)",
+  ],
+  timeoutMs: 10000,
+};
+const verifyInput = (sequence = 1, onEvent = record) =>
+  prepareRecordedVerification(
+    database.db,
+    {
+      runId: run.id,
+      sequence,
+      inputRoot,
+      configuration,
+      signal: signal(),
+    },
+    onEvent,
+  );
+function verificationResult(sequence = 1, exitCode = 1): VerificationResult {
+  const current = readDevelopmentRounds(database.db, run.id)[sequence - 1]!;
+  return {
+    candidateDigest: current.candidate!.digest,
+    inputDigest: current.verificationInput!.digest,
+    configurationDigest: verificationConfigDigest(configuration),
+    configuration,
+    execution: readExecutions(database.db, run.id).at(-1)!.identity,
+    imageId: `sha256:${"c".repeat(64)}`,
+    status: exitCode === 0 ? "passed" : "failed",
+    exitCode,
+    oomKilled: false,
+    elapsedMs: 25,
+    output: "fixture test output",
+  };
+}
+const assessment = (complete = false): AnalysisAssessment => ({
+  report: complete ? "Approved" : "Fix the failing calculation",
+  evidence: ["src/main.ts"],
+  unresolved: complete ? [] : ["calculation differs"],
+  complete,
+  next: complete
+    ? null
+    : {
+        purpose: "Fix calculation",
+        effort: "medium",
+        reason: "Observed test failure",
+      },
+});
+function completeStep(sequence: number, value = assessment()) {
+  record({ kind: "step.started", step: { type: "start", sequence } });
+  record({
+    kind: "step.completed",
+    step: { type: "complete", sequence, assessment: value, usage: null },
+  });
+}
+async function finishReview(sequence = 1) {
+  await verifyInput(sequence);
+  execute();
+  const result = verificationResult(sequence);
+  save({ type: "verification.complete", sequence, result });
+  completeStep(sequence * 2 - 1);
+  completeStep(sequence * 2);
+  const execution = execute();
+  save({
+    type: "review.complete",
+    sequence,
+    review: {
+      candidateDigest: result.candidateDigest,
+      verificationDigest: verificationResultDigest(result),
+      execution,
+      stepSequence: sequence * 2,
+      assessment: assessment(),
+    },
+  });
 }
 
 test("saves intent before I/O, preserves input and candidate across reopen and separates planning from execution bases", async () => {
@@ -345,6 +433,7 @@ test("requires ready input before starting and saved termination before capturin
   finishExecution(execution);
   expect(() => execute()).toThrow("input_unavailable");
   const candidate = await capture(prepared);
+  await verifyInput();
   expect(() => execute()).not.toThrow();
   expect(readDevelopmentRounds(database.db, run.id)[0]?.candidate).toEqual(
     candidate,
@@ -362,6 +451,7 @@ test("a failed candidate write rolls back and keeps the following phase blocked"
   expect(() => execute()).toThrow("input_unavailable");
   database.client.exec("DROP TRIGGER reject_candidate");
   await capture(prepared);
+  await verifyInput();
   expect(() => execute()).not.toThrow();
 });
 
@@ -385,6 +475,7 @@ test("rework has a bounded ordered sequence and must continue the preceding cand
   const first = await prepare();
   execute();
   const candidate = await capture(first);
+  await finishReview();
   await expect(prepare(3, candidate)).rejects.toThrow("input_unavailable");
   const wrong = developmentInputIntent(
     inputRoot,
@@ -407,6 +498,7 @@ test("rework has a bounded ordered sequence and must continue the preceding cand
     2,
     "export const answer = 43;\n",
   );
+  await finishReview(2);
   const third = await prepare(3, secondCandidate);
   execute();
   const thirdCandidate = await capture(third, 3);
@@ -415,11 +507,11 @@ test("rework has a bounded ordered sequence and must continue the preceding cand
     readDevelopmentRounds(database.db, run.id).map(
       (value) => value.executionOffset,
     ),
-  ).toEqual([0, 1, 2]);
+  ).toEqual([0, 3, 6]);
 }, 20000);
 
 test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
-  "persists a real container's candidate only after its termination proof and resumes the candidate in a new input",
+  "persists a real container's candidate only after its termination proof and prepares that candidate for verification",
   async () => {
     const exec = promisify(execFile),
       cwd = fileURLToPath(new URL("../../../", import.meta.url));
@@ -446,6 +538,18 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
         ".",
       ],
       { cwd, timeout: 30000 },
+    );
+    await exec(
+      "docker",
+      [
+        "build",
+        "-f",
+        "docker/verification-node.Dockerfile",
+        "-t",
+        configuration.image,
+        ".",
+      ],
+      { cwd, timeout: 90000 },
     );
     const home = join(directory, "synthetic-home");
     mkdirSync(home);
@@ -487,10 +591,47 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
       expect(
         readDevelopmentRounds(database.db, run.id)[0]?.candidate?.digest,
       ).toBe(candidate.digest);
-      const second = await prepare(2, candidate);
+      const second = await verifyInput();
       expect(
         readFileSync(join(second.input.directory, "src/large-0.txt")),
       ).toHaveLength(700000);
+      const verified = await executor.analyze(
+        {
+          runId: run.id,
+          model: "fixture",
+          instruction: "fixed test",
+          workspace: second.input.directory,
+          signal: signal(),
+          development: {
+            baseRevision: second.input.revision,
+            inputDigest: second.input.digest,
+            scope,
+            writePaths: second.input.writePaths,
+            files: second.input.files,
+          },
+          verification: {
+            candidateDigest: candidate.digest,
+            config: configuration,
+          },
+        },
+        record,
+      );
+      expect(verified.verification).toMatchObject({
+        status: "failed",
+        exitCode: 1,
+        candidateDigest: candidate.digest,
+        inputDigest: second.input.digest,
+      });
+      save({
+        type: "verification.complete",
+        sequence: 1,
+        result: verified.verification!,
+      });
+      expect(
+        readDevelopmentRounds(database.db, run.id)[0]!.verificationResult!
+          .output,
+      ).toContain("AssertionError");
+      expect(readExecutions(database.db, run.id)).toHaveLength(2);
       expect(git("status", "--porcelain")).toBe("");
       const proof = await executor.confirmTermination!(run.id);
       expect(proof).toBeInstanceOf(Date);
@@ -696,4 +837,342 @@ test("schema migration retains old Runs, adds empty journals and enforces prepar
   database.close();
   database = openDatabase(join(directory, "hub.sqlite"));
   expect(database.db.select().from(runs).all()).toHaveLength(1);
+});
+
+test.each(["verification.intent", "verification.ready"] as const)(
+  "recovers verification preparation after a failed %s acknowledgement",
+  async (type) => {
+    const prepared = await prepare();
+    execute();
+    await capture(prepared);
+    let target = "";
+    await expect(
+      verifyInput(1, (event) => {
+        if (event.development?.type === type) {
+          target =
+            event.development.type === "verification.intent"
+              ? event.development.verification.input.directory
+              : event.development.input.directory;
+          throw new Error("verification write failed");
+        }
+        record(event);
+      }),
+    ).rejects.toThrow("verification write failed");
+    expect(existsSync(target)).toBe(type === "verification.ready");
+    expect(() => execute()).toThrow("input_unavailable");
+    const stored = readDevelopmentRounds(database.db, run.id)[0]!
+      .verificationIntent;
+    const connection = openDatabase(join(directory, "hub.sqlite"));
+    try {
+      const restored = await prepareRecordedVerification(
+        connection.db,
+        {
+          runId: run.id,
+          sequence: 1,
+          inputRoot,
+          configuration,
+          signal: signal(),
+        },
+        record,
+      );
+      if (stored) expect(restored.input.id).toBe(stored.input.id);
+      expect(restored.input.id).not.toBe(prepared.input.id);
+      expect(
+        readFileSync(join(restored.input.directory, "src/main.ts"), "utf8"),
+      ).toContain("42");
+      expect(readDevelopmentRounds(database.db, run.id)).toHaveLength(1);
+    } finally {
+      connection.close();
+    }
+  },
+);
+
+test("verification configuration is immutable after preparation and a cancellation acknowledgement creates no input", async () => {
+  const prepared = await prepare();
+  execute();
+  await capture(prepared);
+  const controller = new AbortController();
+  await expect(
+    prepareRecordedVerification(
+      database.db,
+      {
+        runId: run.id,
+        sequence: 1,
+        inputRoot,
+        configuration,
+        signal: controller.signal,
+      },
+      (event) => {
+        record(event);
+        if (event.development?.type === "verification.intent")
+          controller.abort();
+      },
+    ),
+  ).rejects.toThrow();
+  const intent = readDevelopmentRounds(database.db, run.id)[0]!
+    .verificationIntent!;
+  expect(existsSync(intent.input.directory)).toBe(false);
+  await expect(
+    prepareRecordedVerification(
+      database.db,
+      {
+        runId: run.id,
+        sequence: 1,
+        inputRoot,
+        configuration: {
+          ...configuration,
+          command: ["node", "-e", "process.exit(0)"],
+        },
+        signal: signal(),
+      },
+      record,
+    ),
+  ).rejects.toThrow("configuration changed");
+  await verifyInput();
+});
+
+test("verification needs the exact candidate input, configuration and test execution with a saved termination proof", async () => {
+  const prepared = await prepare();
+  execute();
+  const candidate = await capture(prepared);
+  await expect(prepare(2, candidate)).rejects.toThrow("input_unavailable");
+  await verifyInput();
+  const identity = execute(false);
+  const result = verificationResult();
+  expect(() =>
+    save({ type: "verification.complete", sequence: 1, result }),
+  ).toThrow("input_unavailable");
+  finishExecution(identity);
+  expect(() => execute()).toThrow("input_unavailable");
+  const mutations: Partial<VerificationResult>[] = [
+    { candidateDigest: "a".repeat(64) },
+    { inputDigest: prepared.input.digest },
+    { execution: readExecutions(database.db, run.id)[0]!.identity },
+    {
+      configuration: { ...configuration, command: ["true"] },
+      configurationDigest: verificationConfigDigest({
+        ...configuration,
+        command: ["true"],
+      }),
+    },
+    { status: "passed" },
+    { exitCode: 0 },
+    { oomKilled: true, status: "passed", exitCode: 0 },
+    { imageId: "mutable:tag" },
+    { output: "x".repeat(65537) },
+  ];
+  for (const mutation of mutations)
+    expect(() =>
+      save({
+        type: "verification.complete",
+        sequence: 1,
+        result: { ...result, ...mutation },
+      }),
+    ).toThrow();
+  database.client.exec(
+    "CREATE TRIGGER reject_verification BEFORE UPDATE OF verification_result ON development_rounds BEGIN SELECT RAISE(ABORT, 'test result write failed'); END",
+  );
+  expect(() =>
+    save({ type: "verification.complete", sequence: 1, result }),
+  ).toThrow("test result write failed");
+  expect(() => execute()).toThrow("input_unavailable");
+  database.client.exec("DROP TRIGGER reject_verification");
+  save({ type: "verification.complete", sequence: 1, result });
+  const before = readDevelopmentRounds(database.db, run.id)[0]!;
+  save({ type: "verification.complete", sequence: 1, result });
+  expect(readDevelopmentRounds(database.db, run.id)[0]).toEqual(before);
+  expect(() =>
+    save({
+      type: "verification.complete",
+      sequence: 1,
+      result: { ...result, output: "replacement" },
+    }),
+  ).toThrow();
+  await expect(prepare(2, candidate)).rejects.toThrow("input_unavailable");
+  expect(() => execute()).not.toThrow();
+});
+
+test.each([false, true])(
+  "review is bound to the persisted Step and test result, including test success=%s",
+  async (passed) => {
+    const prepared = await prepare();
+    execute();
+    const candidate = await capture(prepared);
+    await verifyInput();
+    execute();
+    const result = verificationResult(1, passed ? 0 : 1);
+    save({ type: "verification.complete", sequence: 1, result });
+    const execution = execute(false);
+    completeStep(1);
+    completeStep(2, assessment(passed));
+    const review = {
+      candidateDigest: candidate.digest,
+      verificationDigest: verificationResultDigest(result),
+      execution,
+      stepSequence: 2,
+      assessment: assessment(passed),
+    };
+    expect(() =>
+      save({ type: "review.complete", sequence: 1, review }),
+    ).toThrow("input_unavailable");
+    finishExecution(execution);
+    for (const mutation of [
+      { candidateDigest: "b".repeat(64) },
+      { verificationDigest: "b".repeat(64) },
+      { stepSequence: 1 },
+      { execution: result.execution },
+      { assessment: assessment(!passed) },
+    ]) {
+      expect(() =>
+        save({
+          type: "review.complete",
+          sequence: 1,
+          review: { ...review, ...mutation },
+        }),
+      ).toThrow("input_unavailable");
+    }
+    if (!passed) {
+      // Even a persisted AI approval cannot override a failed host test.
+      database.db
+        .update(steps)
+        .set({ assessment: assessment(true) })
+        .where(eq(steps.sequence, 2))
+        .run();
+      expect(() =>
+        save({
+          type: "review.complete",
+          sequence: 1,
+          review: { ...review, assessment: assessment(true) },
+        }),
+      ).toThrow("input_unavailable");
+      database.db
+        .update(steps)
+        .set({ assessment: assessment(false) })
+        .where(eq(steps.sequence, 2))
+        .run();
+    }
+    save({ type: "review.complete", sequence: 1, review });
+    const before = readDevelopmentRounds(database.db, run.id)[0]!;
+    save({ type: "review.complete", sequence: 1, review });
+    expect(readDevelopmentRounds(database.db, run.id)[0]).toEqual(before);
+    expect(() => execute()).toThrow("input_unavailable");
+    if (passed)
+      await expect(prepare(2, candidate)).rejects.toThrow("input_unavailable");
+    else {
+      await prepare(2, candidate);
+      expect(() =>
+        save({ type: "review.complete", sequence: 1, review }),
+      ).toThrow("input_unavailable");
+    }
+  },
+);
+
+test("completed verification survives a Goal pause and reopen; both inputs need final Run proof before cleanup", async () => {
+  const prepared = await prepare();
+  execute();
+  await capture(prepared);
+  const verification = await verifyInput();
+  execute();
+  const result = verificationResult();
+  database.db
+    .update(goals)
+    .set({ status: "paused" })
+    .where(eq(goals.id, scope.goalId))
+    .run();
+  save({ type: "verification.complete", sequence: 1, result });
+  expect(() => execute()).toThrow("input_unavailable");
+  const before = readDevelopmentRounds(database.db, run.id);
+  const reloaded = openDatabase(join(directory, "hub.sqlite"));
+  try {
+    expect(readDevelopmentRounds(reloaded.db, run.id)).toEqual(before);
+  } finally {
+    reloaded.close();
+  }
+  cleanupRecordedDevelopment(database.db, inputRoot, run.id);
+  expect(existsSync(verification.input.directory)).toBe(true);
+  store.finish(run.id, {
+    status: "blocked",
+    result: null,
+    errorCode: "goal_changed",
+    usage: null,
+    terminationConfirmedAt: new Date(),
+  });
+  cleanupRecordedDevelopment(database.db, inputRoot, run.id);
+  cleanupRecordedDevelopment(database.db, inputRoot, run.id);
+  expect(existsSync(verification.input.directory)).toBe(false);
+  expect(existsSync(prepared.input.directory)).toBe(false);
+  expect(
+    readDevelopmentRounds(database.db, run.id)[0]!.verificationResult,
+  ).toEqual(result);
+});
+
+test("verification migration preserves populated development records without inventing successful evidence", async () => {
+  const prepared = await prepare();
+  execute();
+  await capture(prepared);
+  const repository = database.db.select().from(developmentRepositories).get()!;
+  const round = readDevelopmentRounds(database.db, run.id)[0]!;
+  const retained = {
+    project: database.db.select().from(projects).get()!,
+    task: database.db.select().from(tasks).get()!,
+    run: database.db.select().from(runs).get()!,
+  };
+  const folder = join(directory, "before-verification");
+  cpSync(migrationsDirectory, folder, { recursive: true });
+  const path = join(folder, "meta/_journal.json"),
+    journal = JSON.parse(readFileSync(path, "utf8"));
+  journal.entries = journal.entries.slice(0, 25);
+  writeFileSync(path, JSON.stringify(journal));
+  const legacyPath = join(directory, "legacy.sqlite");
+  const legacy = openDatabase(legacyPath, folder);
+  try {
+    legacy.db.insert(projects).values(retained.project).run();
+    legacy.db
+      .insert(tasks)
+      .values({ ...retained.task, goalId: null, goalVersion: null })
+      .run();
+    // Select/insert only columns available in the old migration.
+    legacy.client
+      .prepare(
+        "INSERT INTO runs (id,task_id,instance_id,status,model,effort,started_at,last_activity_at) VALUES (?,?,?,'running','fixture','medium',?,?)",
+      )
+      .run(run.id, taskId, "legacy", Date.now(), Date.now());
+    legacy.db.insert(developmentRepositories).values(repository).run();
+    legacy.client
+      .prepare(
+        "INSERT INTO development_rounds (run_id,sequence,repository_id,input_id,planning_revision,intent,input,candidate,execution_offset,created_at,prepared_at,captured_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+      )
+      .run(
+        run.id,
+        1,
+        repository.id,
+        round.inputId,
+        round.planningRevision,
+        JSON.stringify(round.intent),
+        JSON.stringify(round.input),
+        JSON.stringify(round.candidate),
+        0,
+        round.createdAt.getTime(),
+        round.preparedAt!.getTime(),
+        round.capturedAt!.getTime(),
+      );
+  } finally {
+    legacy.close();
+  }
+  const migrated = openDatabase(legacyPath);
+  try {
+    const restored = readDevelopmentRounds(migrated.db, run.id)[0]!;
+    expect(restored).toEqual(round);
+    expect(restored.verificationResult).toBeNull();
+    expect(() =>
+      migrated.client
+        .prepare(
+          "UPDATE development_rounds SET verification_result='{}',verified_at=1",
+        )
+        .run(),
+    ).toThrow("CHECK");
+    expect(migrated.client.pragma("foreign_key_check")).toEqual([]);
+  } finally {
+    migrated.close();
+  }
 });

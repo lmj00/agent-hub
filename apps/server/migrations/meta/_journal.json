@@ -176,6 +176,13 @@
       "when": 1793721483534,
       "tag": "0024_development_journal",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1793724278591,
+      "tag": "0025_development_verification",
+      "breakpoints": true
     }
   ]
 }

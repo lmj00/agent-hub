@@ -137,6 +137,14 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     expect(readFileSync(join(workspace, "main.ts"), "utf8")).toBe("fixture source\n");
   }, 20000);
 
+  test("refuses child workflow events when steps are owned by the parent", async () => {
+    database.client.prepare("UPDATE tasks SET instruction = 'workflow-protocol'").run();
+    const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, createContainerExecutor(image, home));
+    expect(result).toMatchObject({ status: "interrupted", terminationConfirmedAt: expect.any(Date) });
+    expect(existsSync(join(home, "calls"))).toBe(false);
+    expect(store.findById(result.runId)!.steps).toMatchObject([{ purpose: null, assessment: null }]);
+  }, 15000);
+
   test("acknowledges persisted workflow steps before the child starts each next call", async () => {
     database.client.prepare("UPDATE tasks SET instruction = 'workflow-protocol 보안 검토'").run();
     store = createDrizzleRunStore(database.db, undefined, { effortPolicy: parseEffortPolicy({}), analysisWorkflow: parseAnalysisWorkflow({}) });

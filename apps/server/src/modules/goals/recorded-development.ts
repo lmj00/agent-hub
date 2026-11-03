@@ -2,8 +2,12 @@ import { lstatSync } from "node:fs";
 import { dirname } from "node:path";
 import { eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { runs } from "../../db/schema.js";
+import { developmentRepositories, runs } from "../../db/schema.js";
 import type { AnalysisEvent } from "../execution/analysis.js";
+import {
+  parseVerificationConfig,
+  type VerificationConfig,
+} from "../execution/verification-config.js";
 import {
   readDevelopmentRepository,
   readDevelopmentRounds,
@@ -19,6 +23,7 @@ import {
   recoverDevelopmentRepository,
   removeDevelopmentInput,
   stageDevelopmentCandidate,
+  verifyDevelopmentCandidate,
   type DevelopmentCandidate,
   type DevelopmentInput,
   type DevelopmentRepository,
@@ -71,6 +76,7 @@ export async function prepareRecordedDevelopment(
   }
   if (!stored || stored.intent.source !== request.source)
     throw new Error("Development repository intent was not saved");
+  signal.throwIfAborted();
   const repository =
     stored.prepared ??
     (exists(stored.intent.directory)
@@ -129,6 +135,75 @@ export async function captureRecordedDevelopment(
   return candidate;
 }
 
+// Test and read-only review use a distinct snapshot of the captured candidate.
+// Preparing it does not consume another developer round or alter accepted code.
+export async function prepareRecordedVerification(
+  db: Db,
+  request: {
+    runId: string;
+    sequence: number;
+    inputRoot: string;
+    configuration: VerificationConfig;
+    signal: AbortSignal;
+  },
+  onEvent: Save,
+) {
+  const { signal } = request;
+  signal.throwIfAborted();
+  const current = readDevelopmentRounds(db, request.runId).find(
+    (round) => round.sequence === request.sequence,
+  );
+  if (!current?.input || !current.candidate)
+    throw new Error("Development candidate is not ready");
+  const repository = db
+    .select()
+    .from(developmentRepositories)
+    .where(eq(developmentRepositories.id, current.repositoryId))
+    .get()?.prepared;
+  if (!repository) throw new Error("Development repository is not ready");
+  const configuration = parseVerificationConfig(request.configuration);
+  if (
+    current.verificationIntent &&
+    JSON.stringify(current.verificationIntent.configuration) !==
+      JSON.stringify(configuration)
+  )
+    throw new Error("Verification configuration changed");
+  await verifyDevelopmentCandidate(
+    repository,
+    current.input,
+    current.candidate,
+    signal,
+  );
+  const verification = current.verificationIntent ?? {
+    candidateDigest: current.candidate.digest,
+    input: developmentInputIntent(
+      request.inputRoot,
+      repository,
+      request.runId,
+      current.input.scope,
+      current.input.writePaths,
+      current.candidate,
+    ),
+    configuration,
+  };
+  await save(onEvent, {
+    type: "verification.intent",
+    sequence: request.sequence,
+    verification,
+  });
+  signal.throwIfAborted();
+  const input = exists(dirname(verification.input.directory))
+    ? await recoverDevelopmentInput(verification.input, repository, signal)
+    : await prepareDevelopmentInput(verification.input, repository, signal);
+  await save(onEvent, {
+    type: "verification.ready",
+    sequence: request.sequence,
+    input,
+  });
+  signal.throwIfAborted();
+  return { input, candidate: current.candidate, configuration };
+}
+
 export function cleanupRecordedDevelopment(
   db: Db,
   root: string,
@@ -136,6 +211,9 @@ export function cleanupRecordedDevelopment(
 ) {
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
   if (!run?.terminationConfirmedAt) return;
-  for (const round of readDevelopmentRounds(db, runId))
+  for (const round of readDevelopmentRounds(db, runId)) {
     removeDevelopmentInput(root, round.intent);
+    if (round.verificationIntent)
+      removeDevelopmentInput(root, round.verificationIntent.input);
+  }
 }

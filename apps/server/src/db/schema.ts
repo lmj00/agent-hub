@@ -3,6 +3,8 @@ import type { EffortPolicy } from "../modules/execution/effort-policy.js";
 import type { RetryState } from "../modules/execution/retry-policy.js";
 import type { PreparedInput } from "../modules/goals/prepared-workspace.js";
 import type { DevelopmentRepositoryIntent, DevelopmentRepository, DevelopmentInputIntent, DevelopmentInput, DevelopmentCandidate } from "../modules/goals/development-workspace.js";
+import type { DevelopmentVerificationIntent, DevelopmentReview } from "../modules/goals/development-verification-store.js";
+import type { VerificationResult } from "../modules/execution/verification-config.js";
 import type { PlannedWork, PlanResult, PlanningInput } from "../modules/goals/goal-plan-policy.js";
 import { sql } from "drizzle-orm";
 import type { ServiceSnapshot, CapacityState, AnalysisAssessment, GoalDefinition, Goal, PeriodBudgetPolicy, BudgetWait, TaskGoalReview } from "@agent-hub/contracts";
@@ -212,10 +214,17 @@ export const developmentRounds = sqliteTable("development_rounds", {
   intent: text("intent", { mode: "json" }).$type<DevelopmentInputIntent>().notNull(),
   input: text("input", { mode: "json" }).$type<DevelopmentInput>(),
   candidate: text("candidate", { mode: "json" }).$type<DevelopmentCandidate>(),
+  verificationIntent: text("verification_intent", { mode: "json" }).$type<DevelopmentVerificationIntent>(),
+  verificationInput: text("verification_input", { mode: "json" }).$type<DevelopmentInput>(),
+  verificationResult: text("verification_result", { mode: "json" }).$type<VerificationResult>(),
+  review: text("review", { mode: "json" }).$type<DevelopmentReview>(),
   executionOffset: integer("execution_offset").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   preparedAt: integer("prepared_at", { mode: "timestamp_ms" }),
   capturedAt: integer("captured_at", { mode: "timestamp_ms" }),
+  verificationPreparedAt: integer("verification_prepared_at", { mode: "timestamp_ms" }),
+  verifiedAt: integer("verified_at", { mode: "timestamp_ms" }),
+  reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }),
 }, table => [
   primaryKey({ columns: [table.runId, table.sequence] }),
   uniqueIndex("development_rounds_input_unique").on(table.inputId),
@@ -223,6 +232,10 @@ export const developmentRounds = sqliteTable("development_rounds", {
   check("development_rounds_execution_offset_valid", sql`${table.executionOffset} BETWEEN 0 AND 11`),
   check("development_rounds_preparation_valid", sql`(${table.input} IS NULL AND ${table.preparedAt} IS NULL) OR (${table.input} IS NOT NULL AND ${table.preparedAt} IS NOT NULL)`),
   check("development_rounds_capture_valid", sql`(${table.candidate} IS NULL AND ${table.capturedAt} IS NULL) OR (${table.input} IS NOT NULL AND ${table.candidate} IS NOT NULL AND ${table.capturedAt} IS NOT NULL)`),
+  check("development_rounds_verification_intent_valid", sql`${table.verificationIntent} IS NULL OR ${table.candidate} IS NOT NULL`),
+  check("development_rounds_verification_input_valid", sql`(${table.verificationInput} IS NULL AND ${table.verificationPreparedAt} IS NULL) OR (${table.verificationIntent} IS NOT NULL AND ${table.verificationInput} IS NOT NULL AND ${table.verificationPreparedAt} IS NOT NULL)`),
+  check("development_rounds_verification_result_valid", sql`(${table.verificationResult} IS NULL AND ${table.verifiedAt} IS NULL) OR (${table.verificationInput} IS NOT NULL AND ${table.verificationResult} IS NOT NULL AND ${table.verifiedAt} IS NOT NULL)`),
+  check("development_rounds_review_valid", sql`(${table.review} IS NULL AND ${table.reviewedAt} IS NULL) OR (${table.verificationResult} IS NOT NULL AND ${table.review} IS NOT NULL AND ${table.reviewedAt} IS NOT NULL)`),
 ]);
 
 export const budgetPeriods = sqliteTable("budget_periods", {

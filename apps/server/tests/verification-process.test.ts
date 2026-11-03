@@ -277,6 +277,22 @@ console.log('isolation and calculation verified');`,
       expect(store.findById(run.id)!.steps[0]?.sessionId).toBeNull();
     }, 15000);
 
+    test("retains final failure evidence after lengthy output without exceeding the stored output bound", async () => {
+      const result = await executor.analyze(
+        request([
+          "node",
+          "-e",
+          "console.log('test startup'); console.log('한'.repeat(30000)); console.error('final assertion failed sk-synthetic_token'); process.exitCode=1",
+        ]),
+        record,
+      );
+      expect(result.verification?.status).toBe("failed");
+      expect(result.output).toContain("test startup");
+      expect(result.output).toContain("test output truncated");
+      expect(result.output).toContain("final assertion failed [REDACTED]");
+      expect(Buffer.byteLength(result.output)).toBeLessThanOrEqual(65536);
+    }, 15000);
+
     test("times out the entire process group and can start the next verification only after saving proof", async () => {
       const selected = request(
         [

@@ -11,6 +11,10 @@ import { readExecutions } from "../execution/execution-record-store.js";
 import { readGoalExecutionBlock } from "./goal-execution-store.js";
 import { readGoalScope } from "./prepared-input-store.js";
 import {
+  saveDevelopmentVerification,
+  type DevelopmentVerificationUpdate,
+} from "./development-verification-store.js";
+import {
   validCandidateDigest,
   validInputDigest,
   type DevelopmentRepositoryIntent,
@@ -22,6 +26,7 @@ import {
 
 export const maxDevelopmentRounds = 3;
 export type DevelopmentUpdate =
+  | DevelopmentVerificationUpdate
   | { type: "repository.intent"; repository: DevelopmentRepositoryIntent }
   | { type: "repository.ready"; repository: DevelopmentRepository }
   | { type: "input.intent"; sequence: number; input: DevelopmentInputIntent }
@@ -83,7 +88,9 @@ export function saveDevelopmentUpdate(
   // Completed evidence may still be kept after a Goal pause; it grants no
   // permission to start another phase or to apply changes.
   if (
-    update.type !== "candidate.ready" &&
+    !["candidate.ready", "verification.complete", "review.complete"].includes(
+      update.type,
+    ) &&
     (run.stopReason ||
       selected.cancelRequestedAt ||
       readGoalExecutionBlock(db, selected) ||
@@ -181,6 +188,10 @@ export function saveDevelopmentUpdate(
     if (
       previous &&
       (!previous.candidate ||
+        !previous.review ||
+        previous.review.assessment.complete ||
+        !previous.review.assessment.next ||
+        executions.length !== previous.executionOffset + 3 ||
         previous.candidate.digest !== input.previousCandidate ||
         previous.candidate.tree !== input.tree)
     )
@@ -217,6 +228,16 @@ export function saveDevelopmentUpdate(
     return;
   }
   if (!current) fail();
+  if (current !== rounds.at(-1)) fail();
+  if (
+    update.type === "verification.intent" ||
+    update.type === "verification.ready" ||
+    update.type === "verification.complete" ||
+    update.type === "review.complete"
+  ) {
+    saveDevelopmentVerification(db, current!, executions, update, now);
+    return;
+  }
   if (update.type === "input.ready") {
     const { files: _files, digest: _digest, ...intent } = update.input;
     if (
@@ -271,9 +292,12 @@ export function assertDevelopmentExecutionReady(
     task.cancelRequestedAt
   )
     throw new AnalysisError("input_unavailable");
+  const count = readExecutions(db, run.id).length - current.executionOffset;
   if (
-    readExecutions(db, run.id).length > current.executionOffset &&
-    !current.candidate
+    count < 0 ||
+    count > 2 ||
+    (count === 1 && (!current.candidate || !current.verificationInput)) ||
+    (count === 2 && !current.verificationResult)
   )
     throw new AnalysisError("input_unavailable");
 }

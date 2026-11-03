@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ExecutionIdentity } from "./analysis.js";
+import { redactOutput, type ExecutionIdentity } from "./analysis.js";
 
 export type VerificationConfig = {
   image: string;
@@ -82,6 +82,72 @@ export function parseVerificationRequest(value: unknown): VerificationRequest {
 export function verificationConfigDigest(config: VerificationConfig) {
   return createHash("sha256")
     .update(JSON.stringify(parseVerificationConfig(config)))
+    .digest("hex");
+}
+
+// Only the parent executor supplies this record. Validate again at the durable
+// boundary so a malformed/contradictory result never becomes review evidence.
+export function parseVerificationResult(value: unknown): VerificationResult {
+  if (!object(value)) throw new Error("Invalid verification result");
+  const configuration = parseVerificationConfig(value.configuration);
+  const execution = value.execution;
+  if (
+    Object.keys(value).length !== 11 ||
+    ![
+      value.candidateDigest,
+      value.inputDigest,
+      value.configurationDigest,
+    ].every(
+      (part) => typeof part === "string" && /^[a-f0-9]{64}$/.test(part),
+    ) ||
+    value.configurationDigest !== verificationConfigDigest(configuration) ||
+    !object(execution) ||
+    Object.keys(execution).length !== 4 ||
+    execution.kind !== "docker" ||
+    typeof execution.containerId !== "string" ||
+    !/^[a-f0-9]{64}$/.test(execution.containerId) ||
+    [execution.token, execution.engineId].some(
+      (part) => typeof part !== "string" || !part || part.length > 200,
+    ) ||
+    typeof value.imageId !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/.test(value.imageId) ||
+    typeof value.status !== "string" ||
+    !["passed", "failed", "timed_out", "output_limit"].includes(value.status) ||
+    !Number.isInteger(value.exitCode) ||
+    Number(value.exitCode) < 0 ||
+    Number(value.exitCode) > 255 ||
+    typeof value.oomKilled !== "boolean" ||
+    !Number.isSafeInteger(value.elapsedMs) ||
+    Number(value.elapsedMs) < 0 ||
+    typeof value.output !== "string" ||
+    Buffer.byteLength(value.output) > 65536 ||
+    (value.status === "passed" && (value.exitCode !== 0 || value.oomKilled)) ||
+    (value.status === "failed" && value.exitCode === 0 && !value.oomKilled)
+  )
+    throw new Error("Invalid verification result");
+  return {
+    candidateDigest: value.candidateDigest as string,
+    inputDigest: value.inputDigest as string,
+    configurationDigest: value.configurationDigest as string,
+    configuration,
+    execution: {
+      kind: "docker",
+      containerId: execution.containerId,
+      token: execution.token as string,
+      engineId: execution.engineId as string,
+    },
+    imageId: value.imageId,
+    status: value.status as VerificationResult["status"],
+    exitCode: Number(value.exitCode),
+    oomKilled: value.oomKilled,
+    elapsedMs: Number(value.elapsedMs),
+    output: redactOutput(value.output),
+  };
+}
+
+export function verificationResultDigest(result: VerificationResult) {
+  return createHash("sha256")
+    .update(JSON.stringify(parseVerificationResult(result)))
     .digest("hex");
 }
 

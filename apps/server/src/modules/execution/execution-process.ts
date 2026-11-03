@@ -228,6 +228,8 @@ function runContainerProtocol(
               const step = message.event.step
                 ? parseStepUpdate(message.event.step)
                 : undefined;
+              if (step && !request.workflow)
+                throw new Error("Child cannot manage parent-owned workflow steps");
               if (
                 message.event.sessionId !== undefined &&
                 (typeof message.event.sessionId !== "string" ||
