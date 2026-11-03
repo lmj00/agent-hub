@@ -103,7 +103,7 @@ test("rolls back completion as a unit when saving the step result fails", () => 
 });
 
 test.each([
-  ["authentication", "blocked"], ["capacity", "waiting_capacity"], ["unsupported_settings", "blocked"],
+  ["authentication", "blocked"], ["capacity", "waiting_capacity"], ["unsupported_settings", "blocked"], ["invalid_change", "blocked"],
 ] as const)("persists %s and prevents bypass by starting another task", async (code, status) => {
   const result = await execute({ async analyze() { throw new AnalysisError(code); } });
   expect(result.status).toBe(status);

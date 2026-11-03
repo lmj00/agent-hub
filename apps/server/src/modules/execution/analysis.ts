@@ -3,6 +3,7 @@ import type { AnalysisWorkflowPolicy, StepUpdate } from "./analysis-workflow.js"
 import type { EffortPolicy } from "./effort-policy.js";
 import type { GoalScope, PreparedInput } from "../goals/prepared-workspace.js";
 import type { PlanningContext, PlanningInput } from "../goals/goal-plan-policy.js";
+import type { DevelopmentExecutionInput, DevelopmentChanges } from "./development-capture.js";
 export { stopReasons, type StopReason };
 
 export type AnalysisUsage = { inputTokens: number; cachedInputTokens: number; outputTokens: number };
@@ -10,8 +11,8 @@ export type ExecutionIdentity = { kind: "docker"; containerId: string; token: st
 export const maxRunExecutions = 12;
 export type ExecutionRecord = { sequence: number; identity: ExecutionIdentity; createdAt: Date; terminationConfirmedAt: Date | null };
 export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity; executionTermination?: { identity: ExecutionIdentity; confirmedAt: Date }; step?: StepUpdate; preparedInput?: PreparedInput; planningProposal?: string; planningInput?: PlanningInput };
-export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; outputSchema?: unknown; scope?: GoalScope; planning?: PlanningContext; responseMode?: "goal-plan" };
-export type AnalysisResult = { output: string; usage: AnalysisUsage | null };
+export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; outputSchema?: unknown; scope?: GoalScope; planning?: PlanningContext; responseMode?: "goal-plan"; development?: DevelopmentExecutionInput };
+export type AnalysisResult = { output: string; usage: AnalysisUsage | null; development?: DevelopmentChanges };
 
 // 이유가 없는 외부 중단 신호는 재실행하지 않는 사용자 취소로 취급합니다.
 export function signalStopReason(signal: AbortSignal): StopReason {
@@ -25,7 +26,7 @@ export type AnalysisExecutor = {
   cleanup?(runId: string): Promise<void>;
 };
 
-export const analysisErrorCodes = ["authentication", "capacity", "unsupported_settings", "provider_error", "transient", "output_limit", "invalid_plan", "workflow_limit", "analysis_incomplete", "budget_limit", "input_unavailable", "input_changed", "goal_changed"] as const;
+export const analysisErrorCodes = ["authentication", "capacity", "unsupported_settings", "provider_error", "transient", "output_limit", "invalid_plan", "invalid_change", "workflow_limit", "analysis_incomplete", "budget_limit", "input_unavailable", "input_changed", "goal_changed"] as const;
 export class AnalysisError extends Error {
   constructor(
     public readonly code: (typeof analysisErrorCodes)[number],
@@ -45,7 +46,7 @@ export function redactOutput(text: string): string {
 }
 
 export function isSandboxSetupError(message: string): boolean {
-  return /bwrap: execvp .*: No such file or directory|Failed to execvp .*No such file or directory|bwrap: No permissions to create a new namespace|bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted/.test(message);
+  return /bwrap: execvp .*: No such file or directory|Failed to execvp .*No such file or directory|bwrap: No permissions to create a new namespace|bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted|bwrap: Can't mkdir parents for .*: Not a directory|failed to inspect synthetic bubblewrap mount target .*: Not a directory/.test(message);
 }
 
 export function classifyCodexError(message: string): AnalysisError {

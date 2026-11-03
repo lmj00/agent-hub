@@ -67,6 +67,7 @@ test.each([
   "bwrap: execvp /app/private-runtime/codex: No such file or directory",
   "bwrap: No permissions to create a new namespace, likely because the kernel does not allow non-privileged user namespaces.",
   "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
+  "bwrap: Can't mkdir parents for /workspace/main.ts/.git: Not a directory",
 ])("does not mark a broken sandbox runtime as successful analysis: %s", async (message) => {
   fake.events = [
     { type: "item.completed", item: { type: "command_execution", exit_code: 1, aggregated_output: message } },
@@ -122,4 +123,25 @@ test("passes the chosen effort to the actual SDK thread options", async () => {
     await createCodexExecutor("/tmp/private-auth").analyze({ ...request, effort }, () => {});
     expect(fake.start).toHaveBeenLastCalledWith(expect.objectContaining({ modelReasoningEffort: effort }));
   }
+});
+
+test("development requires the explicit runner capability and permits edits without allowing forbidden tools", async () => {
+  const development = { baseRevision: "a".repeat(40), inputDigest: "b".repeat(64), scope: { goalId: "goal", goalVersion: 1, allowedPaths: ["."], excludedPaths: [] }, writePaths: ["src"], files: [] };
+  fake.events = [
+    { type: "item.completed", item: { type: "file_change", status: "completed" } },
+    { type: "item.completed", item: { type: "agent_message", text: "Modified; verification pending" } },
+    { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } },
+  ];
+  await expect(createCodexExecutor("/tmp/private-auth").analyze({ ...request, development }, () => {})).rejects.toMatchObject({ code: "unsupported_settings" });
+  const runner = createCodexExecutor("/tmp/private-auth", "/runtime/codex", true);
+  await expect(runner.analyze({ ...request, development }, () => {})).resolves.toMatchObject({ output: "Modified; verification pending" });
+  expect(fake.run.mock.lastCall?.[0]).toContain('Only modify these relative paths: ["src"]');
+  const options = codexOptions("/tmp/private-auth", "/workspace", "/runtime/codex", ["src"]);
+  expect(options.configOverrides?.[0]).toContain('"/workspace"="read"');
+  expect(options.configOverrides?.[0]).toContain('"/workspace/src"="write"');
+  expect(options.configOverrides?.[0]).toContain('"/tmp/private-auth"="deny"');
+  expect(options.configOverrides?.[1]).toBe("permissions.hub-development.network.enabled=false");
+  fake.events.unshift({ type: "item.completed", item: { type: "mcp_tool_call" } });
+  await expect(runner.analyze({ ...request, development }, () => {})).rejects.toMatchObject({ code: "unsupported_settings" });
+  await expect(runner.analyze({ ...request, development, responseMode: "goal-plan" }, () => {})).rejects.toMatchObject({ code: "unsupported_settings" });
 });

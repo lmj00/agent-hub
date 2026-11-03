@@ -49,7 +49,10 @@ export async function prepareContainer(image: string, codexHome: string, request
     "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
     "--tmpfs", `/home/runner:rw,nosuid,nodev,size=64m,uid=${uid},gid=${gid},mode=0700`,
     "--mount", `type=bind,src=${codexHome},dst=/codex-home`,
-    "--mount", `type=bind,src=${request.workspace},dst=/workspace,readonly`,
+    ...(request.development ? [
+      "--mount", `type=bind,src=${request.workspace},dst=/input,readonly`,
+      "--tmpfs", `/workspace:rw,nosuid,nodev,size=32m,nr_inodes=4096,uid=${uid},gid=${gid},mode=0700`,
+    ] : ["--mount", `type=bind,src=${request.workspace},dst=/workspace,readonly`]),
     "--env", "HOME=/home/runner", "--env", "CODEX_HOME=/codex-home", "--workdir", "/workspace",
     "--label", `${tokenLabel}=${token}`, "--label", `io.agent-hub.run=${request.runId}`,
     image,

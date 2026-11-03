@@ -77,6 +77,7 @@ const runErrors: Record<string, string> = {
   authentication: "AI 계정 로그인을 확인해 주세요.",
   configuration: "AI 실행 설정을 확인해 주세요.",
   invalid_plan: "다음 단계의 제안 형식이 올바르지 않아 분석을 보류했습니다.",
+  invalid_change: "수정 내용이 허용 범위·파일 종류·크기 제한에 맞지 않아 변경을 보류했습니다.",
   workflow_limit:
     "호출 수 또는 전달할 맥락의 상한에 도달했습니다. 저장된 단계 결과를 확인해 주세요.",
   analysis_incomplete:

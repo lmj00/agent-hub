@@ -147,7 +147,7 @@ export async function runClaimedTask(
     } else {
       const code = error instanceof AnalysisError ? error.code : "execution_error";
       const status = !(error instanceof AnalysisError) || error.completionUncertain ? "interrupted"
-        : ["authentication", "unsupported_settings", "invalid_plan", "workflow_limit", "analysis_incomplete", "input_unavailable", "input_changed", "goal_changed"].includes(code) ? "blocked"
+        : ["authentication", "unsupported_settings", "invalid_plan", "invalid_change", "workflow_limit", "analysis_incomplete", "input_unavailable", "input_changed", "goal_changed"].includes(code) ? "blocked"
         : code === "capacity" || code === "budget_limit" ? "waiting_capacity" : "failed";
       completion = { status, result: null, errorCode: code, usage: null, retryAt: error instanceof AnalysisError ? error.retryAt : null };
     }

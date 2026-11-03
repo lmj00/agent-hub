@@ -15,6 +15,12 @@ import {
 } from "./analysis-workflow.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import {
+  maxDevelopmentArtifactBytes,
+  maxDevelopmentRequestBytes,
+  parseDevelopmentInput,
+  parseDevelopmentChanges,
+} from "./development-capture.js";
+import {
   attachContainer,
   prepareContainer,
   removeFinishedContainer,
@@ -73,6 +79,12 @@ export function createContainerExecutor(
       if (!request.runId)
         throw new Error("A run ID is required for container execution");
       request.signal.throwIfAborted();
+      if (request.development) {
+        if (request.workflow || request.responseMode)
+          throw new AnalysisError("unsupported_settings");
+        parseDevelopmentInput(request.development);
+      }
+      runnerInput(request);
       const run = executions.get(request.runId) ?? {
         entries: [],
         active: false,
@@ -182,7 +194,11 @@ function runContainerProtocol(
     child.stdout!.setEncoding("utf8");
     child.stdout!.on("data", (chunk: string) => {
       bytes += Buffer.byteLength(chunk);
-      if (bytes > 2 * 1024 * 1024) {
+      if (
+        bytes >
+        2 * 1024 * 1024 +
+          (request.development ? maxDevelopmentArtifactBytes : 0)
+      ) {
         fail();
         return;
       }
@@ -238,7 +254,20 @@ function runContainerProtocol(
               typeof message.result?.output === "string" &&
               !result
             ) {
-              result = message.result;
+              if (Buffer.byteLength(message.result.output) > 65536)
+                throw new Error("Runner output exceeds limits");
+              result = {
+                output: message.result.output,
+                usage: message.result.usage,
+                ...(request.development
+                  ? {
+                      development: parseDevelopmentChanges(
+                        message.result.development,
+                        request.development,
+                      ),
+                    }
+                  : {}),
+              };
               child.stdin!.end();
             } else if (
               message.type === "error" &&
@@ -256,7 +285,11 @@ function runContainerProtocol(
           })
           .catch(fail);
       }
-      if (buffer.length > 512 * 1024) fail();
+      if (
+        Buffer.byteLength(buffer) >
+        (request.development ? maxDevelopmentArtifactBytes + 65536 : 512 * 1024)
+      )
+        fail();
     });
     // SDK 진단 원문·명령 인자는 서버 로그로 전달하지 않습니다.
     child.stderr!.resume();
@@ -269,15 +302,24 @@ function runContainerProtocol(
         reject(new AnalysisError("provider_error", true));
       else resolve(result);
     });
-    child.stdin!.write(
-      JSON.stringify({
-        instruction: request.instruction,
-        model: request.model,
-        effort: request.effort ?? "medium",
-        effortPolicy: request.effortPolicy,
-        workflow: request.workflow,
-        responseMode: request.responseMode,
-      }) + "\n",
-    );
+    child.stdin!.write(runnerInput(request));
   });
+}
+
+function runnerInput(request: AnalysisRequest) {
+  const line = JSON.stringify({
+    instruction: request.instruction,
+    model: request.model,
+    effort: request.effort ?? "medium",
+    effortPolicy: request.effortPolicy,
+    workflow: request.workflow,
+    responseMode: request.responseMode,
+    development: request.development,
+  });
+  if (
+    Buffer.byteLength(line) >
+    (request.development ? maxDevelopmentRequestBytes : 65536)
+  )
+    throw new AnalysisError("input_unavailable");
+  return line + "\n";
 }
