@@ -71,8 +71,19 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     try {
       for (const [instruction, effort] of [["effort-report", "medium"], ["effort-report 동시성", "high"], ["effort-report 여러 시스템의 복잡한 원인", "xhigh"]]) {
         const id = randomUUID(); database.db.insert(tasks).values({ id, projectId, instruction: instruction!, requestKey: id, createdAt: new Date() }).run();
-        const result = await runTask({ taskId: id, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, selected, createContainerExecutor(image, home));
-        expect(result).toMatchObject({ status: "succeeded", errorCode: null, result: `applied effort: ${effort}`, terminationConfirmedAt: expect.any(Date) });
+        const started = performance.now();
+        const events: Array<{ kind: string; elapsedMs: number }> = [];
+        const tracedStore: typeof selected = {
+          ...selected,
+          record(runId, event) {
+            events.push({ kind: event.kind, elapsedMs: Math.round(performance.now() - started) });
+            return selected.record(runId, event);
+          },
+        };
+        const result = await runTask({ taskId: id, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, tracedStore, createContainerExecutor(image, home));
+        // Keep the deadline and assertions intact; a CI failure should show whether
+        // preparation, the fixture or termination was reached, without private IDs.
+        expect(result, JSON.stringify({ effort, elapsedMs: Math.round(performance.now() - started), events })).toMatchObject({ status: "succeeded", errorCode: null, result: `applied effort: ${effort}`, terminationConfirmedAt: expect.any(Date) });
         expect(selected.findById(result.runId)?.steps[0]?.effort).toBe(effort);
       }
     } finally { for (const row of database.db.select().from(runs).all()) identities.push(...readExecutions(database.db, row.id).map(entry => entry.identity)); }
