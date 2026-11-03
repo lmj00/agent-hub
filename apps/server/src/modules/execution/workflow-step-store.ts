@@ -20,11 +20,8 @@ export function saveWorkflowStep(
   raw: unknown,
   now: Date,
 ) {
-  if (
-    !run.workflowPolicy ||
-    db.select().from(tasks).where(eq(tasks.id, run.taskId)).get()
-      ?.cancelRequestedAt
-  )
+  const task = db.select().from(tasks).where(eq(tasks.id, run.taskId)).get();
+  if (!run.workflowPolicy || task?.cancelRequestedAt || run.stopReason)
     throw new AnalysisError("invalid_plan");
   const update = parseStepUpdate(raw);
   const history = db
@@ -59,7 +56,11 @@ export function saveWorkflowStep(
     if (history.length !== 1 || latest.purpose || latest.status !== "running")
       throw new AnalysisError("invalid_plan");
     db.update(steps)
-      .set({ purpose: "초기 분석", model: run.model, startedAt: now })
+      .set({
+        purpose: task?.plannedWork ? "개발" : "초기 분석",
+        model: run.model,
+        startedAt: now,
+      })
       .where(eq(steps.id, latest.id))
       .run();
     return;

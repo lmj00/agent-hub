@@ -83,7 +83,7 @@ export function createContainerExecutor(
       const runId = request.runId;
       request.signal.throwIfAborted();
       if (request.development) {
-        if (request.workflow || request.responseMode)
+        if (request.workflow || request.responseMode === "goal-plan")
           throw new AnalysisError("unsupported_settings");
         request = { ...request, development: parseDevelopmentInput(request.development) };
       }

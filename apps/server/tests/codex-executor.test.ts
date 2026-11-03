@@ -11,7 +11,7 @@ vi.mock("@openai/codex-sdk", () => ({ Codex: class {
 } }));
 import { codexOptions, createCodexExecutor, threadOptions } from "../src/modules/execution/codex-executor.js";
 import { type AnalysisEvent, classifyCodexError } from "../src/modules/execution/analysis.js";
-import { goalPlanSchema } from "@agent-hub/contracts";
+import { analysisAssessmentSchema, goalPlanSchema } from "@agent-hub/contracts";
 
 const request = { instruction: "Analyze", workspace: "/tmp/prepared", model: "test-model", signal: new AbortController().signal };
 
@@ -42,6 +42,15 @@ test("uses explicit ChatGPT auth, scoped read-only permissions, medium effort an
   expect(options.configOverrides?.[0]).toContain('"/tmp/private-auth"="deny"');
   expect(threadOptions(request)).toMatchObject({ modelReasoningEffort: "medium", approvalPolicy: "never", webSearchMode: "disabled" });
   expect(threadOptions(request)).not.toHaveProperty("sandboxMode");
+});
+
+test("parent-managed assessment mode selects the fixed review schema", async () => {
+  fake.events = [
+    { type: "item.completed", item: { type: "agent_message", text: "{}" } },
+    { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } },
+  ];
+  await createCodexExecutor("/tmp/private-auth").analyze({ ...request, responseMode: "assessment", outputSchema: { untrusted: true } }, () => {});
+  expect(fake.run).toHaveBeenLastCalledWith(expect.stringContaining("Return JSON matching the supplied schema"), expect.objectContaining({ outputSchema: analysisAssessmentSchema }));
 });
 
 test("maps progress without saving command arguments or reasoning and waits for completion", async () => {

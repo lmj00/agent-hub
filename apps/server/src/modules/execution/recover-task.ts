@@ -18,7 +18,7 @@ export type RecoveryStore = {
   request(input: RecoveryInput, activeRunId: string | null, canTrackTermination: boolean): { request: RecoveryRequest; created: boolean };
   findById(id: string): RecoveryRequest | undefined;
   nextPending(): RecoveryRequest | undefined;
-  candidate(id: string): { request: RecoveryRequest; run: { executions: ExecutionRecord[]; terminationConfirmedAt: Date | null; planResult?: PlanResult | null } | null } | undefined;
+  candidate(id: string): { request: RecoveryRequest; run: { executions: ExecutionRecord[]; terminationConfirmedAt: Date | null; planResult?: PlanResult | null; developmentVersion?: number | null } | null } | undefined;
   complete(id: string, terminationConfirmedAt: Date | null, inputVerified?: boolean, observedExecutions?: ExecutionRecord[]): { proofSaved: boolean };
 };
 export type ExecutionObserver = {
@@ -54,6 +54,11 @@ export function createRecoveryProcessor(store: RecoveryStore, observer: Executio
       if (!candidate) return;
       let confirmedAt = candidate.run?.terminationConfirmedAt ?? null;
       const executions = candidate.run?.executions ?? [];
+      // Version 1 is saved before managed development starts. Every container
+      // needs a saved identity ACK before start, so an empty journal proves no
+      // workload started. Legacy unidentified Runs do not have this guarantee.
+      if (!confirmedAt && !executions.length && candidate.run?.developmentVersion === 1)
+        confirmedAt = new Date();
       if (executions.length && !confirmedAt) {
         let deadline: ReturnType<typeof setTimeout> | undefined;
         try {

@@ -15,10 +15,10 @@ async function main() {
   if (!line || Buffer.byteLength(line) > maxDevelopmentRequestBytes) throw new Error("Invalid runner input");
   const request = JSON.parse(line) as { instruction?: unknown; model?: unknown; effort?: unknown; workflow?: unknown; responseMode?: unknown; development?: unknown; effortPolicy?: { mode?: unknown; maxEffort?: unknown } };
   if (typeof request.instruction !== "string" || typeof request.model !== "string") throw new Error("Invalid runner input");
-  if (request.responseMode !== undefined && request.responseMode !== "goal-plan") throw new AnalysisError("unsupported_settings");
+  if (request.responseMode !== undefined && request.responseMode !== "goal-plan" && request.responseMode !== "assessment") throw new AnalysisError("unsupported_settings");
   if (request.responseMode && request.workflow) throw new AnalysisError("unsupported_settings");
   const development = request.development === undefined ? undefined : parseDevelopmentInput(request.development);
-  if (development && (request.responseMode || request.workflow)) throw new AnalysisError("unsupported_settings");
+  if (development && (request.responseMode === "goal-plan" || request.workflow)) throw new AnalysisError("unsupported_settings");
   if (!development && Buffer.byteLength(line) > 65536) throw new Error("Invalid runner input");
   const effort = request.effort ?? "medium";
   if (!efforts.includes(effort as Effort)) throw new AnalysisError("unsupported_settings");
@@ -32,7 +32,7 @@ async function main() {
       catch { throw new AnalysisError("input_changed"); }
     }
     const result = await createAnalysisWorkflow(createCodexExecutor("/codex-home", "/usr/local/lib/codex/bin/codex", true)).analyze({
-      instruction: request.instruction, model: request.model, effort: effort as Effort, ...(request.responseMode === "goal-plan" ? { responseMode: "goal-plan" as const } : {}), ...(effortPolicy ? { effortPolicy } : {}), ...(workflow ? { workflow } : {}), ...(development ? { development } : {}), workspace: "/workspace", signal: controller.signal,
+      instruction: request.instruction, model: request.model, effort: effort as Effort, ...(request.responseMode ? { responseMode: request.responseMode } : {}), ...(effortPolicy ? { effortPolicy } : {}), ...(workflow ? { workflow } : {}), ...(development ? { development } : {}), workspace: "/workspace", signal: controller.signal,
     }, async event => {
       send({ type: "event", event });
       if (event.step) {

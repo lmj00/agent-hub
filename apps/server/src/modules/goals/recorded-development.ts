@@ -1,8 +1,12 @@
 import { lstatSync } from "node:fs";
 import { dirname } from "node:path";
-import { eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { developmentRepositories, runs } from "../../db/schema.js";
+import {
+  developmentRepositories,
+  developmentRounds,
+  runs,
+} from "../../db/schema.js";
 import type { AnalysisEvent } from "../execution/analysis.js";
 import {
   parseVerificationConfig,
@@ -216,4 +220,15 @@ export function cleanupRecordedDevelopment(
     if (round.verificationIntent)
       removeDevelopmentInput(root, round.verificationIntent.input);
   }
+}
+
+export function cleanupConfirmedDevelopmentInputs(db: Db, root: string) {
+  const confirmed = db
+    .select({ id: runs.id })
+    .from(runs)
+    .innerJoin(developmentRounds, eq(developmentRounds.runId, runs.id))
+    .where(isNotNull(runs.terminationConfirmedAt))
+    .all();
+  for (const runId of new Set(confirmed.map((row) => row.id)))
+    cleanupRecordedDevelopment(db, root, runId);
 }

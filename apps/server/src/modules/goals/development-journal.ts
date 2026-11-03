@@ -4,10 +4,15 @@ import {
   developmentRepositories,
   developmentRounds,
   runs,
+  steps,
   tasks,
 } from "../../db/schema.js";
 import { AnalysisError } from "../execution/analysis.js";
 import { readExecutions } from "../execution/execution-record-store.js";
+import {
+  developmentWorkflowPolicy,
+  maxDevelopmentRounds,
+} from "../execution/development-workflow.js";
 import { readGoalExecutionBlock } from "./goal-execution-store.js";
 import { readGoalScope } from "./prepared-input-store.js";
 import {
@@ -24,8 +29,9 @@ import {
   type DevelopmentCandidate,
 } from "./development-workspace.js";
 
-export const maxDevelopmentRounds = 3;
+export { maxDevelopmentRounds };
 export type DevelopmentUpdate =
+  | { type: "workflow.started" }
   | DevelopmentVerificationUpdate
   | { type: "repository.intent"; repository: DevelopmentRepositoryIntent }
   | { type: "repository.ready"; repository: DevelopmentRepository }
@@ -101,6 +107,30 @@ export function saveDevelopmentUpdate(
   const idle = executions.every(
     (entry) => entry.terminationConfirmedAt !== null,
   );
+  if (update.type === "workflow.started") {
+    if (run.developmentVersion === 1) {
+      if (!same(run.workflowPolicy, developmentWorkflowPolicy)) fail();
+      return;
+    }
+    const first = db
+      .select()
+      .from(steps)
+      .where(and(eq(steps.runId, run.id), eq(steps.sequence, 1)))
+      .get();
+    if (
+      executions.length ||
+      readDevelopmentRounds(db, run.id).length ||
+      !first ||
+      first.purpose ||
+      first.status !== "running"
+    )
+      fail();
+    db.update(runs)
+      .set({ developmentVersion: 1, workflowPolicy: developmentWorkflowPolicy })
+      .where(eq(runs.id, run.id))
+      .run();
+    return;
+  }
   if (update.type === "repository.intent") {
     if (executions.length || update.repository.projectId !== selected.projectId)
       fail();
@@ -300,4 +330,18 @@ export function assertDevelopmentExecutionReady(
     (count === 2 && !current.verificationResult)
   )
     throw new AnalysisError("input_unavailable");
+  if (run.developmentVersion === 1) {
+    const sequence = current.sequence * 2 - (count < 2 ? 1 : 0);
+    const step = db
+      .select()
+      .from(steps)
+      .where(and(eq(steps.runId, run.id), eq(steps.sequence, sequence)))
+      .get();
+    if (
+      !step?.purpose ||
+      step.status !== (count === 1 ? "succeeded" : "running") ||
+      (count !== 1 && step.assessment)
+    )
+      throw new AnalysisError("input_unavailable");
+  }
 }

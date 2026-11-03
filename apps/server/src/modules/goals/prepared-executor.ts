@@ -3,6 +3,7 @@ import type { openDatabase } from "../../db/connection.js";
 import { runs } from "../../db/schema.js";
 import { AnalysisError, type AnalysisExecutor } from "../execution/analysis.js";
 import { buildPlanningInput, planningInstruction } from "./goal-plan-policy.js";
+import { cleanupConfirmedDevelopmentInputs, cleanupRecordedDevelopment } from "./recorded-development.js";
 import {
   assertSourceUnchanged,
   inputIntent,
@@ -101,6 +102,7 @@ export function cleanupPreparedRun(
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
   if (run?.terminationConfirmedAt && run.preparedInput)
     removePreparedWorkspace(root, run.preparedInput);
+  cleanupRecordedDevelopment(db, root, runId);
 }
 
 // Resume cleanup after a crash between committing termination proof and removing files.
@@ -119,6 +121,7 @@ export function cleanupConfirmedInputs(
     )
     .all();
   for (const run of confirmed) cleanupPreparedRun(db, root, run.id);
+  cleanupConfirmedDevelopmentInputs(db, root);
 }
 
 export async function verifyPreparedResult(db: ReturnType<typeof openDatabase>["db"], runId: string) {

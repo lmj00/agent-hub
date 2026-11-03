@@ -1,5 +1,5 @@
 import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk";
-import { goalPlanSchema } from "@agent-hub/contracts";
+import { analysisAssessmentSchema, goalPlanSchema } from "@agent-hub/contracts";
 import { developmentWriteDirectories } from "./development-capture.js";
 import { AnalysisError, classifyCodexError, isSandboxSetupError, redactOutput, type AnalysisExecutor, type AnalysisRequest, type AnalysisUsage } from "./analysis.js";
 
@@ -43,8 +43,8 @@ export function createCodexExecutor(codexHome: string, executablePath?: string, 
   return {
     async analyze(request, onEvent) {
       if (request.verification) throw new AnalysisError("unsupported_settings");
-      if (request.development && (!allowDevelopment || request.responseMode || request.workflow)) throw new AnalysisError("unsupported_settings");
-      const outputSchema = request.responseMode === "goal-plan" ? goalPlanSchema : request.outputSchema;
+      if (request.development && (!allowDevelopment || request.responseMode === "goal-plan" || request.workflow)) throw new AnalysisError("unsupported_settings");
+      const outputSchema = request.responseMode === "goal-plan" ? goalPlanSchema : request.responseMode === "assessment" ? analysisAssessmentSchema : request.outputSchema;
       const codex = new Codex(codexOptions(codexHome, request.workspace, executablePath, request.development ? developmentWriteDirectories(request.development) : undefined));
       const thread = codex.startThread(threadOptions(request));
       let output = "";

@@ -87,6 +87,7 @@ export const runs = sqliteTable("runs", {
   effort: text("effort").notNull(),
   effortPolicy: text("effort_policy", { mode: "json" }).$type<EffortPolicy>(),
   workflowPolicy: text("workflow_policy", { mode: "json" }).$type<AnalysisWorkflowPolicy>(),
+  developmentVersion: integer("development_version"),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   lastActivityAt: integer("last_activity_at", { mode: "timestamp_ms" }).notNull(),
@@ -104,6 +105,7 @@ export const runs = sqliteTable("runs", {
   accountedDurationMs: integer("accounted_duration_ms").notNull().default(0),
 }, (table) => [
   check("runs_slot_valid", sql`${table.slot} = 1`),
+  check("runs_development_version_valid", sql`${table.developmentVersion} IS NULL OR ${table.developmentVersion} = 1`),
   uniqueIndex("runs_one_active").on(table.slot).where(sql`${table.status} = 'running' OR (${table.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${table.terminationConfirmedAt} IS NULL)`),
   index("runs_task_started_at_idx").on(table.taskId, table.startedAt),
   uniqueIndex("runs_task_attempt_unique").on(table.taskId, table.attempt),

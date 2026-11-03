@@ -31,6 +31,8 @@ import { goalRoutes } from "./modules/goals/routes.js";
 import { budgetRoutes } from "./modules/budgets/routes.js";
 import { createProjectBudgetStore } from "./modules/budgets/project-budget-store.js";
 import { cleanupConfirmedInputs, cleanupPreparedRun, createPreparedExecutor, verifyPreparedResult } from "./modules/goals/prepared-executor.js";
+import { createDevelopmentExecutor } from "./modules/goals/development-executor.js";
+import { developmentRoot } from "./modules/goals/development-workspace.js";
 import { preparedInputRoot } from "./modules/goals/prepared-workspace.js";
 import { createWorkReleaseStore } from "./modules/goals/work-release-store.js";
 import { workReleaseRoutes } from "./modules/goals/work-release-routes.js";
@@ -83,7 +85,8 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
         if (execution) {
           const inputRoot = preparedInputRoot(databasePath);
           cleanupConfirmedInputs(database.db, inputRoot);
-          const executor = createPreparedExecutor(execution.executor ?? createConfiguredExecutor(execution.config), inputRoot);
+          const baseExecutor = execution.executor ?? createConfiguredExecutor(execution.config);
+          const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot), development: baseExecutor, config: execution.config, inputRoot, repositoryRoot: developmentRoot(databasePath) });
           canTrackTermination = typeof executor.confirmTermination === "function";
           if (execution.config.automaticRecovery && !canTrackTermination) throw new Error("Automatic recovery requires execution termination tracking");
           recovery = createDrizzleRecoveryStore(database.db, owner.token);

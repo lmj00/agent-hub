@@ -131,6 +131,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
               completion = { ...completion, status: inputVerified ? "succeeded" : "blocked", result: inputVerified ? run.planResult.proposal : null, errorCode: inputVerified ? null : "input_changed" };
             }
             completion = applyPlanningCompletion(tx, run, completion, now);
+            if (task.plannedWork && completion.status === "succeeded") completion = { ...completion, status: "blocked", result: null, errorCode: "development_incomplete" };
             if (completion.status === "succeeded" && preparedGoalChanged(tx, run)) completion = { ...completion, status: "blocked", result: null, errorCode: "goal_changed" };
             saveRunCompletion(tx, run, completion, now);
             finalStatus = completion.status;
