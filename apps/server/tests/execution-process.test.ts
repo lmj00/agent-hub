@@ -64,7 +64,7 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
       for (const [instruction, effort] of [["effort-report", "medium"], ["effort-report 동시성", "high"], ["effort-report 여러 시스템의 복잡한 원인", "xhigh"]]) {
         const id = randomUUID(); database.db.insert(tasks).values({ id, projectId, instruction: instruction!, requestKey: id, createdAt: new Date() }).run();
         const result = await runTask({ taskId: id, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, selected, createContainerExecutor(image, home));
-        expect(result).toMatchObject({ status: "succeeded", result: `applied effort: ${effort}`, terminationConfirmedAt: expect.any(Date) });
+        expect(result).toMatchObject({ status: "succeeded", errorCode: null, result: `applied effort: ${effort}`, terminationConfirmedAt: expect.any(Date) });
         expect(selected.findById(result.runId)?.steps[0]?.effort).toBe(effort);
       }
     } finally { for (const row of database.db.select().from(runs).all()) if (row.execution) identities.push(row.execution); }

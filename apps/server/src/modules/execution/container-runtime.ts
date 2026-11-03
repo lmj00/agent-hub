@@ -9,8 +9,8 @@ const tokenLabel = "io.agent-hub.execution-token";
 // Resolve from the module, so source and dist use the same versioned policy asset.
 export const containerSeccompProfilePath = fileURLToPath(new URL("../../../security/codex-seccomp.json", import.meta.url));
 
-export async function containerSecurityOptions(): Promise<string[]> {
-  const features: unknown = JSON.parse(await docker(["info", "--format", "{{json .SecurityOptions}}"]));
+export async function containerSecurityOptions(signal?: AbortSignal): Promise<string[]> {
+  const features: unknown = JSON.parse(await docker(["info", "--format", "{{json .SecurityOptions}}"], signal));
   if (!Array.isArray(features) || features.some(value => typeof value !== "string")) throw new Error("Container security features unavailable");
   return [
     "--security-opt", `seccomp=${containerSeccompProfilePath}`,
@@ -18,15 +18,17 @@ export async function containerSecurityOptions(): Promise<string[]> {
   ];
 }
 
-async function docker(args: string[]) {
+async function docker(args: string[], signal?: AbortSignal) {
   // Docker 오류 원문에는 호스트 경로가 포함될 수 있어 호출자에게 고정 오류만 전달합니다.
   try {
-    return (await exec("docker", args, { timeout: 2500, killSignal: "SIGKILL", maxBuffer: 256 * 1024 })).stdout.trim();
+    // Preparation shares the Run's deadline and cancellation signal. A separate
+    // short timeout is only for termination observation, not cold container setup.
+    return (await exec("docker", args, { timeout: signal ? 0 : 2500, signal, killSignal: "SIGKILL", maxBuffer: 256 * 1024 })).stdout.trim();
   } catch { throw new Error("Container runtime command failed"); }
 }
 
-async function engineId() {
-  const id = await docker(["info", "--format", "{{.ID}}"]);
+async function engineId(signal?: AbortSignal) {
+  const id = await docker(["info", "--format", "{{.ID}}"], signal);
   if (!id || id.length > 200) throw new Error("Container runtime identity unavailable");
   return id;
 }
@@ -36,8 +38,8 @@ export async function prepareContainer(image: string, codexHome: string, request
   const gid = process.getgid?.();
   if (!uid || gid === undefined) throw new Error("Container execution requires a non-root Unix user");
   if ([codexHome, request.workspace].some(path => /[,\r\n]/.test(path))) throw new Error("Unsupported container mount path");
-  const engine = await engineId();
-  const security = await containerSecurityOptions();
+  const engine = await engineId(request.signal);
+  const security = await containerSecurityOptions(request.signal);
   const token = randomUUID();
   const id = await docker([
     "create", "--pull", "never", "--interactive", "--init", "--restart", "no", "--log-driver", "none",
@@ -51,7 +53,7 @@ export async function prepareContainer(image: string, codexHome: string, request
     "--env", "HOME=/home/runner", "--env", "CODEX_HOME=/codex-home", "--workdir", "/workspace",
     "--label", `${tokenLabel}=${token}`, "--label", `io.agent-hub.run=${request.runId}`,
     image,
-  ]);
+  ], request.signal);
   if (!/^[a-f0-9]{64}$/.test(id)) throw new Error("Container identity unavailable");
   return { kind: "docker", containerId: id, token, engineId: engine };
 }
