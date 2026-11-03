@@ -14,6 +14,8 @@ import {
   parseStepUpdate,
 } from "./analysis-workflow.js";
 import type { ExecutionConfig } from "./execution-config.js";
+import { runVerificationContainer, verificationRunnerInput } from "./verification-process.js";
+import { parseVerificationRequest } from "./verification-config.js";
 import {
   maxDevelopmentArtifactBytes,
   maxDevelopmentRequestBytes,
@@ -78,14 +80,19 @@ export function createContainerExecutor(
     async analyze(request, onEvent) {
       if (!request.runId)
         throw new Error("A run ID is required for container execution");
+      const runId = request.runId;
       request.signal.throwIfAborted();
       if (request.development) {
         if (request.workflow || request.responseMode)
           throw new AnalysisError("unsupported_settings");
-        parseDevelopmentInput(request.development);
+        request = { ...request, development: parseDevelopmentInput(request.development) };
       }
-      runnerInput(request);
-      const run = executions.get(request.runId) ?? {
+      if (request.verification) {
+        request = { ...request, verification: parseVerificationRequest(request.verification) };
+        verificationRunnerInput(request);
+      }
+      else runnerInput(request);
+      const run = executions.get(runId) ?? {
         entries: [],
         active: false,
         sealed: false,
@@ -99,7 +106,7 @@ export function createContainerExecutor(
         throw new Error(
           "Previous execution must be confirmed before another phase",
         );
-      executions.set(request.runId, run);
+      executions.set(runId, run);
       run.active = true;
       const prepared = prepareContainer(image, codexHome, request);
       // Retain every identity, including preparation still pending after abort.
@@ -120,7 +127,9 @@ export function createContainerExecutor(
         request.signal.throwIfAborted();
         if (run.sealed)
           throw new Error("Execution was stopped during preparation");
-        const result = await runContainerProtocol(identity, request, onEvent);
+        const result = request.verification
+          ? await runVerificationContainer(identity, request, () => confirmExecution(entry))
+          : await runContainerProtocol(identity, request, onEvent);
         const confirmedAt = await confirmExecution(entry);
         if (!confirmedAt) throw new AnalysisError("provider_error", true);
         await onEvent({

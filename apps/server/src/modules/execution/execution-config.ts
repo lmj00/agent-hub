@@ -1,4 +1,5 @@
 import { parseEffortPolicy } from "./effort-policy.js";
+import { parseVerificationWorkspaces, validContainerImage } from "./verification-config.js";
 import { parseAnalysisWorkflow } from "./analysis-workflow.js";
 import { parseCapacityPolicy } from "./capacity-policy.js";
 import { parseRetryPolicy } from "./retry-policy.js";
@@ -49,12 +50,14 @@ export function loadExecutionConfig(file: string) {
     workspaces.set(key, workspace);
   }
   const containerImage = config.containerImage;
-  if (containerImage !== undefined && (typeof containerImage !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9./_:@-]{0,199}$/.test(containerImage))) {
+  if (containerImage !== undefined && !validContainerImage(containerImage)) {
     throw new Error("containerImage must be a local Docker image reference");
   }
   const automaticRecovery = config.automaticRecovery === undefined ? undefined : parseRetryPolicy(config.automaticRecovery);
+  const verification = config.verification === undefined ? undefined : parseVerificationWorkspaces(config.verification, workspaces.keys());
+  if (verification && !containerImage) throw new Error("Verification requires container execution");
   const capacity = automaticRecovery ? (config.automaticRecovery as Record<string, unknown>).capacity : false;
-  return { model: config.model, codexHome, timeoutMs, workspaces, ...(config.analysisWorkflow !== undefined ? { analysisWorkflow: parseAnalysisWorkflow(config.analysisWorkflow) } : {}), ...(config.effortPolicy !== undefined ? { effortPolicy: parseEffortPolicy(config.effortPolicy) } : {}), ...(automaticRecovery ? { automaticRecovery, ...(capacity === false ? {} : { capacityRecovery: parseCapacityPolicy(capacity === undefined ? {} : capacity) }) } : {}), ...(containerImage ? { containerImage: containerImage as string } : {}) };
+  return { model: config.model, codexHome, timeoutMs, workspaces, ...(verification ? { verification } : {}), ...(config.analysisWorkflow !== undefined ? { analysisWorkflow: parseAnalysisWorkflow(config.analysisWorkflow) } : {}), ...(config.effortPolicy !== undefined ? { effortPolicy: parseEffortPolicy(config.effortPolicy) } : {}), ...(automaticRecovery ? { automaticRecovery, ...(capacity === false ? {} : { capacityRecovery: parseCapacityPolicy(capacity === undefined ? {} : capacity) }) } : {}), ...(containerImage ? { containerImage: containerImage as string } : {}) };
 }
 
 export type ExecutionConfig = ReturnType<typeof loadExecutionConfig>;

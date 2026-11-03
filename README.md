@@ -429,7 +429,7 @@ sudo apparmor_parser -r apps/server/security/agent-hub-codex.apparmor
 
 앱이 관리자 권한으로 호스트 정책을 자동 변경하지는 않습니다. AppArmor가 있는 엔진은 지정한 프로필을 사용하며, 프로필이 없으면 실행이 거부됩니다. Docker Desktop처럼 AppArmor가 없는 엔진에도 seccomp·권한 제거·읽기 전용 파일 시스템은 적용합니다. [정책의 원본·추가 허용 범위와 검증](apps/server/security/README.md)을 확인할 수 있습니다.
 
-비공개 실행 설정에 `"containerImage": "agent-hub-analysis:local"`을 추가하면 같은 서버·CLI가 Run마다 로컬 컨테이너 하나에서 SDK를 실행합니다. 설정을 생략하면 기존 직접 실행입니다. 실행 시 이미지를 내려받거나 Docker를 자동 설치하지 않습니다. runner 코드를 변경한 뒤에는 이미지를 다시 빌드합니다.
+비공개 실행 설정에 `"containerImage": "agent-hub-analysis:local"`을 추가하면 같은 서버·CLI가 로컬 컨테이너에서 SDK를 실행합니다. 한 Run에서 컨테이너를 순차 사용하더라도 각 식별자·종료 기록을 보존합니다. 설정을 생략하면 기존 직접 실행입니다. 실행 시 이미지를 내려받거나 Docker를 자동 설치하지 않습니다. runner 코드를 변경한 뒤에는 이미지를 다시 빌드합니다.
 
 컨테이너 전체 ID·임의 실행 토큰·Docker 엔진 ID를 실행 전에 저장합니다. 중단 때 이 식별자를 대조하고 해당 컨테이너만 종료하며, PID namespace 전체의 종료를 확인해야 `terminationConfirmedAt`을 기록합니다. 아직 시작하지 않은 컨테이너는 삭제가 성공해야 뒤늦은 시작도 불가능한 것으로 처리합니다. 종료를 확인할 수 없으면 결과가 있어도 `interrupted`로 보류합니다. DB 저장을 마친 컨테이너는 정리하고 실행 기록은 남깁니다.
 
@@ -440,6 +440,34 @@ Docker 연결 실패·다른 엔진·잘못된 식별자·이미 사라진 컨�
 ```sh
 RUN_CONTAINER_TESTS=1 pnpm test
 ```
+
+### 개발 작업의 테스트 설정 준비
+
+테스트 실행기는 AI 인증 폴더를 연결하지 않고 외부 통신을 차단한 컨테이너에서 동작합니다. 서버 설정으로 지정한 명령을 실행하며, 출력에 적힌 “통과” 대신 실제 종료 코드·메모리 강제 종료 여부를 확인합니다. **현재는 내부 실행기의 검증을 마쳤으며, 개발 대기열·검토·반영 연결은 진행 중입니다. 아래 설정만 추가해도 개발 작업이 자동 실행되는 것은 아닙니다.**
+
+의존성이 없는 Node 예제용 이미지는 다음 명령으로 준비합니다.
+
+```sh
+docker build -f docker/verification-node.Dockerfile -t agent-hub-verification-node:local .
+```
+
+기존 비공개 실행 설정에 `verification`을 추가합니다. 키는 `workspaces`에 등록한 키와 같아야 하며 `containerImage`도 필요합니다.
+
+```json
+{
+  "verification": {
+    "example-project": {
+      "image": "agent-hub-verification-node:local",
+      "command": ["node", "--test", "tests/calculation.test.mjs"],
+      "timeoutMs": 60000
+    }
+  }
+}
+```
+
+테스트 파일 경로는 해당 프로젝트에 맞게 정합니다. 명령은 프로그램과 인자를 나눈 배열이며 모델이 변경하지 않습니다. 제한 시간은 기본 60초, 허용 범위는 1초~5분입니다. 테스트 이미지에는 Node.js 24와 프로젝트의 테스트 도구·의존성을 미리 준비해야 합니다. 테스트 도중 패키지를 내려받지 않습니다. 예제 이미지는 Node 외 프로젝트 의존성을 포함하지 않습니다. 이미지에 `VOLUME`으로 별도 저장 공간을 선언하면 실행을 거부하며, 이미지의 자동 상태 점검 명령도 실행하지 않습니다.
+
+검증 대상은 읽기 전용 입력에서 32MiB의 임시 작업 공간으로 복사하며, 생성한 빌드 파일은 원본에 반영하지 않습니다. 전체 출력이 2MiB에 도달하면 중단하고 저장할 로그는 64KiB 이내로 제한합니다. 실제 사용한 이미지의 식별값·명령·입력과 수정 후보의 식별값을 결과에 포함합니다. 서버 실행 파일을 배포할 때는 `apps/server/runtime/`의 검증 시작 프로그램과 기존 `security/` 정책 파일도 보존해야 합니다. 테스트 결과의 영속 기록과 별도 검토는 다음 연결 단위입니다.
 
 ### 자동 복구 켜기
 

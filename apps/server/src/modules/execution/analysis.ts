@@ -5,6 +5,7 @@ import type { GoalScope, PreparedInput } from "../goals/prepared-workspace.js";
 import type { PlanningContext, PlanningInput } from "../goals/goal-plan-policy.js";
 import type { DevelopmentExecutionInput, DevelopmentChanges } from "./development-capture.js";
 import type { DevelopmentUpdate } from "../goals/development-journal.js";
+import type { VerificationRequest, VerificationResult } from "./verification-config.js";
 export { stopReasons, type StopReason };
 
 export type AnalysisUsage = { inputTokens: number; cachedInputTokens: number; outputTokens: number };
@@ -12,8 +13,8 @@ export type ExecutionIdentity = { kind: "docker"; containerId: string; token: st
 export const maxRunExecutions = 12;
 export type ExecutionRecord = { sequence: number; identity: ExecutionIdentity; createdAt: Date; terminationConfirmedAt: Date | null };
 export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity; executionTermination?: { identity: ExecutionIdentity; confirmedAt: Date }; step?: StepUpdate; preparedInput?: PreparedInput; planningProposal?: string; planningInput?: PlanningInput; development?: DevelopmentUpdate };
-export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; outputSchema?: unknown; scope?: GoalScope; planning?: PlanningContext; responseMode?: "goal-plan"; development?: DevelopmentExecutionInput };
-export type AnalysisResult = { output: string; usage: AnalysisUsage | null; development?: DevelopmentChanges };
+export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; outputSchema?: unknown; scope?: GoalScope; planning?: PlanningContext; responseMode?: "goal-plan"; development?: DevelopmentExecutionInput; verification?: VerificationRequest };
+export type AnalysisResult = { output: string; usage: AnalysisUsage | null; development?: DevelopmentChanges; verification?: VerificationResult };
 
 // 이유가 없는 외부 중단 신호는 재실행하지 않는 사용자 취소로 취급합니다.
 export function signalStopReason(signal: AbortSignal): StopReason {

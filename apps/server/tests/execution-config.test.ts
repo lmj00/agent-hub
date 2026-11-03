@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -25,6 +25,27 @@ test("resolves prepared workspaces relative to the private config", () => {
   expect(isWithin(workspace, workspace)).toBe(true);
   expect(isWithin(workspace, join(workspace, "..private", "auth.json"))).toBe(true);
   expect(isWithin(workspace, join(workspace, "..", "sibling"))).toBe(false);
+});
+
+test("accepts operator-fixed test image and argv for a configured workspace", () => {
+  const base = JSON.parse(readFileSync(file, "utf8"));
+  writeFileSync(file, JSON.stringify({ ...base, containerImage: "hub:local", verification: { example: { image: "node-test:local", command: ["node", "--test"] } } }));
+  expect(loadExecutionConfig(file).verification?.get("example")).toEqual({ image: "node-test:local", command: ["node", "--test"], timeoutMs: 60000 });
+});
+
+test.each([
+  { verification: { example: { image: "test:local", command: ["node", "--test"] } } },
+  { containerImage: "hub:local", verification: { missing: { image: "test:local", command: ["node"] } } },
+  { containerImage: "hub:local", verification: { example: { image: "--privileged", command: ["node"] } } },
+  { containerImage: "hub:local", verification: { example: { image: "test:local", command: "node --test" } } },
+  { containerImage: "hub:local", verification: { example: { image: "test:local", command: [], timeoutMs: 60000 } } },
+  { containerImage: "hub:local", verification: { example: { image: "test:local", command: ["node"], timeoutMs: 999 } } },
+  { containerImage: "hub:local", verification: { example: { image: "test:local", command: ["node"], timeoutMs: 300001 } } },
+  { containerImage: "hub:local", verification: { example: { image: "test:local", command: ["node"], environment: { TOKEN: "synthetic" } } } },
+])("rejects invalid or unbounded verification configuration %#", change => {
+  const base = JSON.parse(readFileSync(file, "utf8"));
+  writeFileSync(file, JSON.stringify({ ...base, ...change }));
+  expect(() => loadExecutionConfig(file)).toThrow();
 });
 
 test("rejects inherited Codex configuration and API-key authentication", () => {

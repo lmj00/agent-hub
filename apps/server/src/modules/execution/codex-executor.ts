@@ -42,6 +42,7 @@ export function threadOptions(request: AnalysisRequest): ThreadOptions {
 export function createCodexExecutor(codexHome: string, executablePath?: string, allowDevelopment = false): AnalysisExecutor {
   return {
     async analyze(request, onEvent) {
+      if (request.verification) throw new AnalysisError("unsupported_settings");
       if (request.development && (!allowDevelopment || request.responseMode || request.workflow)) throw new AnalysisError("unsupported_settings");
       const outputSchema = request.responseMode === "goal-plan" ? goalPlanSchema : request.outputSchema;
       const codex = new Codex(codexOptions(codexHome, request.workspace, executablePath, request.development ? developmentWriteDirectories(request.development) : undefined));
