@@ -1,16 +1,14 @@
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import * as schema from "./schema.js";
+import { preparePrivateDatabase } from "./private-storage.js";
 
 export const migrationsDirectory = fileURLToPath(new URL("../../migrations/", import.meta.url));
 
 export function openDatabase(databasePath: string, migrationsFolder = migrationsDirectory) {
-  mkdirSync(dirname(databasePath), { recursive: true });
-  const client = new Database(databasePath, { timeout: 1000 });
+  const client = new Database(preparePrivateDatabase(databasePath), { timeout: 1000 });
 
   try {
     client.pragma("journal_mode = WAL");
