@@ -8,6 +8,8 @@ import { createConfiguredExecutor } from "./modules/execution/execution-process.
 import { loadExecutionConfig, validateExecutionEnvironment } from "./modules/execution/execution-config.js";
 import { acquireExecutionOwner } from "./modules/execution/execution-owner.js";
 import { runTask } from "./modules/execution/run-task.js";
+import { cleanupConfirmedInputs, createPreparedExecutor } from "./modules/goals/prepared-executor.js";
+import { preparedInputRoot } from "./modules/goals/prepared-workspace.js";
 
 async function main() {
   const { values } = parseArgs({ options: { task: { type: "string" }, config: { type: "string" } } });
@@ -29,7 +31,9 @@ async function main() {
     const project = createDrizzleProjectStore(database.db).findById(task.projectId);
     const workspace = project && config.workspaces.get(project.workspaceKey);
     if (!workspace) throw new Error("No prepared workspace configured for this project");
-    const executor = createConfiguredExecutor(config);
+    const inputRoot = preparedInputRoot(databasePath);
+    cleanupConfirmedInputs(database.db, inputRoot);
+    const executor = createPreparedExecutor(createConfiguredExecutor(config), inputRoot);
     if (config.automaticRecovery && !executor.confirmTermination) throw new Error("Automatic recovery requires execution termination tracking");
     const store = createDrizzleRunStore(database.db, owner.token, config);
     const outcome = await runTask({

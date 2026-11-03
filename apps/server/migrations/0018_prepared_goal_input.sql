@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `prepared_input` text;

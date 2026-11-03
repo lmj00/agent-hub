@@ -25,6 +25,7 @@ logs/
 artifacts/
 workspaces/
 sessions/
+.prepared-*/
 *.log
 *.sqlite
 *.sqlite-*

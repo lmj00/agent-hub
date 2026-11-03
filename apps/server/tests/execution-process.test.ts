@@ -3,7 +3,7 @@ import { parseAnalysisWorkflow } from "../src/modules/execution/analysis-workflo
 import { execFile, fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,9 @@ import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-stor
 import { runTask } from "../src/modules/execution/run-task.js";
 import { loadExecutionConfig } from "../src/modules/execution/execution-config.js";
 import { createProjectBudgetStore } from "../src/modules/budgets/project-budget-store.js";
+import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
+import { createPreparedExecutor } from "../src/modules/goals/prepared-executor.js";
+import { preparedInputRoot } from "../src/modules/goals/prepared-workspace.js";
 
 const exec = promisify(execFile);
 const image = "agent-hub-execution-test:local";
@@ -69,6 +72,30 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
         expect(selected.findById(result.runId)?.steps[0]?.effort).toBe(effort);
       }
     } finally { for (const row of database.db.select().from(runs).all()) if (row.execution) identities.push(row.execution); }
+  }, 20000);
+
+  test.each(["executor", "cli"])("%s mounts only prepared goal files read-only and ignores child-supplied input metadata", async mode => {
+    const git = (...args: string[]) => exec("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args], { cwd: workspace, env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
+    await git("init", "--quiet", "--template=");
+    writeFileSync(join(workspace, "main.ts"), "allowed source\n"); writeFileSync(join(workspace, "excluded.txt"), "excluded fixture");
+    await git("add", "--all"); await git("commit", "--quiet", "-m", "fixture");
+    const projectId = database.db.select().from(tasks).get()!.projectId;
+    const goal = createDrizzleGoalStore(database.db).register(projectId, "scope", { description: "Inspect", completionCriteria: "Verified", kind: "finite", priority: 50, allowedPaths: ["main.ts"], excludedPaths: [], checkIntervalMs: 60000, budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 } }).goal;
+    database.client.prepare("UPDATE tasks SET instruction = 'scoped-report', goal_id = ?, goal_version = 1").run(goal.id);
+    if (mode === "executor") {
+      const executor = createPreparedExecutor(createContainerExecutor(image, home), preparedInputRoot(join(directory, "hub.sqlite")));
+      expect(await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, executor)).toMatchObject({ status: "succeeded", result: "scoped files verified" });
+    } else {
+      writeFileSync(join(home, "auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
+      const config = join(directory, "execution.json");
+      writeFileSync(config, JSON.stringify({ model: "fixture", codexHome: home, containerImage: image, workspaces: { example: workspace } }));
+      await exec(process.execPath, ["--import", "tsx", fileURLToPath(new URL("../src/run-task-cli.ts", import.meta.url)), "--task", taskId, "--config", config], { env: { ...process.env, DATABASE_PATH: join(directory, "hub.sqlite") }, timeout: 15000 });
+    }
+    const stored = database.db.select().from(runs).get()!;
+    expect(stored).toMatchObject({ status: "succeeded", result: "scoped files verified", terminationConfirmedAt: expect.any(Date), preparedInput: { phase: "ready", source: workspace, scope: { goalId: goal.id } } });
+    expect(stored.preparedInput!.id).not.toBe("forged");
+    expect(existsSync(stored.preparedInput!.directory)).toBe(false);
+    expect(readFileSync(join(workspace, "main.ts"), "utf8")).toBe("allowed source\n");
   }, 20000);
 
   test("acknowledges persisted workflow steps before the child starts each next call", async () => {

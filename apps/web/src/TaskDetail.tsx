@@ -51,6 +51,9 @@ const retryReasons: Record<string, string> = {
   user_cancelled: "사용자가 취소하여 다시 실행하지 않습니다.",
 };
 const runErrors: Record<string, string> = {
+  input_unavailable: "분석 자료를 준비하지 못했습니다. 원본 저장소의 미커밋 변경, 허용 경로와 파일 상한을 확인해 주세요.",
+  input_changed: "분석 중 원본 코드가 바뀌어 결과를 반영하지 않았습니다. 최신 코드를 기준으로 다시 확인해야 합니다.",
+  goal_changed: "목표의 상태나 버전이 바뀌어 이전 기준의 실행을 보류했습니다.",
   budget_limit: "프로젝트 또는 목표의 기간 예산을 다 썼습니다. 기존 결과를 보존하고 다음 기간에 실행 조건을 다시 확인합니다.",
   termination_unconfirmed:
     "결과가 있어도 전체 실행 종료를 확인하기 전까지 새 실행은 보류합니다.",

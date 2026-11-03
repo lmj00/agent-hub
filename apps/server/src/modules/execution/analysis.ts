@@ -1,12 +1,13 @@
 import { stopReasons, type StopReason, type Effort } from "@agent-hub/contracts";
 import type { AnalysisWorkflowPolicy, StepUpdate } from "./analysis-workflow.js";
 import type { EffortPolicy } from "./effort-policy.js";
+import type { GoalScope, PreparedInput } from "../goals/prepared-workspace.js";
 export { stopReasons, type StopReason };
 
 export type AnalysisUsage = { inputTokens: number; cachedInputTokens: number; outputTokens: number };
 export type ExecutionIdentity = { kind: "docker"; containerId: string; token: string; engineId: string };
-export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity; step?: StepUpdate };
-export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; outputSchema?: unknown };
+export type AnalysisEvent = { kind: string; sessionId?: string; execution?: ExecutionIdentity; step?: StepUpdate; preparedInput?: PreparedInput };
+export type AnalysisRequest = { instruction: string; workspace: string; model: string; signal: AbortSignal; runId?: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; outputSchema?: unknown; scope?: GoalScope };
 export type AnalysisResult = { output: string; usage: AnalysisUsage | null };
 
 // 이유가 없는 외부 중단 신호는 재실행하지 않는 사용자 취소로 취급합니다.
@@ -21,7 +22,7 @@ export type AnalysisExecutor = {
   cleanup?(runId: string): Promise<void>;
 };
 
-export const analysisErrorCodes = ["authentication", "capacity", "unsupported_settings", "provider_error", "transient", "output_limit", "invalid_plan", "workflow_limit", "analysis_incomplete", "budget_limit"] as const;
+export const analysisErrorCodes = ["authentication", "capacity", "unsupported_settings", "provider_error", "transient", "output_limit", "invalid_plan", "workflow_limit", "analysis_incomplete", "budget_limit", "input_unavailable", "input_changed", "goal_changed"] as const;
 export class AnalysisError extends Error {
   constructor(
     public readonly code: (typeof analysisErrorCodes)[number],

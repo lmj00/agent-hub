@@ -10,6 +10,7 @@ import { assertExecutionOwner } from "./execution-owner.js";
 import { unresolvedRun } from "./drizzle-run-store.js";
 import { ProviderGateError, providerScope, readProviderGate, recordProviderOutcome, reserveProviderCheck } from "./provider-gate.js";
 import { reconcileCompletion, RecoveryError, type RecoveryStore } from "./recover-task.js";
+import { preparedGoalChanged } from "../goals/prepared-input-store.js";
 import { saveRunCompletion } from "./run-completion-store.js";
 
 type Db = ReturnType<typeof openDatabase>["db"];
@@ -119,7 +120,8 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
           const proof = run.terminationConfirmedAt ?? confirmedAt;
           if (run.status === "running" || run.status === "interrupted") {
             const usage = tx.select({ usage: steps.usage }).from(steps).where(eq(steps.runId, run.id)).orderBy(asc(steps.sequence)).get()?.usage ?? null;
-            const completion = reconcileCompletion(run, usage, proof, task.cancelRequestedAt !== null);
+            let completion = reconcileCompletion(run, usage, proof, task.cancelRequestedAt !== null);
+            if (completion.status === "succeeded" && preparedGoalChanged(tx, run)) completion = { ...completion, status: "blocked", result: null, errorCode: "goal_changed" };
             saveRunCompletion(tx, run, completion, now);
             finalStatus = completion.status;
             // 종료가 확인된 옛 확인 실행만 예약을 정리합니다. 일반 과거 오류를 새 차단으로 기록하지 않습니다.

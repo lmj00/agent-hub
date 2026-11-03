@@ -1,9 +1,18 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 const input = createInterface({ input: process.stdin });
 const lines = input[Symbol.asyncIterator]();
 const request = JSON.parse((await lines.next()).value);
+if (request.instruction === "scoped-report") {
+  if (readFileSync("/workspace/main.ts", "utf8") !== "allowed source\n" || existsSync("/workspace/excluded.txt")) throw new Error("Incorrect prepared scope");
+  let denied = false;
+  try { writeFileSync("/workspace/main.ts", "forbidden"); } catch { denied = true; }
+  if (!denied) throw new Error("Snapshot must be read-only");
+  console.log(JSON.stringify({ type: "event", event: { kind: "input.ready", preparedInput: { id: "forged", directory: "/outside" } } }));
+  console.log(JSON.stringify({ type: "result", result: { output: "scoped files verified", usage: null } }));
+  process.exit(0);
+}
 if (request.instruction.includes("workflow-protocol")) {
   async function step(event) {
     console.log(JSON.stringify({ type: "event", event }));

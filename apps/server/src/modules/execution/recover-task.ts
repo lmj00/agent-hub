@@ -45,7 +45,7 @@ export function reconcileCompletion(
   return { ...completion, status: "blocked" };
 }
 
-export function createRecoveryProcessor(store: RecoveryStore, observer: ExecutionObserver) {
+export function createRecoveryProcessor(store: RecoveryStore, observer: ExecutionObserver, cleanupRun?: (runId: string) => void) {
   return {
     next: () => store.nextPending(),
     async process(id: string) {
@@ -64,6 +64,7 @@ export function createRecoveryProcessor(store: RecoveryStore, observer: Executio
       // DB 저장에 실패하면 종료된 컨테이너도 보존하여 재시작 뒤 다시 관측할 수 있게 합니다.
       const result = store.complete(id, confirmedAt);
       if (result.proofSaved && candidate.run?.execution) await observer.cleanup(candidate.run.execution);
+      if (result.proofSaved && candidate.request.runId) cleanupRun?.(candidate.request.runId);
     },
   };
 }
