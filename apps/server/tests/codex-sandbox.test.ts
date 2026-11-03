@@ -11,6 +11,7 @@ import { createContainerExecutor } from "../src/modules/execution/execution-proc
 import type { ExecutionIdentity } from "../src/modules/execution/analysis.js";
 import { developmentInputIntent, developmentRepositoryIntent, developmentRoot, prepareDevelopmentRepository, prepareDevelopmentInput, stageDevelopmentCandidate } from "../src/modules/goals/development-workspace.js";
 import { preparedInputRoot } from "../src/modules/goals/prepared-workspace.js";
+import { loadRuntimeSkill, runtimeSkillRoles } from "../src/modules/execution/runtime-skills.js";
 
 const exec = promisify(execFile);
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -22,6 +23,24 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("Codex container sandbo
     await exec("docker", ["build", "-f", "docker/analysis-runner.Dockerfile", "-t", image, "."], { cwd: root, timeout: 90000 });
     await exec("docker", ["build", "-f", "apps/server/tests/fixtures/development-runner.Dockerfile", "-t", "agent-hub-development-test:local", "."], { cwd: root, timeout: 30000 });
   }, 95000);
+
+  test("packages the pinned role instructions and rejects changed image assets", async () => {
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-skill-image-")));
+    const changed = join(directory, "changed.md");
+    writeFileSync(changed, "untrusted replacement", { mode: 0o644 });
+    const probe = `
+      import { loadRuntimeSkill, runtimeSkillRoles } from '/app/apps/server/dist/modules/execution/runtime-skills.js';
+      try { console.log(JSON.stringify({ selections: runtimeSkillRoles.map(role => loadRuntimeSkill(role).selection) })); }
+      catch (error) { console.log(JSON.stringify({ error: error.code })); }
+    `;
+    const args = ["run", "--rm", "--network", "none", "--read-only", "--entrypoint", "node"];
+    try {
+      const normal = await exec("docker", [...args, image, "--input-type=module", "--eval", probe], { timeout: 15000 });
+      expect(JSON.parse(normal.stdout)).toEqual({ selections: runtimeSkillRoles.map(role => loadRuntimeSkill(role).selection) });
+      const modified = await exec("docker", [...args, "--mount", `type=bind,src=${changed},dst=/app/apps/server/skills/gstack/planner.md,readonly`, image, "--input-type=module", "--eval", probe], { timeout: 15000 });
+      expect(JSON.parse(modified.stdout)).toEqual({ error: "unsupported_settings" });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  }, 35000);
 
   test("can execute the bundled tools and read the project while denying writes, private files and network", async () => {
     const directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-sandbox-")));

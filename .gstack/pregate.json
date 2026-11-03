@@ -46,6 +46,7 @@
       "apps/server/tests/provider-gate.test.ts",
       "apps/server/tests/recovery-api.test.ts",
       "apps/server/tests/recovery-store.test.ts",
+      "apps/server/tests/runtime-skills.test.ts",
       "apps/server/tests/service-integration.test.ts",
       "apps/server/tests/service-observation.test.ts",
       "apps/server/tests/service-store.test.ts",
@@ -159,6 +160,7 @@
       "apps/server/tests/provider-gate.test.ts",
       "apps/server/tests/recovery-api.test.ts",
       "apps/server/tests/recovery-store.test.ts",
+      "apps/server/tests/runtime-skills.test.ts",
       "apps/server/tests/service-integration.test.ts",
       "apps/server/tests/service-observation.test.ts",
       "apps/server/tests/service-store.test.ts",
@@ -168,6 +170,22 @@
       "apps/server/tests/work-release.test.ts",
       "apps/web/e2e/workspace.spec.ts",
       "apps/web/tests/api.test.ts"
+    ],
+    "apps/server/skills/gstack/**": [
+      "apps/server/tests/runtime-skills.test.ts",
+      "apps/server/tests/codex-sandbox.test.ts"
+    ],
+    "apps/server/src/modules/execution/runtime-skills.ts": [
+      "apps/server/tests/runtime-skills.test.ts",
+      "apps/server/tests/codex-sandbox.test.ts"
+    ],
+    "docker/analysis-runner.Dockerfile": [
+      "apps/server/tests/runtime-skills.test.ts",
+      "apps/server/tests/codex-sandbox.test.ts"
+    ],
+    ".dockerignore": [
+      "apps/server/tests/runtime-skills.test.ts",
+      "apps/server/tests/codex-sandbox.test.ts"
     ]
   }
 }

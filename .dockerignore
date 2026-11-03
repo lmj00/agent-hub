@@ -13,6 +13,15 @@
 !apps/server/src/**
 !apps/server/security/
 !apps/server/security/**
+!apps/server/skills/
+!apps/server/skills/gstack/
+!apps/server/skills/gstack/manifest.json
+!apps/server/skills/gstack/LICENSE
+!apps/server/skills/gstack/NOTICE.md
+!apps/server/skills/gstack/planner.md
+!apps/server/skills/gstack/developer.md
+!apps/server/skills/gstack/reviewer.md
+!apps/server/skills/gstack/analyst.md
 !packages/
 !packages/contracts/
 !packages/contracts/package.json

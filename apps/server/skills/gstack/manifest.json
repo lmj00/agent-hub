@@ -1,0 +1,51 @@
+{
+  "id": "gstack-agent-hub",
+  "version": 1,
+  "mode": "adapted_instructions",
+  "upstream": {
+    "repository": "https://github.com/garrytan/gstack",
+    "version": "1.93.11.0",
+    "commit": "24a47db3d9e12a1f6ead6919306ef0da3b5696d9"
+  },
+  "sources": {
+    "plan-eng-review/sections/review-sections.md": "202df94f20273ae6fb1cd4e6f65953a4dd50880d04fd5010a05d2557359f11dc",
+    "verify/SKILL.md": "ee75dc69316f0b14c83c38c6af797bbf1767f98946a2a6963721cab715c698e3",
+    "investigate/SKILL.md": "74a1ab5a0aff50ac9fc9a806062acabd52bc52a2054db45a311f6115ded0d981",
+    "review/checklist.md": "607788afeb2c83f2dff1dccd58d212616ec72393d28cda2fa18690c1a83df699"
+  },
+  "notices": {
+    "LICENSE": "e56fbb5b3d95756f3fa1cfefa24732ec79f18ece1ad08a4e79e00df57e8b198c",
+    "NOTICE.md": "c04c8fb9cbb906484c84c957c7e88002aa7d8456c342adb02fd30c3793ab1ac4"
+  },
+  "profiles": {
+    "planner": {
+      "file": "planner.md",
+      "sha256": "fa2e268aa9c8f75f277b239ef4831468e6847c39fbada1d91994ea650414667c",
+      "sources": [
+        "plan-eng-review/sections/review-sections.md"
+      ]
+    },
+    "developer": {
+      "file": "developer.md",
+      "sha256": "a342536db81142005dc93a56f450df1768daa002463145cf5fe9bdeba23163d1",
+      "sources": [
+        "verify/SKILL.md",
+        "investigate/SKILL.md"
+      ]
+    },
+    "reviewer": {
+      "file": "reviewer.md",
+      "sha256": "5421e9b009fa08204fcd8a0a2f7a82a0387c3770f752da78e83bc592ba5f1da0",
+      "sources": [
+        "review/checklist.md"
+      ]
+    },
+    "analyst": {
+      "file": "analyst.md",
+      "sha256": "7433e8625a8372b4731cff2727bf4f4379d76df4a55d6043a46538241b15499f",
+      "sources": [
+        "review/checklist.md"
+      ]
+    }
+  }
+}

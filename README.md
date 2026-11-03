@@ -21,7 +21,9 @@
 
 AI가 이 저장소를 수정할 때의 문서 참조 순서·개발 방법·검증 기준은 [AGENTS.md](AGENTS.md)에 둡니다. 제품의 상세 규칙은 위 설계 문서에서 관리합니다.
 
-저장소 개발에는 gstack의 계획 검토·검증·코드 리뷰 절차를 사용합니다. [검사 설정](.gstack/pregate.json)은 변경 파일에 필요한 테스트를 지정하고, `scripts/run-selected-tests.mjs`가 서버·화면 단위 테스트는 Vitest, 브라우저 시나리오는 Playwright로 실행합니다. 예를 들어 `node scripts/run-selected-tests.mjs apps/server/tests/development-evidence.test.ts`로 지정한 테스트를 실행할 수 있습니다. 제품 내부 에이전트의 gstack 사용은 별도 구현 예정이며, 현재 개발 환경의 설치와 구분합니다.
+저장소 개발에는 gstack의 계획 검토·검증·코드 리뷰 절차를 사용합니다. [검사 설정](.gstack/pregate.json)은 변경 파일에 필요한 테스트를 지정하고, `scripts/run-selected-tests.mjs`가 서버·화면 단위 테스트는 Vitest, 브라우저 시나리오는 Playwright로 실행합니다. 예를 들어 `node scripts/run-selected-tests.mjs apps/server/tests/development-evidence.test.ts`로 지정한 테스트를 실행할 수 있습니다.
+
+제품 내부 에이전트에는 [역할별 gstack 지침](apps/server/skills/gstack/NOTICE.md)을 준비했습니다. 원본 버전·출처·MIT 라이선스를 보존하고, 서버와 실행 이미지에서 같은 파일인지 검사합니다. 현재는 지침 묶음과 읽기·무결성 검사를 검증했으며, AI 호출 전 전달과 사용 이력 저장은 다음 구현 범위입니다. 적용 방식은 `adapted_instructions`로, gstack의 판단 기준을 실행 환경에 맞게 수정한 지침입니다. 전체 gstack CLI나 브라우저 기능을 실행한다는 의미는 아닙니다. 서버를 파일로 배포할 때에는 `dist/`와 함께 `apps/server/skills/gstack/`도 보존해야 합니다. 실행용 Docker 이미지에는 이 디렉터리를 포함합니다.
 
 ## 첫 번째 목표
 
