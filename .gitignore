@@ -18,6 +18,8 @@ test-results/
 .codex/
 .claude/
 .local/
+.gstack/*
+!.gstack/pregate.json
 
 # Runtime data and project checkouts
 data/
