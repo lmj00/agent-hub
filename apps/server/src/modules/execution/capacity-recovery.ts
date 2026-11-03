@@ -21,6 +21,7 @@ import {
 import { ensureRetryState } from "./retry-state-store.js";
 import { retryLimitReason, type RetryPolicy } from "./retry-policy.js";
 import { capacityCheckAt, type CapacityPolicy } from "./capacity-policy.js";
+import { replaceUnavailableGoalProbe } from "./capacity-probe-fallback.js";
 
 export function createCapacityRecovery(options: {
   db: ReturnType<typeof openDatabase>["db"];
@@ -40,13 +41,15 @@ export function createCapacityRecovery(options: {
           if (
             !gate?.blocked ||
             gate.reason !== "capacity" ||
-            gate.probeTaskId ||
             gate.probeRunId
           )
             return false;
           if (tx.select({ id: runs.id }).from(runs).where(unresolvedRun).get())
             return false;
           const now = (options.now ?? (() => new Date()))();
+          const replaced = replaceUnavailableGoalProbe(tx, gate, options, now);
+          if (replaced !== undefined) return replaced;
+          if (gate.probeTaskId) return false;
           const source = gate.sourceRunId
             ? tx.select().from(runs).where(eq(runs.id, gate.sourceRunId)).get()
             : undefined;
