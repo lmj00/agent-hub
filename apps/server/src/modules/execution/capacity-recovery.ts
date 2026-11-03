@@ -1,3 +1,4 @@
+import { readGoalExecutionBlock } from "../goals/goal-execution-store.js";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { CapacityState } from "@agent-hub/contracts";
@@ -85,6 +86,7 @@ export function createCapacityRecovery(options: {
             : null;
           const unavailable =
             !task ||
+            readGoalExecutionBlock(tx, task) !== null ||
             task.cancelRequestedAt ||
             ["succeeded", "cancelled"].includes(task.status) ||
             !project ||

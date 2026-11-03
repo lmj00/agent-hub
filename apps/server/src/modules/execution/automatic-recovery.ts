@@ -1,3 +1,4 @@
+import { readGoalExecutionBlock } from "../goals/goal-execution-store.js";
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
@@ -162,6 +163,7 @@ export function createAutomaticRecovery(options: {
               }
               continue;
             }
+            if (readGoalExecutionBlock(tx, task)) continue;
             if (
               state.decisionRunId !== run.id ||
               state.reason === "termination_unconfirmed"

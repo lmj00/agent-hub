@@ -11,6 +11,9 @@ function toResponse(task: Task) {
   return {
     id: task.id,
     projectId: task.projectId,
+    kind: task.kind ?? "work",
+    goalId: task.goalId ?? null,
+    goalVersion: task.goalVersion ?? null,
     instruction: task.instruction,
     requestKey: task.requestKey,
     status: task.status,

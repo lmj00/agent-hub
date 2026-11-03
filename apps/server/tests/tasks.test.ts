@@ -38,7 +38,7 @@ test("registers a queued task and preserves detail, list and request key after r
   const after = Date.now();
   expect(created.statusCode).toBe(201);
   const task = created.json();
-  expect(task).toEqual({ ...input, id: expect.any(String), projectId, status: "queued", retryState: null, createdAt: expect.any(String) });
+  expect(task).toEqual({ ...input, kind: "work", goalId: null, goalVersion: null, id: expect.any(String), projectId, status: "queued", retryState: null, createdAt: expect.any(String) });
   expect(Date.parse(task.createdAt)).toBeGreaterThanOrEqual(before);
   expect(Date.parse(task.createdAt)).toBeLessThanOrEqual(after);
   expect(created.headers.location).toBe(`/tasks/${task.id}`);

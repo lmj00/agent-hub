@@ -48,7 +48,7 @@ export type QueueStore = RunStore & {
 
 export type RunSummary = {
   id: string; taskId: string; attempt: number; status: TaskStatus; model: string; effort: string;
-  startedAt: Date; finishedAt: Date | null;
+  startedAt: Date; finishedAt: Date | null; goalVersion?: number | null;
 };
 export type RunDetails = RunSummary & {
   lastActivityAt: Date; result: string | null; errorCode: string | null;

@@ -4,7 +4,7 @@ import type { RunQueries, RunSummary } from "./run-task.js";
 import type { QueueStatus } from "./execution-queue.js";
 
 function summary(run: RunSummary) {
-  return { ...run, startedAt: run.startedAt.toISOString(), finishedAt: run.finishedAt?.toISOString() ?? null };
+  return { ...run, goalVersion: run.goalVersion ?? null, startedAt: run.startedAt.toISOString(), finishedAt: run.finishedAt?.toISOString() ?? null };
 }
 
 export const executionRoutes: FastifyPluginAsync<{

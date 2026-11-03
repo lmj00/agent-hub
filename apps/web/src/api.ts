@@ -93,8 +93,10 @@ export const api = createApiClient();
 
 const messages: Record<string, string> = {
   INVALID_GOAL: "목표와 완료 기준, 허용 경로·제외 경로, 예산 범위를 확인해 주세요.",
-  GOAL_VERSION_CHANGED: "목표가 다른 요청으로 바뀌었습니다. 최신 내용을 확인한 뒤 다시 수정해 주세요.",
-  GOAL_COMPLETED: "완료된 목표의 기록은 수정할 수 없습니다.",
+  GOAL_VERSION_CHANGED: "목표 기준이 바뀌었습니다. 최신 버전과 작업 범위를 다시 확인해야 합니다.",
+  GOAL_PAUSED: "연결된 목표가 일시정지되어 새 실행을 시작할 수 없습니다.",
+  GOAL_BINDING_INVALID: "작업에 연결된 목표와 기준 버전을 확인해야 합니다.",
+  GOAL_COMPLETED: "완료된 목표를 수정하거나 연결된 작업을 다시 실행할 수 없습니다.",
   INVALID_CREDENTIALS: "비밀번호를 확인해 주세요.",
   TOO_MANY_REQUESTS: "로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요.",
   ORIGIN_NOT_ALLOWED:

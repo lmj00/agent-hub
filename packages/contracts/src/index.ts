@@ -155,6 +155,9 @@ export const projectsSchema = object({ projects: Type.Array(projectSchema) });
 export type Project = Static<typeof projectSchema>;
 export type CreateProject = Static<typeof createProjectSchema>;
 
+export const taskKinds = ["planning", "work"] as const;
+export type TaskKind = (typeof taskKinds)[number];
+
 export const createTaskSchema = object({
   instruction: Type.String({ minLength: 1, maxLength: 10000, pattern: "\\S" }),
   requestKey,
@@ -181,6 +184,9 @@ export type RetryState = Static<typeof retryStateSchema>;
 export const taskSchema = object({
   id,
   projectId: id,
+  kind: enumeration(taskKinds),
+  goalId: nullable(id),
+  goalVersion: nullable(Type.Integer({ minimum: 1 })),
   instruction: text,
   requestKey: text,
   status,
@@ -195,6 +201,7 @@ export const runSchema = object({
   id: text,
   taskId: text,
   attempt: Type.Integer({ minimum: 1 }),
+  goalVersion: nullable(Type.Integer({ minimum: 1 })),
   status,
   model: text,
   effort: text,

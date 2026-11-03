@@ -360,7 +360,7 @@ test("upgrading a pre-goal database preserves task data and adds both goal table
   const journalPath = join(folder, "meta/_journal.json"),
     journal = JSON.parse(readFileSync(journalPath, "utf8"));
   journal.entries = journal.entries.filter(
-    (entry: { tag: string }) => entry.tag !== "0015_goals",
+    (entry: { idx: number }) => entry.idx < 15,
   );
   writeFileSync(journalPath, JSON.stringify(journal));
   const path = join(directory, "old.sqlite"),

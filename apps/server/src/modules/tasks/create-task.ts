@@ -1,6 +1,7 @@
 import type { RetryState } from "../execution/retry-policy.js";
 import { randomUUID } from "node:crypto";
 import type { TaskStatus } from "./task-state.js";
+import type { TaskKind } from "@agent-hub/contracts";
 
 export type CreateTaskInput = {
   instruction: string;
@@ -10,6 +11,9 @@ export type CreateTaskInput = {
 export type Task = CreateTaskInput & {
   id: string;
   projectId: string;
+  kind?: TaskKind;
+  goalId?: string | null;
+  goalVersion?: number | null;
   status: TaskStatus;
   createdAt: Date;
   retryState?: RetryState | null;
@@ -48,6 +52,6 @@ export function createTask(
   };
 
   const result = store.register(task);
-  if (result.task.instruction !== task.instruction) throw new TaskRegistrationError("REQUEST_KEY_CONFLICT");
+  if (result.task.instruction !== task.instruction || result.task.goalId != null || (result.task.kind ?? "work") !== "work") throw new TaskRegistrationError("REQUEST_KEY_CONFLICT");
   return result;
 }

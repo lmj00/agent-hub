@@ -1,3 +1,4 @@
+import { assignableGoal, readGoalExecutionBlock } from "../goals/goal-execution-store.js";
 import { saveWorkflowStep } from "./workflow-step-store.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import { defaultEffortPolicy, selectInitialEffort } from "./effort-policy.js";
@@ -44,10 +45,10 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         return probing ? { kind: "held", runId: gate.sourceRunId!, reason: "provider_check_unavailable" } : { kind: "idle" };
       }
       const selectedId = probing ? gate.probeTaskId! : "taskId" in selection ? selection.taskId : undefined;
-      const task = tx.select({ id: tasks.id, instruction: tasks.instruction, status: tasks.status, cancelRequestedAt: tasks.cancelRequestedAt, workspaceKey: projects.workspaceKey })
+      const task = tx.select({ id: tasks.id, projectId: tasks.projectId, kind: tasks.kind, goalId: tasks.goalId, goalVersion: tasks.goalVersion, instruction: tasks.instruction, status: tasks.status, cancelRequestedAt: tasks.cancelRequestedAt, workspaceKey: projects.workspaceKey })
         .from(tasks).innerJoin(projects, eq(tasks.projectId, projects.id))
         .where(selectedId ? eq(tasks.id, selectedId)
-          : and(eq(tasks.status, "queued"), sql`${tasks.cancelRequestedAt} IS NULL`, inArray(projects.workspaceKey, "workspaceKeys" in selection ? selection.workspaceKeys : [])))
+          : and(eq(tasks.status, "queued"), sql`${tasks.cancelRequestedAt} IS NULL`, assignableGoal, inArray(projects.workspaceKey, "workspaceKeys" in selection ? selection.workspaceKeys : [])))
         .orderBy(asc(tasks.createdAt), asc(tasks.id)).get();
       if (!task) {
         if ("taskId" in selection) throw new Error("Task not found");
@@ -55,6 +56,11 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
       }
       if (probing && (task.status !== "queued" || ("workspaceKeys" in selection && !selection.workspaceKeys.includes(task.workspaceKey)))) {
         return { kind: "held", runId: gate.sourceRunId!, reason: "provider_check_unavailable" };
+      }
+      const goalBlock = readGoalExecutionBlock(tx, task);
+      if (goalBlock) {
+        if (probing) return { kind: "held", runId: gate.sourceRunId!, reason: goalBlock.toLowerCase() };
+        throw new Error(goalBlock);
       }
       if (task.status !== "queued") throw new Error("Only queued tasks can be started");
       if (task.cancelRequestedAt) throw new Error("Cancelled tasks cannot be started");
@@ -74,7 +80,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
       tx.update(tasks).set({ status: "running" }).where(eq(tasks.id, task.id)).run();
       const effortPolicy = policies.effortPolicy ?? defaultEffortPolicy;
       const effortSelection = selectInitialEffort(task.instruction, effortPolicy);
-      tx.insert(runs).values({ id, taskId: task.id, attempt, instanceId, status: "running", model, effort: effortSelection.effort, effortPolicy, workflowPolicy: policies.analysisWorkflow, startedAt: now, lastActivityAt: now,
+      tx.insert(runs).values({ id, taskId: task.id, attempt, goalVersion: task.goalVersion, instanceId, status: "running", model, effort: effortSelection.effort, effortPolicy, workflowPolicy: policies.analysisWorkflow, startedAt: now, lastActivityAt: now,
         providerGateVersion: probing ? gate.version : null }).run();
       if (probing) tx.update(providerGates).set({ probeRunId: id, ...(gate.reason === "capacity" && gate.capacityState ? { capacityState: { ...gate.capacityState, checks: gate.capacityState.checks + 1, nextCheckAt: null, reason: "checking" } } : {}) }).where(eq(providerGates.scope, providerScope)).run();
       tx.insert(steps).values({ id: randomUUID(), runId: id, sequence: 1, status: "running", startedAt: now, effort: effortSelection.effort, effortReason: effortSelection.reason, effortPolicyVersion: effortSelection.policyVersion }).run();
@@ -99,6 +105,8 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         if (tx.select({ id: runs.id }).from(runs).where(unresolvedRun).get()) throw new Error("Execution termination must be confirmed first");
         const task = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
         if (!task || task.status !== "queued" || task.cancelRequestedAt) throw new Error("Only uncancelled queued tasks can confirm provider recovery");
+        const goalBlock = readGoalExecutionBlock(tx, task);
+        if (goalBlock) throw new Error(goalBlock);
         reserveProviderCheck(tx, taskId, expectedVersion, now);
       }, { behavior: "immediate" });
     },
@@ -153,14 +161,14 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
       }, { behavior: "immediate" });
     },
     listByTask(taskId: string) {
-      return db.select({ id: runs.id, taskId: runs.taskId, attempt: runs.attempt, status: runs.status, model: runs.model, effort: runs.effort, startedAt: runs.startedAt, finishedAt: runs.finishedAt })
+      return db.select({ id: runs.id, taskId: runs.taskId, attempt: runs.attempt, goalVersion: runs.goalVersion, status: runs.status, model: runs.model, effort: runs.effort, startedAt: runs.startedAt, finishedAt: runs.finishedAt })
         .from(runs).where(eq(runs.taskId, taskId)).orderBy(desc(runs.attempt)).all();
     },
     findById(id: string) {
       const run = db.select().from(runs).where(eq(runs.id, id)).get();
       if (!run) return undefined;
       return {
-        id: run.id, taskId: run.taskId, attempt: run.attempt, status: run.status, model: run.model, effort: run.effort,
+        id: run.id, taskId: run.taskId, attempt: run.attempt, goalVersion: run.goalVersion, status: run.status, model: run.model, effort: run.effort,
         startedAt: run.startedAt, finishedAt: run.finishedAt, lastActivityAt: run.lastActivityAt,
         result: run.result, errorCode: run.errorCode,
         stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt, terminationConfirmedAt: run.terminationConfirmedAt, retryAt: run.retryAt,

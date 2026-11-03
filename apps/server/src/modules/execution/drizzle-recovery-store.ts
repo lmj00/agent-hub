@@ -1,3 +1,4 @@
+import { readGoalExecutionBlock } from "../goals/goal-execution-store.js";
 import { retryLimitReason } from "./retry-policy.js";
 import { accountRunDuration } from "./retry-state-store.js";
 import { randomUUID } from "node:crypto";
@@ -43,6 +44,8 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         if (input.action !== "cancel" && run && run.id === activeRunId) throw new RecoveryError("RUN_ACTIVE");
         if (input.action === "reconcile" && !run) throw new RecoveryError("NO_RUN");
         if (input.action === "resume") {
+          const goalBlock = readGoalExecutionBlock(tx, task);
+          if (goalBlock) throw new RecoveryError(goalBlock);
           if (task.retryState && retryLimitReason(task.retryState)) throw new RecoveryError("RECOVERY_LIMIT_REACHED");
           if (task.retryState?.nextAttemptAt && Date.parse(task.retryState.nextAttemptAt) > Date.now()) throw new RecoveryError("RETRY_TOO_EARLY");
           if (!canTrackTermination) throw new RecoveryError("TERMINATION_TRACKING_REQUIRED");
@@ -136,6 +139,8 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         }
         if (request.action === "reconcile" || finalStatus === "succeeded") return finish(null);
         if (finalStatus === "cancelled") return finish("TASK_CANCELLED");
+        const goalBlock = readGoalExecutionBlock(tx, task);
+        if (goalBlock) return finish(goalBlock);
         const retryState = tx.select({ state: tasks.retryState }).from(tasks).where(eq(tasks.id, task.id)).get()?.state;
         if (retryState && retryLimitReason(retryState)) return finish("RECOVERY_LIMIT_REACHED");
         if (retryState?.nextAttemptAt && Date.parse(retryState.nextAttemptAt) > now.getTime()) return finish("RETRY_TOO_EARLY");
