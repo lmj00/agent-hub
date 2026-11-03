@@ -623,18 +623,126 @@ REALITY: obligation-tiers pass T1부터 T4까지 현재 단계, 자동 복구와
 
 종료 관측을 제공하는 로컬 Docker 경로의 미확인 전제는 실제 프로세스와 SDK 검증으로 해소했습니다. 직접 SDK·구버전의 종료 증명은 지원하지 않으며 재개를 거부합니다. 실제 한도 응답의 재시도 시각 제공은 여전히 미확인이고 null 경로를 지원합니다. 자동 재시도·화면·인증·AWS 운영은 다음 단계에 남깁니다.
 
+## 5e 개발 실행 계획 검토 — 2026-11-03
+
+검토 대상은 이 문서의 **5e 개발·검증·변경 반영**이며 기준 코드는 `5b72b93`입니다. `plan-eng-review`로 현재 인터페이스와 테스트를 대조했습니다. 다음 내용은 구현할 계약이며, 통과 기록이 아닙니다. 2단계의 이전 검토와 구현 결과는 위에 보존합니다.
+
+### 범위와 구현 순서
+
+Scope Challenge: **scope accepted as-is**. 목표에서 발견한 작업의 실제 개발·검증·로컬 반영까지 연결합니다. 첫 운영 버전을 읽기 전용 분석으로 축소하지 않습니다. 기존 무인 개발 지침에 따라 일반 구현 선택을 구체화했으며 새로운 운영 배포 권한은 추가하지 않습니다.
+
+예상 변경은 소스·테스트·마이그레이션·문서를 합쳐 30~45개 파일, 주된 새 책임은 실행 자원 기록·개발 작업 공간·개발 검증·변경 반영의 네 가지입니다(구현 전 추정). 범용 작업 엔진과 원격 worker를 먼저 도입하는 대안은 더 많은 인터페이스가 필요해 제외합니다. 네 단위는 같은 실행·저장 계약을 순차적으로 확장하므로 병렬 구현하지 않습니다. 단위별 커밋은 독립 검증이 가능한 경계이며 기능 범위를 줄이는 것이 아닙니다.
+
+이미 있는 종료 관측(`container-runtime.ts`), 실행 소유권·기간 예산·Step 저장 확인, 범위별 Git 자료 준비(`prepared-workspace.ts`), 계획 예약을 재사용합니다. 새 패키지·실행 서버·모델 제공자는 추가하지 않습니다. 기존 단일 컨테이너 분석·취소·복구는 회귀 검증 대상입니다.
+
+### 1. 구조 검토
+
+A1 [CRITICAL] (confidence: 9/10) `modules/execution/drizzle-run-store.ts:190`의 `if (run.execution) throw new Error("Execution identity is already assigned");`는 Run당 컨테이너 하나를 전제로 합니다. 단계별 컨테이너를 연결하며 마지막 식별자만 덮어쓰면 앞선 프로세스가 복구에서 누락됩니다. **채택:** 개별 실행 식별자·순서·종료 시각을 별도 테이블에 보존하고, 앞선 종료를 DB에 기록한 뒤 다음 컨테이너를 시작합니다. Run 전체 종료는 모든 실행의 종료 근거가 있어야 확정합니다.
+
+A2 [CRITICAL] (confidence: 9/10) `modules/execution/container-runtime.ts:56`의 인증 폴더 마운트와 `docs/01-architecture.md:174`의 실제 테스트 요구를 함께 고려하면, 생성한 테스트를 같은 인증 환경에서 직접 실행해서는 안 됩니다. **채택:** 개발·검토 SDK는 별도 맥락으로 순차 호출하고, 서버가 실행하는 테스트는 인증 마운트·외부 통신이 없는 컨테이너에서 수행합니다. 실행 이미지·인자 배열·시간 상한은 운영자 설정에서 정하며 모델이 호스트 명령을 선택하지 않습니다.
+
+A3 [CRITICAL] (confidence: 9/10) `docs/01-architecture.md:176`의 “Git 변경과 SQLite 기록은 하나의 트랜잭션으로 함께 확정할 수 없습니다”는 재시작 경계를 명시해야 합니다. **채택:** ChangeApplication의 ID·부모·트리·결과 커밋·대상 브랜치를 먼저 기록하고 Git 참조를 예상 이전 커밋과 비교해 변경합니다. 변경 후 DB 확정 전 중단은 같은 커밋을 대조해 복구합니다. 취소·목표 수정과 반영 예약은 DB에서 순서를 정하고, 이미 승인되어 진행 중인 반영은 복구·대조 없이 롤백하거나 재실행하지 않습니다.
+
+A4 [CRITICAL] (confidence: 9/10) `docs/02-implementation-plan.md:305`의 “검증된 변경이 다음 작업의 기준 코드에 포함됩니다”는 원본 HEAD만 읽는 자료 준비와 구분해야 합니다. **채택:** 서버의 비공개 개발 저장소에 승인된 기준 브랜치를 축적합니다. AI에는 현재 Goal 범위의 파일만 복사하며 전체 Git 객체·원본 운영 폴더를 마운트하지 않습니다. 두 번째 작업은 첫 결과 커밋을 기준으로 준비합니다. 계획 당시 커밋과 실제 착수 커밋을 각각 기록하고, 원본 기준이 외부에서 바뀌면 자동 덮어쓰기 없이 보류합니다.
+
+구조가 다른 두 안을 비교했습니다. A는 서버가 소유한 개발 저장소·검증 기록·반영 기록 뒤에 `prepare / verify / apply / reconcile` 경계를 둡니다. B는 원본 저장소의 worktree와 브랜치를 직접 수정하고 모델에게 Git·테스트 실행까지 맡깁니다. **A 선택:** AI가 전체 저장소·인증을 보지 않아도 되고, 검증된 트리와 반영된 커밋의 일치를 서버가 확인합니다. B는 파일 수가 적지만 운영 저장소와 신뢰 경계가 섞입니다. Git·Docker 기본 기능을 쓰는 [Layer 1] 선택입니다.
+
+얕은 전달 계층·순서별 범용 클래스·중복 상태 소유를 만들지 않습니다. 실행 식별자는 새 테이블이 단독 소유하고 이전 Run 열은 마이그레이션 후 제거합니다. 테스트 증거는 서버가 소유하며 모델의 “통과” 문장은 검증 근거를 대신하지 않습니다. 자식 이벤트는 기존 허용 목록을 유지해 식별자·검증 결과 위조를 차단합니다. Dispositions: A1~A4 채택, 아래 R1~R4와 연결.
+
+### 2. 코드 품질 검토
+
+Q1 [CRITICAL] (confidence: 9/10) `modules/execution/execution-process.ts:29`의 `onEvent({ kind: "execution.prepared", execution: identity });`는 비동기 저장 완료를 기다리지 않습니다. **채택:** 부모가 실행 식별자를 저장했다는 확인 뒤에만 시작하고, 저장 실패·취소·늦게 끝난 준비는 시작하지 않습니다. 기존 `run-task.ts`와 `recover-task.ts`가 같은 종료 기록을 사용하게 하며 별도의 복구 SQL을 복제하지 않습니다.
+
+실행 기록 조회·검사만 작은 공통 모듈로 옮깁니다. 기존 호출자는 `drizzle-run-store.record`와 `drizzle-recovery-store.candidate/complete`, 제안된 호출자는 개발 단계 실행기입니다. 줄 수 절약보다 동일한 종료 계약이 목적이며 마이그레이션·테스트 때문에 총 변경량은 증가할 것으로 예상합니다. 그 외 닮은 코드만을 위한 추출은 없습니다. Disposition: Q1 채택(R1).
+
+### 3. 테스트 검토
+
+현재 Vitest·실제 SQLite/Git/Docker·Playwright를 사용합니다. `execution-process.test.ts`의 단일 실행·중단·재시작 검증은 유지합니다. 새 경로의 검증은 아래 G1~G10을 구현 시 추가하며 아직 모두 GAP입니다. 개별 내부 함수 개수 대신 실제 관측 가능한 계약 열 개를 추적합니다.
+
+```text
+Task 배정
+  +-- 개발 기준 준비 --> [G1 GAP, E2E] 범위/원본 불변/앞선 커밋 포함
+  +-- 개발 호출 ------> [G2 GAP, E2E] 저장 확인 뒤 시작/단계 중복 거부
+  |                      +-- 중단/재시작 --> [G3 GAP, E2E] 모든 실행 종료 확인
+  +-- 변경 수집 ------> [G4 GAP] 범위 이탈/링크/초과 크기 거부
+  +-- 실제 테스트 ----> [G5 GAP, E2E] 인증·통신 차단/비정상 종료/시간 초과
+  +-- 별도 검토 ------> [G6 GAP, EVAL] 실패 피드백/같은 Task의 제한된 재작업
+  +-- 반영 예약 ------> [G7 GAP, E2E] 취소·목표 변경·예약 순서
+  +-- Git 반영 -------> [G8 GAP, E2E] 비교 후 갱신/중단 뒤 같은 커밋 대조
+  +-- 성공·후속 작업 -> [G9 GAP, E2E] 두 작업의 기준 연결/중복 완료 방지
+  +-- 화면 확인 ------> [G10 GAP, E2E] 단계·검증·반영 결과와 보류 사유
+```
+
+현재 새 계약 커버리지: **0/10**, 기존 단일 실행 회귀 검증은 별도입니다. G1·G4는 실제 Git/파일 시스템, G2·G3·G7·G8은 SQLite와 프로세스 경계, G5는 실제 Docker, G6·G9는 합성 실행기 검증과 실제 Codex 예제, G10은 인증된 Chromium 흐름으로 확인합니다. 화면 닫기·재접속은 서버 작업을 취소하지 않으며 이중 요청·오래된 버전·오류 응답을 포함합니다. 테스트 제거 계획은 없습니다. Disposition: 열 계약 모두 기존 개발·검증 요구의 필수 증거로 채택(R1~R4). 모의 실행의 성공을 실제 모델 품질로 주장하지 않습니다.
+
+### 4. 성능 검토
+
+P1 [INFORMATIONAL] (confidence: 9/10) `run-task.ts:164`와 `recover-task.ts:60`은 종료 관측 전체를 8초로 제한합니다. 단계마다 8초씩 기다리도록 바꾸면 복구 시간이 단계 수에 비례해 늘어납니다. **채택:** 전체 관측 상한을 유지하고, 이미 DB에 종료가 보존된 컨테이너는 재관측하지 않습니다. 동시에 미확인 실행 하나만 허용합니다. 파일 크기·수·출력·재작업 횟수를 제한하고 긴 Git·Docker 작업을 SQLite 트랜잭션 밖에서 처리합니다. 2GiB 서버의 실제 메모리 여유는 미측정이며 6단계에서 확인합니다. Disposition: P1 채택(R1).
+
+### 결정 기록과 실패 시 동작
+
+| ID | 결정 | 기존 요구·권한 근거 | 실패 처리 |
+| --- | --- | --- | --- |
+| R1 | 실행별 기록·저장 확인·전체 종료 경계 | AGENTS의 단일 Run·무인 개발 지침, 01의 종료 확인 규칙 | 미확정이면 새 단계와 후속 Run 보류, 이력 보존 |
+| R2 | 비공개 개발 저장소와 제한된 파일 복사 | 01:174의 분리된 개발 공간, 02:305의 다음 작업 기준 | 범위 이탈·원본 변경·트리 불일치 보류 |
+| R3 | 인증 없는 실제 테스트와 별도 검토·제한된 재작업 | 01:184~186의 검증·재작업 요구 | 테스트 실패를 성공으로 바꾸지 않음, 한도 소진 보류 |
+| R4 | 변경 반영 기록과 Git 비교 갱신·복구 | 01:176~182의 Git/DB 중단 복구 요구 | 불명확한 반영을 대조할 때까지 같은 프로젝트 후속 변경 보류 |
+
+상태: R1~R4 채택. 일반 결정의 독립 진행과 기존 범위 구현 지시에 근거하며 별도 제품 권한을 추가하지 않습니다. Approval readiness: PASS(R1~R4). 외부 모델 검토는 기존 `codex_reviews=disabled` 설정에 따라 실행하지 않았습니다. 도구 업그레이드·텔레메트리 동의는 개발 요구와 별개이므로 설정을 유지했습니다.
+
+### Implementation Tasks
+
+추정 시간은 기존 구현을 재사용하는 경우이며 일정 보장이 아닙니다. 네 단위는 공통 실행·저장 모듈을 바꾸므로 순차 구현합니다.
+
+- [ ] **T1 (P1, human: 1~2일 / CC: 1~2시간 추정)** — 실행별 식별자·종료 기록과 저장 확인 뒤 시작. A1·Q1·P1. `execution/`, `db/`, 마이그레이션과 관련 테스트. SQLite 이전 데이터 보존·두 단계 컨테이너·저장 실패·재시작을 검증.
+- [ ] **T2 (P1, human: 2~3일 / CC: 2~3시간 추정)** — 비공개 개발 기준·작업별 변경 수집. A4·G1·G4. `goals/`, 개발 공간 모듈과 실제 Git 테스트. 첫 변경을 다음 작업에 포함하고 원본·범위 밖 파일을 보존.
+- [ ] **T3 (P1, human: 2~3일 / CC: 2~3시간 추정)** — 개발·실제 테스트·별도 검토와 재작업. A2·G5·G6. `execution/`, 설정·계약·컨테이너 테스트. 실제 Codex로 수정과 실패 피드백을 확인.
+- [ ] **T4 (P1, human: 2~3일 / CC: 2~3시간 추정)** — 변경 반영·중단 복구·후속 기준 연결. A3·G7~G10. `goals/`, DB·실행·화면과 관련 테스트. 완료 후 5f에서 자동 계획 시작과 서로 다른 두 작업을 검증.
+
+검증 명령은 `pnpm typecheck`, `RUN_CONTAINER_TESTS=1 pnpm test`, `pnpm build`, `pnpm test:browser`입니다. 각 단위에는 변경한 경계의 실제 검사만 먼저 실행하고 최종 연결 뒤 전체 검증을 수행합니다. 이전 검토 T1~T4는 위 구현 후 확인과 기존 커밋으로 완료되어 새 목록에서 중복 구현하지 않습니다. 새 TODOS 항목은 없고 필수 작업은 모두 이 단계에 포함합니다.
+
+### 범위 밖·근거·미확인 항목
+
+운영 배포·실제 거래 변경·원격 worker·동시 Run 확대는 이번 범위 밖입니다. 독립 목표가 동작하도록 만드는 5f는 5e의 검증 후 이어가며 생략하지 않습니다. 2GiB 장기 운영·일반 프로젝트의 의존성 이미지 준비는 실제 운영 검증이 남아 있습니다.
+
+Git 예상 이전 커밋 대조는 [git-update-ref 공식 문서](https://git-scm.com/docs/git-update-ref), 테스트 통신 차단은 [Docker none 네트워크 문서](https://docs.docker.com/engine/network/drivers/none/), 파일 마운트 권한은 [Docker bind mount 문서](https://docs.docker.com/engine/storage/bind-mounts/)를 확인했습니다. 로컬 Git 2.39.5와 Docker `create --help`에서 사용할 인자를 확인했습니다. Aside가 없어 공식 웹 문서를 사용했으며 외부 검색에 프로젝트 자료를 보내지 않았습니다.
+
+| 전제 | 근거 | 판정 |
+| --- | --- | --- |
+| 현재 단일 컨테이너·읽기 전용이며 개발 실행 미연결 | execution-process.ts:16, codex-executor.ts:50 | 확인 |
+| DB/Git를 같은 원자적 작업으로 처리할 수 없음 | 01:176, Git 공식 참조 갱신 계약 | 확인 |
+| 단계별 기록·반영 복구·두 작업 연속 실행의 정확성 | 위 G1~G10 | 구현 후 검증 필요 |
+| 2GiB에서 실제 개발·테스트의 자원 여유 | 6단계 완료 기준 | 미측정 |
+
+REALITY: premise-table pass unverified=2 docs/02-implementation-plan.md:174
+REALITY: already-done pass origin/main 이력에서 단일 실행·복구·계획 구현 확인, 개발 실행은 미구현 apps/server/src/modules/execution/execution-process.ts:16
+REALITY: surface-check pass Git/Docker 도움말과 실제 pnpm scripts 확인 package.json:12
+REALITY: binding-decisions pass 단일 Run·무인 개발·기존 사용자 변경 보존 AGENTS.md:20
+REALITY: numbers pass 파일·시간은 추정, 새 검증 계약 열 개는 G1~G10에서 집계 docs/02-implementation-plan.md:273
+REALITY: deferred-asks pass 연결된 이슈 없음, 5f와 운영 검증의 잔여 범위 명시 docs/02-implementation-plan.md:303
+REALITY: pr-count pass 네 순차 커밋 단위, 별도 병렬 PR 추가 없음 AGENTS.md:17
+REALITY: transaction-semantics pass Git/테스트는 DB 밖, 저장·중복 제약은 실제 SQLite로 검증 docs/01-architecture.md:176
+REALITY: prior-art pass 기존 Docker/Git와 SDK 재사용, 의존성 패치 없음 package.json:7
+REALITY: contract-assumptions pass 설치된 Git/Docker 인자 확인, 새 SDK 쓰기 권한은 구현 중 실제 검증 apps/server/src/modules/execution/codex-executor.ts:8
+REALITY: dependency-fallback pass T1은 기존 분석 회귀 검증으로 먼저 반영, 자동 계획은 T4 뒤 연결 docs/02-implementation-plan.md:275
+REALITY: obligation-tiers pass T1~T4 필수, 운영 배포와 원격 실행은 후속 단계 docs/02-implementation-plan.md:339
+
+### 검토 요약
+
+Scope accepted as-is. Architecture 4건, Code Quality 1건, Test GAP 10개, Performance 1건으로 총 16건이며 구현 작업에 연결했습니다. 현실 검사 12개와 미검증 전제 2개를 기록했습니다. 검사와 오류 처리를 모두 빠뜨린 무음 실패 경로는 0개입니다. 미결정 구현 선택은 0개이고 새 TODO 제안은 없습니다. 병렬 lane은 0개, 순차 단위는 4개입니다. Lake Score는 선택지 점수로 응답을 받은 검토가 아니므로 N/A입니다. 외부 검토는 disabled이며 독립 모델 검토 통과로 간주하지 않습니다. Suppressed findings: 없음.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 | --- | --- | --- | --- | --- | --- |
 | CEO Review | `/plan-ceo-review` | 제품 범위 | 0 | NOT RUN | 기존 범위 유지 |
-| Outside Review | 설정 disabled | 독립 모델 검토 | 0 | DISABLED | 외부 검토 없음 |
-| Eng Review | `/plan-eng-review` | 종료 확인·복구 계획과 구현 대조 | 1 | ADDRESSED | 발견 7건의 구현·검증 근거를 위에 기록. 별도 외부 재검토는 없음 |
-| Design Review | `/plan-design-review` | UI/UX | 0 | NOT APPLICABLE | 화면 변경 없음 |
+| Outside Review | 설정 disabled | 독립 모델 검토 | 1 | DISABLED | 외부 검토 없음 |
+| Eng Review | `/plan-eng-review` | 5e 구조·검증 계획 | 2 | ISSUES OPEN | 16건을 T1~T4에 연결, 구현·검증 대기 |
+| Design Review | `/plan-design-review` | UI/UX | 0 | NOT RUN | 화면 반영은 T4 검증에 포함 |
 | DX Review | `/plan-devex-review` | 개발 경험 | 0 | NOT RUN | 별도 검토 없음 |
 
-**OUTSIDE COVERAGE:** host=Codex, phase=plan-eng-review, outside_status=disabled. 외부 모델 호출 없음.
+**OUTSIDE COVERAGE:** host=Codex, provider=claude-code, phase=plan-review, outside_status=disabled. 외부 모델 호출 없음.
 
-**VERDICT:** 계획에서 제시한 T1~T4를 구현하고 검증했습니다. 2단계 읽기 전용 분석·종료 확인·수동 복구 범위를 완료했으며 다음은 3단계입니다. 최초 gstack 계획 기록의 ISSUES OPEN은 당시 상태이고, 이 문서의 구현 후 확인으로 보완 근거를 연결했습니다. 자동 복구·24시간 자율 운영 완료를 뜻하지 않습니다.
+**VERDICT:** 구현 순서와 검증 계약을 확정했습니다. 기능 검증은 아직 통과한 것으로 표시하지 않습니다. Eng review 기록은 구현할 보완 사항이 남아 있는 ISSUES OPEN입니다.
 
 NO UNRESOLVED DECISIONS
