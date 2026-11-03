@@ -18,6 +18,7 @@ import { projects, runs, tasks } from "../src/db/schema.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { runTask } from "../src/modules/execution/run-task.js";
 import { loadExecutionConfig } from "../src/modules/execution/execution-config.js";
+import { createProjectBudgetStore } from "../src/modules/budgets/project-budget-store.js";
 
 const exec = promisify(execFile);
 const image = "agent-hub-execution-test:local";
@@ -89,6 +90,19 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     expect(result).toMatchObject({ status: "interrupted", terminationConfirmedAt: expect.any(Date) });
     expect(readFileSync(join(home, "calls"), "utf8")).toBe("1");
     expect(store.findById(result.runId)!.steps).toHaveLength(1);
+  }, 15000);
+
+  test("stops at a persisted budget refusal without acknowledging the next container call", async () => {
+    const projectId = database.db.select().from(tasks).get()!.projectId;
+    createProjectBudgetStore(database.db).change(projectId, 0, { windowMs: 600000, maxCalls: 1, maxRunMs: 60000 });
+    database.client.prepare("UPDATE tasks SET instruction = 'workflow-protocol'").run();
+    store = createDrizzleRunStore(database.db, undefined, { analysisWorkflow: parseAnalysisWorkflow({}) });
+    const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, createContainerExecutor(image, home));
+    expect(result).toMatchObject({ status: "waiting_capacity", errorCode: "budget_limit", terminationConfirmedAt: expect.any(Date) });
+    expect(readFileSync(join(home, "calls"), "utf8")).toBe("1");
+    expect(store.findById(result.runId)!.steps).toMatchObject([{ sequence: 1, status: "succeeded" }]);
+    expect(database.db.select().from(tasks).get()?.budgetWait).toMatchObject({ scope: "project", reason: "call_limit" });
+    expect(store.getProviderGate().blocked).toBe(false);
   }, 15000);
 
   test("records termination only after detached descendants stop, then removes the container", async () => {

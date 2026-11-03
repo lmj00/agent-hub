@@ -21,7 +21,7 @@ export type AnalysisExecutor = {
   cleanup?(runId: string): Promise<void>;
 };
 
-export const analysisErrorCodes = ["authentication", "capacity", "unsupported_settings", "provider_error", "transient", "output_limit", "invalid_plan", "workflow_limit", "analysis_incomplete"] as const;
+export const analysisErrorCodes = ["authentication", "capacity", "unsupported_settings", "provider_error", "transient", "output_limit", "invalid_plan", "workflow_limit", "analysis_incomplete", "budget_limit"] as const;
 export class AnalysisError extends Error {
   constructor(
     public readonly code: (typeof analysisErrorCodes)[number],

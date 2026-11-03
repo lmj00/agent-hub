@@ -20,6 +20,7 @@ const actions: Record<RecoveryAction, string> = {
   resume: "재개",
 };
 const stopReasons = {
+  budget_limit: "기간 실행 예산 소진",
   user_cancel: "사용자 취소 요청",
   server_shutdown: "서버 종료",
   timeout: "제한 시간 초과",
@@ -50,6 +51,7 @@ const retryReasons: Record<string, string> = {
   user_cancelled: "사용자가 취소하여 다시 실행하지 않습니다.",
 };
 const runErrors: Record<string, string> = {
+  budget_limit: "프로젝트 또는 목표의 기간 예산을 다 썼습니다. 기존 결과를 보존하고 다음 기간에 실행 조건을 다시 확인합니다.",
   termination_unconfirmed:
     "결과가 있어도 전체 실행 종료를 확인하기 전까지 새 실행은 보류합니다.",
   owner_lost:
@@ -205,6 +207,13 @@ export function TaskDetail({
         {task.instruction}
       </h2>
       <p className="detail-created">등록 {dateTime(task.createdAt)}</p>
+      {task.budgetWait ? (
+        <div className="notice attention" aria-label="기간 예산 대기">
+          <strong>{task.budgetWait.scope === "goal" ? "목표" : "프로젝트"} 실행 예산 대기</strong>
+          <p>{task.budgetWait.reason === "call_limit" ? "호출 횟수 한도" : task.budgetWait.reason === "time_limit" ? "실행 시간 한도" : "예산 기간 종료"} · 다음 확인 {dateTime(task.budgetWait.retryAt)}</p>
+          <small>예산 기간이 바뀌면 자동으로 실행 조건을 다시 확인합니다. 계정 차단·목표 일시정지·작업 취소와 재시도 한도는 유지됩니다.</small>
+        </div>
+      ) : null}
       {task.retryState ? (
         <div className="notice retry-status" aria-label="자동 복구 정책">
           <strong>
@@ -258,6 +267,7 @@ export function TaskDetail({
             terminal ||
             retryLimited ||
             capacityLimited ||
+            (!!task.budgetWait && Date.parse(task.budgetWait.retryAt) > Date.now()) ||
             (task.status === "queued" && !gate?.blocked) ||
             !records.data
           }
@@ -362,7 +372,7 @@ export function TaskDetail({
       ) : (
         <p className="empty-list">
           {records.data
-            ? "아직 실행 기록이 없습니다. 대기 작업은 실행기가 순서대로 가져갑니다."
+            ? task.budgetWait ? "예산 대기 중이며 아직 실행을 시작하지 않았습니다." : "아직 실행 기록이 없습니다. 대기 작업은 실행기가 순서대로 가져갑니다."
             : "실행 기록을 불러오는 중…"}
         </p>
       )}
@@ -464,7 +474,7 @@ function RunRecord({
               <dt>종료 확인</dt>
               <dd>{dateTime(run.terminationConfirmedAt)}</dd>
             </div>
-            {run.retryAt || run.status === "waiting_capacity" ? (
+            {run.retryAt || (run.status === "waiting_capacity" && run.errorCode !== "budget_limit") ? (
               <div>
                 <dt>재시도 시각</dt>
                 <dd>{dateTime(run.retryAt)}</dd>

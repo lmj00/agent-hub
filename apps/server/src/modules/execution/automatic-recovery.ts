@@ -164,6 +164,7 @@ export function createAutomaticRecovery(options: {
               continue;
             }
             if (readGoalExecutionBlock(tx, task)) continue;
+            if (task.budgetWait) continue;
             if (
               state.decisionRunId !== run.id ||
               state.reason === "termination_unconfirmed"

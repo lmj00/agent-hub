@@ -77,6 +77,41 @@ export const analysisAssessmentSchema = object({
   ),
 });
 export type AnalysisAssessment = Static<typeof analysisAssessmentSchema>;
+export const periodBudgetPolicySchema = object({
+  windowMs: Type.Integer({ minimum: 600000, maximum: 86400000 }),
+  maxCalls: Type.Integer({ minimum: 1, maximum: 1000 }),
+  maxRunMs: Type.Integer({ minimum: 1000, maximum: 86400000 }),
+});
+export type PeriodBudgetPolicy = Static<typeof periodBudgetPolicySchema>;
+export const budgetWaitSchema = object({
+  scope: enumeration(["project", "goal"] as const),
+  reason: enumeration(["call_limit", "time_limit", "period_end"] as const),
+  retryAt: date,
+});
+export type BudgetWait = Static<typeof budgetWaitSchema>;
+export const budgetPeriodSchema = object({
+  startedAt: date,
+  endsAt: date,
+  policy: periodBudgetPolicySchema,
+  calls: Type.Integer({ minimum: 0 }),
+  chargedRunMs: Type.Integer({ minimum: 0 }),
+  reservedRunMs: Type.Integer({ minimum: 0 }),
+});
+export const projectBudgetSchema = object({
+  version: Type.Integer({ minimum: 0 }),
+  policy: periodBudgetPolicySchema,
+  accounts: Type.Array(object({
+    scope: enumeration(["project", "goal"] as const),
+    id,
+    label: text,
+    period: nullable(budgetPeriodSchema),
+  })),
+});
+export const updateProjectBudgetSchema = object({
+  expectedVersion: Type.Integer({ minimum: 0 }),
+  policy: periodBudgetPolicySchema,
+});
+export type ProjectBudget = Static<typeof projectBudgetSchema>;
 export const goalDefinitionSchema = object({
   description: Type.String({ minLength: 1, maxLength: 10000 }),
   completionCriteria: Type.String({ minLength: 1, maxLength: 6000 }),
@@ -92,11 +127,7 @@ export const goalDefinitionSchema = object({
     uniqueItems: true,
   }),
   checkIntervalMs: Type.Integer({ minimum: 60000, maximum: 86400000 }),
-  budget: object({
-    windowMs: Type.Integer({ minimum: 600000, maximum: 86400000 }),
-    maxCalls: Type.Integer({ minimum: 1, maximum: 1000 }),
-    maxRunMs: Type.Integer({ minimum: 1000, maximum: 86400000 }),
-  }),
+  budget: periodBudgetPolicySchema,
 });
 export type GoalDefinition = Static<typeof goalDefinitionSchema>;
 export const goalSchema = object({
@@ -130,6 +161,7 @@ export const stopReasons = [
   "user_cancel",
   "server_shutdown",
   "timeout",
+  "budget_limit",
   "unknown",
 ] as const;
 export type StopReason = (typeof stopReasons)[number];
@@ -187,6 +219,7 @@ export const taskSchema = object({
   kind: enumeration(taskKinds),
   goalId: nullable(id),
   goalVersion: nullable(Type.Integer({ minimum: 1 })),
+  budgetWait: nullable(budgetWaitSchema),
   instruction: text,
   requestKey: text,
   status,

@@ -121,7 +121,7 @@ export function GoalPanel({
                   {goal.definition.budget.maxRunMs / 60000}분 실행
                 </p>
                 <small>
-                  예산 적용과 다음 점검 예약은 자율 실행 연결 시 시작됩니다.
+                  현재 기간의 사용량은 실행 예산에서 확인합니다. 예산 수정은 다음 기간부터 적용되며, 다음 점검 예약은 아직 연결되지 않았습니다.
                 </small>
               </details>
               <div className="goal-actions">

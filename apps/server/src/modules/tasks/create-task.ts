@@ -1,7 +1,7 @@
 import type { RetryState } from "../execution/retry-policy.js";
 import { randomUUID } from "node:crypto";
 import type { TaskStatus } from "./task-state.js";
-import type { TaskKind } from "@agent-hub/contracts";
+import type { TaskKind, BudgetWait } from "@agent-hub/contracts";
 
 export type CreateTaskInput = {
   instruction: string;
@@ -14,6 +14,7 @@ export type Task = CreateTaskInput & {
   kind?: TaskKind;
   goalId?: string | null;
   goalVersion?: number | null;
+  budgetWait?: BudgetWait | null;
   status: TaskStatus;
   createdAt: Date;
   retryState?: RetryState | null;

@@ -1,4 +1,5 @@
 import { readGoalExecutionBlock } from "../goals/goal-execution-store.js";
+import { readBudgetWait, settleRunBudget } from "../budgets/budget-store.js";
 import { retryLimitReason } from "./retry-policy.js";
 import { accountRunDuration } from "./retry-state-store.js";
 import { randomUUID } from "node:crypto";
@@ -46,6 +47,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         if (input.action === "resume") {
           const goalBlock = readGoalExecutionBlock(tx, task);
           if (goalBlock) throw new RecoveryError(goalBlock);
+          if ((!run || run.terminationConfirmedAt) && readBudgetWait(tx, task, new Date())) throw new RecoveryError("PERIOD_BUDGET_EXHAUSTED");
           if (task.retryState && retryLimitReason(task.retryState)) throw new RecoveryError("RECOVERY_LIMIT_REACHED");
           if (task.retryState?.nextAttemptAt && Date.parse(task.retryState.nextAttemptAt) > Date.now()) throw new RecoveryError("RETRY_TOO_EARLY");
           if (!canTrackTermination) throw new RecoveryError("TERMINATION_TRACKING_REQUIRED");
@@ -75,7 +77,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
           cancelPendingProbe(tx, task.id);
         }
         const immediateCancel = input.action === "cancel" && !run;
-        if (immediateCancel) tx.update(tasks).set({ status: "cancelled" }).where(eq(tasks.id, task.id)).run();
+        if (immediateCancel) tx.update(tasks).set({ status: "cancelled", budgetWait: null }).where(eq(tasks.id, task.id)).run();
         const created = tx.insert(recoveryRequests).values({
           ...input, id: randomUUID(), status: immediateCancel ? "completed" : "pending",
           resultStatus: immediateCancel ? "cancelled" : null, createdAt: now, finishedAt: immediateCancel ? now : null,
@@ -127,12 +129,13 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
             tx.update(runs).set({ terminationConfirmedAt: proof }).where(eq(runs.id, run.id)).run();
           }
           accountRunDuration(tx, run.id, proof ?? run.finishedAt);
+          settleRunBudget(tx, run.id, proof);
           proofSaved = proof !== null;
           if (!proof) return finish("TERMINATION_UNCONFIRMED");
         }
         if (request.action === "cancel") {
           if (finalStatus === "succeeded") return finish("TASK_ALREADY_COMPLETED");
-          tx.update(tasks).set({ status: "cancelled", ...(task.retryState ? { retryState: { ...tx.select({ state: tasks.retryState }).from(tasks).where(eq(tasks.id, task.id)).get()!.state!, nextAttemptAt: null, reason: "user_cancelled" } } : {}) }).where(eq(tasks.id, task.id)).run();
+          tx.update(tasks).set({ status: "cancelled", budgetWait: null, ...(task.retryState ? { retryState: { ...tx.select({ state: tasks.retryState }).from(tasks).where(eq(tasks.id, task.id)).get()!.state!, nextAttemptAt: null, reason: "user_cancelled" } } : {}) }).where(eq(tasks.id, task.id)).run();
           cancelPendingProbe(tx, task.id);
           finalStatus = "cancelled";
           return finish(null);
@@ -141,6 +144,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         if (finalStatus === "cancelled") return finish("TASK_CANCELLED");
         const goalBlock = readGoalExecutionBlock(tx, task);
         if (goalBlock) return finish(goalBlock);
+        if (readBudgetWait(tx, task, now)) return finish("PERIOD_BUDGET_EXHAUSTED");
         const retryState = tx.select({ state: tasks.retryState }).from(tasks).where(eq(tasks.id, task.id)).get()?.state;
         if (retryState && retryLimitReason(retryState)) return finish("RECOVERY_LIMIT_REACHED");
         if (retryState?.nextAttemptAt && Date.parse(retryState.nextAttemptAt) > now.getTime()) return finish("RETRY_TOO_EARLY");
@@ -154,7 +158,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
           try { reserveProviderCheck(tx, task.id, request.providerGateVersion!, now); }
           catch (error) { if (error instanceof ProviderGateError) return finish(error.code); throw error; }
         }
-        tx.update(tasks).set({ status: "queued" }).where(eq(tasks.id, task.id)).run();
+        tx.update(tasks).set({ status: "queued", budgetWait: null }).where(eq(tasks.id, task.id)).run();
         finalStatus = "queued";
         return finish(null);
       }, { behavior: "immediate" });

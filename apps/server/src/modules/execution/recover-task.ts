@@ -40,7 +40,7 @@ export function reconcileCompletion(
   if (!confirmedAt || completion.status !== "interrupted") return completion;
   if (run.stopReason === "unknown") return { ...completion, status: "blocked", errorCode: "stop_reason_unknown" };
   if (run.result && run.errorCode === "termination_unconfirmed") return { ...completion, status: "succeeded", errorCode: null };
-  if (run.errorCode === "capacity") return { ...completion, status: "waiting_capacity" };
+  if (run.errorCode === "capacity" || run.errorCode === "budget_limit") return { ...completion, status: "waiting_capacity" };
   if (run.status === "running" || run.errorCode === "owner_lost") return { ...completion, status: "waiting_retry", errorCode: "owner_lost" };
   return { ...completion, status: "blocked" };
 }

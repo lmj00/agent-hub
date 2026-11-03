@@ -39,6 +39,40 @@ async function createTask(page: Page, instruction: string) {
   await expect(page.locator("#detail-heading")).toHaveText(instruction);
 }
 
+test("enforces project call budgets, keeps current usage after policy edits, and can cancel an unstarted waiting task", async ({ page }, testInfo) => {
+  await login(page);
+  await createProject(page, "예산 관리 예제");
+  const panel = page.getByRole("region", { name: "실행 예산", exact: true });
+  await panel.locator("summary").click();
+  await panel.getByRole("button", { name: "프로젝트 예산 수정" }).click();
+  await panel.getByLabel("예산 기간(분)", { exact: true }).fill("10");
+  await panel.getByLabel("호출 상한(회)", { exact: true }).fill("1");
+  await panel.getByLabel("실행 시간 상한(초)", { exact: true }).fill("60");
+  await panel.getByRole("button", { name: "예산 저장" }).click();
+  await expect(panel.getByRole("form", { name: "프로젝트 예산 설정" })).toHaveCount(0);
+  await createTask(page, "예산 범위 내 첫 분석");
+  await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
+  await expect(panel).toContainText("허용한 호출 1 / 1회");
+  await createTask(page, "다음 기간까지 기다리는 분석");
+  await expect(page.getByLabel("기간 예산 대기", { exact: true })).toContainText("프로젝트 실행 예산 대기");
+  await expect(page.getByRole("button", { name: "작업 재개", exact: true })).toBeDisabled();
+  await panel.getByRole("button", { name: "프로젝트 예산 수정" }).click();
+  await panel.getByLabel("호출 상한(회)", { exact: true }).fill("2");
+  await panel.getByRole("button", { name: "예산 저장" }).click();
+  await expect(panel).toContainText("프로젝트 설정: 10분마다 최대 2회");
+  await expect(panel).toContainText("허용한 호출 1 / 1회");
+  await page.reload();
+  await page.getByRole("button", { name: /예산 관리 예제 example/ }).click();
+  await page.getByRole("button", { name: /다음 기간까지 기다리는 분석/ }).click();
+  await expect(page.getByLabel("기간 예산 대기", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 375, height: 812 });
+  await panel.locator("summary").click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("budget-wait-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: "작업 취소", exact: true }).click();
+  await expect(page.locator(".detail-top .status-cancelled")).toBeVisible();
+});
+
 test("registers projects and tasks, escapes model output, and separates waiting, failed and stale service observations", async ({
   page,
   request,

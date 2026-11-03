@@ -35,8 +35,9 @@ export function createContainerExecutor(image: string, codexHome: string): Analy
         let result: AnalysisResult | undefined;
         let failure: AnalysisError | undefined;
         let processing = Promise.resolve();
-        const fail = () => {
-          failure = new AnalysisError("provider_error", true);
+        const fail = (error?: unknown) => {
+          // A server-side budget refusal must survive the child-protocol boundary.
+          failure = error instanceof AnalysisError && error.code === "budget_limit" ? error : new AnalysisError("provider_error", true);
           reject(failure);
           child.kill("SIGKILL");
         };

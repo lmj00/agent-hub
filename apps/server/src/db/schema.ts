@@ -2,7 +2,7 @@ import type { AnalysisWorkflowPolicy } from "../modules/execution/analysis-workf
 import type { EffortPolicy } from "../modules/execution/effort-policy.js";
 import type { RetryState } from "../modules/execution/retry-policy.js";
 import { sql } from "drizzle-orm";
-import type { ServiceSnapshot, CapacityState, AnalysisAssessment, GoalDefinition, Goal } from "@agent-hub/contracts";
+import type { ServiceSnapshot, CapacityState, AnalysisAssessment, GoalDefinition, Goal, PeriodBudgetPolicy, BudgetWait } from "@agent-hub/contracts";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { taskStatuses } from "../modules/tasks/task-state.js";
 import { stopReasons, type ExecutionIdentity } from "../modules/execution/analysis.js";
@@ -30,6 +30,7 @@ export const tasks = sqliteTable(
     kind: text("kind", { enum: ["planning", "work"] }).notNull().default("work"),
     goalId: text("goal_id").references(() => goals.id, { onDelete: "restrict" }),
     goalVersion: integer("goal_version"),
+    budgetWait: text("budget_wait", { mode: "json" }).$type<BudgetWait>(),
     instruction: text("instruction").notNull(),
     requestKey: text("request_key").notNull(),
     status: text("status", { enum: taskStatuses }).notNull().default("queued"),
@@ -125,6 +126,41 @@ export const goals = sqliteTable("goals", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 }, table => [uniqueIndex("goals_project_request_unique").on(table.projectId, table.requestKey)]);
+
+export const projectBudgets = sqliteTable("project_budgets", {
+  projectId: text("project_id").primaryKey().references(() => projects.id),
+  version: integer("version").notNull(),
+  policy: text("policy", { mode: "json" }).$type<PeriodBudgetPolicy>().notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const budgetPeriods = sqliteTable("budget_periods", {
+  id: text("id").primaryKey(),
+  accountKey: text("account_key").notNull(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  goalId: text("goal_id").references(() => goals.id),
+  startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+  endsAt: integer("ends_at", { mode: "timestamp_ms" }).notNull(),
+  policy: text("policy", { mode: "json" }).$type<PeriodBudgetPolicy>().notNull(),
+  calls: integer("calls").notNull().default(0),
+  // Includes unsettled reservations. A confirmed finish replaces its reservation with elapsed time.
+  runMs: integer("run_ms").notNull().default(0),
+}, table => [
+  uniqueIndex("budget_periods_account_start_unique").on(table.accountKey, table.startedAt),
+  check("budget_periods_valid", sql`${table.endsAt} > ${table.startedAt} AND ${table.calls} >= 0 AND ${table.runMs} >= 0`),
+]);
+
+export const budgetReservations = sqliteTable("budget_reservations", {
+  runId: text("run_id").primaryKey().references(() => runs.id),
+  projectPeriodId: text("project_period_id").notNull().references(() => budgetPeriods.id),
+  goalPeriodId: text("goal_period_id").references(() => budgetPeriods.id),
+  startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+  reservedRunMs: integer("reserved_run_ms").notNull(),
+  settledRunMs: integer("settled_run_ms"),
+  settledAt: integer("settled_at", { mode: "timestamp_ms" }),
+}, table => [
+  check("budget_reservations_valid", sql`${table.reservedRunMs} > 0 AND (${table.settledRunMs} IS NULL OR ${table.settledRunMs} >= 0)`),
+]);
 
 export const goalRevisions = sqliteTable("goal_revisions", {
   goalId: text("goal_id").notNull().references(() => goals.id),

@@ -5,7 +5,7 @@ import { AnalysisError, redactOutput, signalStopReason, type AnalysisEvent, type
 import type { TaskStatus } from "../tasks/task-state.js";
 import type { ProviderGateView } from "./provider-gate.js";
 
-export type ClaimedRun = { id: string; taskId: string; instruction: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; providerCheck?: boolean; remainingRunMs?: number };
+export type ClaimedRun = { id: string; taskId: string; instruction: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; providerCheck?: boolean; remainingRunMs?: number; budgetDeadlineAt?: number; budgetRunMs?: number };
 export type RunCompletion = {
   status: Exclude<TaskStatus, "queued" | "running">;
   result: string | null;
@@ -27,6 +27,7 @@ export function settleStoppedCompletion(completion: RunCompletion, reason: StopR
   }
   if (completion.status === "interrupted" && completion.terminationConfirmedAt) {
     if (reason === "timeout") return { ...completion, status: "failed", errorCode: "timeout" };
+    if (reason === "budget_limit") return { ...completion, status: "waiting_capacity", errorCode: "budget_limit" };
     if (reason === "server_shutdown") return { ...completion, status: "waiting_retry", errorCode: "server_shutdown" };
   }
   return completion;
@@ -41,7 +42,7 @@ export type RunStore = {
 export type QueueClaim =
   | { kind: "claimed"; run: ClaimedRun; workspaceKey: string }
   | { kind: "held"; runId: string; reason: string }
-  | { kind: "idle" };
+  | { kind: "idle"; reason?: string };
 export type QueueStore = RunStore & {
   claimNext(model: string, workspaceKeys: string[]): QueueClaim;
 };
@@ -99,9 +100,12 @@ export async function runClaimedTask(
   const abort = () => requestAbort(signalStopReason(options.signal));
   options.signal.addEventListener("abort", abort, { once: true });
   if (options.signal.aborted) abort();
+  const regularLimit = Math.min(options.timeoutMs, run.remainingRunMs ?? options.timeoutMs);
+  const budgetLimit = run.budgetDeadlineAt === undefined ? Infinity : Math.max(0, Math.min(run.budgetDeadlineAt - Date.now(), run.budgetRunMs ?? Infinity));
   const timer = setTimeout(() => {
-    requestAbort("timeout");
-  }, Math.min(options.timeoutMs, run.remainingRunMs ?? options.timeoutMs));
+    requestAbort(budgetLimit < regularLimit ? "budget_limit" : "timeout");
+  }, Math.min(regularLimit, budgetLimit));
+  if (budgetLimit <= 0) requestAbort("budget_limit");
   let completion: RunCompletion;
   try {
     controller.signal.throwIfAborted();
@@ -120,13 +124,13 @@ export async function runClaimedTask(
   } catch (error) {
     if (controller.signal.aborted) {
       // 중단 사유를 먼저 보존하고, 컨테이너 실행의 실제 종료는 아래에서 따로 관측합니다.
-      const errorCode = stopReason === "timeout" ? "timeout" : stopReason === "server_shutdown" ? "server_shutdown" : "cancel_requested";
+      const errorCode = stopReason === "timeout" ? "timeout" : stopReason === "budget_limit" ? "budget_limit" : stopReason === "server_shutdown" ? "server_shutdown" : "cancel_requested";
       completion = { status: "interrupted", result: null, errorCode, usage: null };
     } else {
       const code = error instanceof AnalysisError ? error.code : "execution_error";
       const status = !(error instanceof AnalysisError) || error.completionUncertain ? "interrupted"
         : ["authentication", "unsupported_settings", "invalid_plan", "workflow_limit", "analysis_incomplete"].includes(code) ? "blocked"
-        : code === "capacity" ? "waiting_capacity" : "failed";
+        : code === "capacity" || code === "budget_limit" ? "waiting_capacity" : "failed";
       completion = { status, result: null, errorCode: code, usage: null, retryAt: error instanceof AnalysisError ? error.retryAt : null };
     }
   } finally {

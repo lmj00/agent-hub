@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { reserveNextBudgetCall } from "../budgets/budget-store.js";
 import { and, asc, eq } from "drizzle-orm";
 import type { Effort } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
@@ -81,6 +82,7 @@ export function saveWorkflowStep(
     run.effortPolicy ?? defaultEffortPolicy,
     run.workflowPolicy,
   );
+  reserveNextBudgetCall(db, run.id, now);
   db.insert(steps)
     .values({
       id: randomUUID(),

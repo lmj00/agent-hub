@@ -77,7 +77,7 @@ export function createExecutionQueue(options: {
         } else if (claim.kind === "held") {
           status = { ...status, state: "held", runId: claim.runId, taskId: null, reason: claim.reason };
         } else {
-          status = { ...status, state: "idle", runId: null, taskId: null, reason: null };
+          status = { ...status, state: "idle", runId: null, taskId: null, reason: claim.reason ?? null };
         }
       } catch (error) {
         // 설정·저장 오류는 호출 없이 다시 확인하며, API에서 조치가 필요한 상태를 보여줍니다.

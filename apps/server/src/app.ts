@@ -28,6 +28,8 @@ import { createServiceObserver } from "./modules/services/service-observer.js";
 import { serviceRoutes } from "./modules/services/routes.js";
 import { createDrizzleGoalStore } from "./modules/goals/drizzle-goal-store.js";
 import { goalRoutes } from "./modules/goals/routes.js";
+import { budgetRoutes } from "./modules/budgets/routes.js";
+import { createProjectBudgetStore } from "./modules/budgets/project-budget-store.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
   databasePath: string;
@@ -108,6 +110,7 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
     const projectStore = createDrizzleProjectStore(database.db);
     scope.register(projectRoutes, { store: projectStore });
     scope.register(goalRoutes, { store: createDrizzleGoalStore(database.db) });
+    scope.register(budgetRoutes, { store: createProjectBudgetStore(database.db) });
     scope.register(serviceRoutes, {
       store: createDrizzleServiceStore(database.db), projectExists: id => projectStore.findById(id) !== undefined,
       getObserverStatus: () => serviceObserver?.getStatus() ?? { enabledKeys: new Set<string>(), errors: new Set<string>(), nextChecks: new Map<string, Date>() },

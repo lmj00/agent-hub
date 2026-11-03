@@ -1,4 +1,5 @@
 import { accountRunDuration, refreshRetryErrorStreak } from "./retry-state-store.js";
+import { settleRunBudget, runBudgetWait } from "../budgets/budget-store.js";
 import { randomUUID } from "node:crypto";
 import { and, eq, ne, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
@@ -10,7 +11,9 @@ type CompletionDb = Pick<ReturnType<typeof openDatabase>["db"], "select" | "upda
 // 호출자가 소유권·대상 Run을 검사한 같은 트랜잭션 안에서 사용합니다.
 export function saveRunCompletion(db: CompletionDb, run: { id: string; taskId: string }, completion: RunCompletion, now: Date) {
   const finishedAt = completion.status === "interrupted" ? null : now;
-  db.update(tasks).set({ status: completion.status }).where(eq(tasks.id, run.taskId)).run();
+  settleRunBudget(db, run.id, completion.terminationConfirmedAt ?? null);
+  const budgetWait = completion.errorCode === "budget_limit" ? runBudgetWait(db, run.id, now) : null;
+  db.update(tasks).set({ status: completion.status, budgetWait }).where(eq(tasks.id, run.taskId)).run();
   db.update(runs).set({
     status: completion.status, result: completion.result, errorCode: completion.errorCode, finishedAt, lastActivityAt: now,
     terminationConfirmedAt: completion.terminationConfirmedAt ?? null, retryAt: completion.retryAt ?? null,

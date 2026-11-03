@@ -17,6 +17,7 @@ import { dateTime, Status } from "./format.js";
 import { TaskDetail } from "./TaskDetail.js";
 import { ServicePanel } from "./ServicePanel.js";
 import { GoalPanel } from "./GoalPanel.js";
+import { BudgetPanel } from "./BudgetPanel.js";
 
 const queueLabels: Record<Queue["state"], string> = {
   disabled: "자동 실행 꺼짐",
@@ -192,7 +193,10 @@ export function Workspace({
             />
           ) : null}
           {project ? (
+            <>
             <GoalPanel key={`goals:${project.id}`} projectId={project.id} onExpired={onExpired} />
+            <BudgetPanel key={`budget:${project.id}`} projectId={project.id} onExpired={onExpired} />
+            </>
           ) : null}
           {project ? (
             <ProjectTasks
@@ -243,13 +247,15 @@ function ExecutionBar({ queue, gate }: { queue: Queue; gate: ProviderGate }) {
     >
       <div>
         <span className="eyebrow">실행기</span>
-        <strong>{queueLabels[queue.state]}</strong>
+        <strong>{queue.reason === "period_budget" ? "기간 예산 대기" : queueLabels[queue.state]}</strong>
       </div>
       <p>
         {gate.blocked
           ? `${gateLabels[gate.reason!] ?? "AI 계정 확인 필요"} · 제공자 재시도 시각 ${gate.retryAt ? dateTime(gate.retryAt) : "미제공"}`
           : queue.state === "disabled"
             ? "서버에 실행 설정을 연결하면 대기 작업을 순서대로 처리합니다."
+            : queue.reason === "period_budget"
+              ? "실행 예산이 있는 작업을 기다립니다. 각 작업에서 대기 이유와 다음 확인 시각을 볼 수 있습니다."
             : queue.state === "held"
               ? "종료가 확인되지 않은 실행을 먼저 확인해 주세요."
               : queue.state === "error"

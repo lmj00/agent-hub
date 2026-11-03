@@ -43,7 +43,7 @@ async function login(session?: Browser) {
 
 test("only liveness and authentication endpoints are public; private reads and writes require a session", async () => {
   expect((await app.inject({ method: "GET", url: "/health/live" })).statusCode).toBe(200);
-  for (const url of ["/health/ready", "/projects", "/execution", "/execution/provider-gate", "/projects/00000000-0000-4000-8000-000000000001/services", "/projects/00000000-0000-4000-8000-000000000001/goals", "/goals/00000000-0000-4000-8000-000000000001/revisions"]) {
+  for (const url of ["/health/ready", "/projects", "/execution", "/execution/provider-gate", "/projects/00000000-0000-4000-8000-000000000001/services", "/projects/00000000-0000-4000-8000-000000000001/budget", "/projects/00000000-0000-4000-8000-000000000001/goals", "/goals/00000000-0000-4000-8000-000000000001/revisions"]) {
     const response = await app.inject({ method: "GET", url }); expect(response.statusCode).toBe(401);
     expect(response.headers["cache-control"]).toBe("no-store");
   }
@@ -86,6 +86,7 @@ test("missing, stale, or cross-session CSRF tokens cannot register a task or sig
   }
   expect((await app.inject({ method: "POST", url: "/auth/login", payload: { password } })).statusCode).toBe(403);
   expect((await app.inject({ method: "PATCH", url: "/goals/00000000-0000-4000-8000-000000000001", headers: { cookie: signedIn.cookie }, payload: {} })).statusCode).toBe(403);
+  expect((await app.inject({ method: "PUT", url: "/projects/00000000-0000-4000-8000-000000000001/budget", headers: { cookie: signedIn.cookie }, payload: {} })).statusCode).toBe(403);
   const created = await app.inject({ method: "POST", url: "/projects", headers: { cookie: signedIn.cookie, "x-csrf-token": signedIn.csrfToken }, payload: { name: "Example", workspaceKey: "example" } });
   expect(created.statusCode).toBe(201);
 });

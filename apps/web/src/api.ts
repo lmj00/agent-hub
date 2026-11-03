@@ -21,7 +21,7 @@ export function createApiClient(fetcher: typeof fetch = fetch) {
     path: string,
     schema: T,
     options: {
-      method?: "GET" | "POST" | "PATCH";
+      method?: "GET" | "POST" | "PATCH" | "PUT";
       body?: unknown;
       signal?: AbortSignal;
     } = {},
@@ -34,7 +34,7 @@ export function createApiClient(fetcher: typeof fetch = fetch) {
         ? AbortSignal.any([options.signal, AbortSignal.timeout(10000)])
         : AbortSignal.timeout(10000),
       headers:
-        options.method === "POST" || options.method === "PATCH"
+        options.method === "POST" || options.method === "PATCH" || options.method === "PUT"
           ? { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }
           : {},
       ...(options.body === undefined
@@ -92,6 +92,9 @@ export function createApiClient(fetcher: typeof fetch = fetch) {
 export const api = createApiClient();
 
 const messages: Record<string, string> = {
+  INVALID_BUDGET: "예산 기간·호출 횟수·실행 시간을 확인해 주세요.",
+  BUDGET_VERSION_CHANGED: "예산 설정이 바뀌었습니다. 최신 설정을 다시 열어 확인해 주세요.",
+  PERIOD_BUDGET_EXHAUSTED: "이번 기간의 실행 예산을 다 썼습니다. 표시된 다음 기간까지 기다려 주세요.",
   INVALID_GOAL: "목표와 완료 기준, 허용 경로·제외 경로, 예산 범위를 확인해 주세요.",
   GOAL_VERSION_CHANGED: "목표 기준이 바뀌었습니다. 최신 버전과 작업 범위를 다시 확인해야 합니다.",
   GOAL_PAUSED: "연결된 목표가 일시정지되어 새 실행을 시작할 수 없습니다.",
