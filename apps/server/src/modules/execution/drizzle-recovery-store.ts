@@ -121,7 +121,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         if (request.action !== "cancel" && (task.cancelRequestedAt || task.status === "cancelled")) return finish("TASK_CANCELLED");
         if (run) {
           const proof = run.terminationConfirmedAt ?? confirmedAt;
-          if (run.status === "running" || run.status === "interrupted") {
+          if (run.status === "running" || run.status === "interrupted" || (run.stopReason === "scope_changed" && !run.terminationConfirmedAt)) {
             const usage = tx.select({ usage: steps.usage }).from(steps).where(eq(steps.runId, run.id)).orderBy(asc(steps.sequence)).get()?.usage ?? null;
             let completion = reconcileCompletion(run, usage, proof, task.cancelRequestedAt !== null);
             if (proof && run.planResult?.status === "proposed" && !run.stopReason && !task.cancelRequestedAt && [null, "owner_lost", "termination_unconfirmed"].includes(run.errorCode)) {

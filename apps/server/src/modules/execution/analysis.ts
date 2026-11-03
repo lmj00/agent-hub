@@ -13,7 +13,7 @@ export type AnalysisResult = { output: string; usage: AnalysisUsage | null };
 
 // 이유가 없는 외부 중단 신호는 재실행하지 않는 사용자 취소로 취급합니다.
 export function signalStopReason(signal: AbortSignal): StopReason {
-  return signal.reason === "server_shutdown" ? "server_shutdown" : "user_cancel";
+  return signal.reason === "server_shutdown" ? "server_shutdown" : signal.reason === "scope_changed" ? "scope_changed" : "user_cancel";
 }
 
 export type AnalysisExecutor = {

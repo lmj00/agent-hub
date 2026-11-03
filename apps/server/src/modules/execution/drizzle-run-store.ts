@@ -167,6 +167,12 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         return reason;
       }, { behavior: "immediate" });
     },
+    requestedStop(runId: string): StopReason | null {
+      assertExecutionOwner(db, ownerToken);
+      const run = db.select({ reason: runs.stopReason }).from(runs).where(and(eq(runs.id, runId), eq(runs.instanceId, instanceId), eq(runs.status, "running"))).get();
+      if (!run) throw new Error("Cannot observe a run not owned by this executor");
+      return run.reason;
+    },
     record(runId: string, event: AnalysisEvent) {
       db.transaction((tx) => {
         assertOwner(tx);

@@ -160,6 +160,7 @@ export const controlGoalSchema = object({
 export const goalHistorySchema = object({ revisions: Type.Array(goalSchema) });
 export const stopReasons = [
   "user_cancel",
+  "scope_changed",
   "server_shutdown",
   "timeout",
   "budget_limit",

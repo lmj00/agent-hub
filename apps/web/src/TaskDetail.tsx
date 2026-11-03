@@ -20,6 +20,7 @@ const actions: Record<RecoveryAction, string> = {
   resume: "재개",
 };
 const stopReasons = {
+  scope_changed: "목표의 허용 범위 축소",
   budget_limit: "기간 실행 예산 소진",
   user_cancel: "사용자 취소 요청",
   server_shutdown: "서버 종료",
@@ -51,6 +52,7 @@ const retryReasons: Record<string, string> = {
   user_cancelled: "사용자가 취소하여 다시 실행하지 않습니다.",
 };
 const runErrors: Record<string, string> = {
+  scope_changed: "목표에서 허용한 경로가 줄어 실행 중단을 요청했습니다. 종료 확인 후 범위 변경에 따른 취소로 기록합니다.",
   verification_required: "목표 완료 제안은 받았지만 실제 코드와 테스트의 검증 근거가 없어 완료로 반영하지 않았습니다.",
   work_unresolved: "이 목표의 기존 작업에 대기·실패·취소 기록이 있어 새 작업 생성을 보류했습니다.",
   planning_no_progress: "코드가 바뀌지 않았는데 같은 작업을 반복 제안해 계획을 보류했습니다.",

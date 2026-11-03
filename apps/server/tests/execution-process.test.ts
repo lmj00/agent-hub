@@ -210,6 +210,34 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     expect(result).toMatchObject({ status: "interrupted", terminationConfirmedAt: expect.any(Date), result: null });
   }, 15000);
 
+  test.each(["executor", "cli"])("%s observes a durable scope reduction during a quiet container call and stops its descendants", async mode => {
+    const git = (...args: string[]) => exec("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args], { cwd: workspace, env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
+    await git("init", "--quiet", "--template="); writeFileSync(join(workspace, "main.ts"), "fixture source\n"); await git("add", "--all"); await git("commit", "--quiet", "-m", "fixture");
+    const projectId = database.db.select().from(tasks).get()!.projectId;
+    const goalStore = createDrizzleGoalStore(database.db);
+    const goal = goalStore.register(projectId, "scope-stop", { description: "Inspect", completionCriteria: "Verified", kind: "finite", priority: 50, allowedPaths: ["."], excludedPaths: [], checkIntervalMs: 60000, budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 } }).goal;
+    database.client.prepare("UPDATE tasks SET instruction = 'wait', goal_id = ?, goal_version = 1").run(goal.id);
+    const root = preparedInputRoot(join(directory, "hub.sqlite"));
+    const start = () => {
+      if (mode === "executor") return runTask({ taskId, model: "fixture", workspace, timeoutMs: 15000, signal: new AbortController().signal }, store, createPreparedExecutor(createContainerExecutor(image, home), root));
+      writeFileSync(join(home, "auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
+      const config = join(directory, "execution.json"); writeFileSync(config, JSON.stringify({ model: "fixture", codexHome: home, containerImage: image, workspaces: { example: workspace } }));
+      return exec(process.execPath, ["--import", "tsx", fileURLToPath(new URL("../src/run-task-cli.ts", import.meta.url)), "--task", taskId, "--config", config], { env: { ...process.env, DATABASE_PATH: join(directory, "hub.sqlite") }, timeout: 18000 }).then(() => ({ exitCode: 0 }), error => ({ exitCode: error.code }));
+    };
+    const pending = start();
+    await vi.waitFor(() => expect(database.client.prepare("SELECT kind FROM events WHERE kind = 'fixture.ready'").get()).toBeDefined(), { timeout: 10000 });
+    goalStore.change(goal.id, "reduce", 1, { definition: { ...goal.definition, allowedPaths: ["tests"] } });
+    const result = await pending;
+    expect(result).toMatchObject(mode === "executor" ? { status: "cancelled", errorCode: "scope_changed" } : { exitCode: 1 });
+    const run = database.db.select().from(runs).get()!;
+    expect(run).toMatchObject({ status: "cancelled", stopReason: "scope_changed", result: null, terminationConfirmedAt: expect.any(Date) });
+    expect(database.db.select().from(tasks).get()?.cancelRequestedAt).toBeNull();
+    expect(goalStore.findById(goal.id).status).toBe("active");
+    expect(existsSync(run.preparedInput!.directory)).toBe(false);
+    const heartbeat = readFileSync(join(home, "heartbeat"), "utf8"); await delay(150); expect(readFileSync(join(home, "heartbeat"), "utf8")).toBe(heartbeat);
+    expect(readFileSync(join(workspace, "main.ts"), "utf8")).toBe("fixture source\n");
+  }, 22000);
+
   test("transfers a provider retry time from the runner to durable gate storage", async () => {
     database.client.prepare("UPDATE tasks SET instruction = 'capacity'").run();
     const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, createContainerExecutor(image, home));

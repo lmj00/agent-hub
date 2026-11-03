@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Goal, GoalDefinition } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
-import { goalRevisions, goals, projects } from "../../db/schema.js";
+import { goalRevisions, goals, projects, runs, tasks } from "../../db/schema.js";
 import { GoalError, normalizeGoalDefinition } from "./goal-policy.js";
+import { narrowsGoalScope } from "./goal-scope-policy.js";
 
 function view(row: typeof goals.$inferSelect): Goal {
   return {
@@ -159,6 +160,11 @@ export function createDrizzleGoalStore(
               snapshot: goal,
             })
             .run();
+          if (narrowsGoalScope(row.definition, definition)) {
+            const active = tx.select({ id: runs.id }).from(runs).innerJoin(tasks, eq(runs.taskId, tasks.id))
+              .where(and(eq(tasks.goalId, id), isNull(runs.stopReason), or(eq(runs.status, "running"), and(inArray(runs.status, ["interrupted", "blocked", "waiting_capacity"]), isNull(runs.terminationConfirmedAt))))).all();
+            for (const run of active) tx.update(runs).set({ stopReason: "scope_changed", stopRequestedAt: updated.updatedAt }).where(eq(runs.id, run.id)).run();
+          }
           return goal;
         },
         { behavior: "immediate" },

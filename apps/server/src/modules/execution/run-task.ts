@@ -27,6 +27,7 @@ export function settleStoppedCompletion(completion: RunCompletion, reason: StopR
   if (cancelled || reason === "user_cancel") {
     return { ...completion, status: completion.terminationConfirmedAt ? "cancelled" : "interrupted", errorCode: "cancel_requested" };
   }
+  if (reason === "scope_changed") return { ...completion, status: completion.terminationConfirmedAt ? "cancelled" : "interrupted", result: null, errorCode: "scope_changed" };
   if (completion.status === "interrupted" && completion.terminationConfirmedAt) {
     if (reason === "timeout") return { ...completion, status: "failed", errorCode: "timeout" };
     if (reason === "budget_limit") return { ...completion, status: "waiting_capacity", errorCode: "budget_limit" };
@@ -38,6 +39,7 @@ export type RunStore = {
   claim(taskId: string, model: string): ClaimedRun;
   record(runId: string, event: AnalysisEvent): void;
   requestStop(runId: string, reason: StopReason): StopReason;
+  requestedStop?(runId: string): StopReason | null;
   finish(runId: string, completion: RunCompletion): RunCompletion;
 };
 
@@ -102,6 +104,17 @@ export async function runClaimedTask(
   const abort = () => requestAbort(signalStopReason(options.signal));
   options.signal.addEventListener("abort", abort, { once: true });
   if (options.signal.aborted) abort();
+  const observeStop = () => {
+    if (controller.signal.aborted) return;
+    try {
+      const reason = store.requestedStop?.(run.id);
+      if (reason) requestAbort(reason);
+    } catch { requestAbort("unknown"); }
+  };
+  // Also observes durable requests from another API process while a CLI Run or
+  // a quiet model call emits no events. A failed read stops rather than assuming
+  // the old permissions still apply.
+  const stopObserver = store.requestedStop ? setInterval(observeStop, 500) : undefined;
   const regularLimit = Math.min(options.timeoutMs, run.remainingRunMs ?? options.timeoutMs);
   const budgetLimit = run.budgetDeadlineAt === undefined ? Infinity : Math.max(0, Math.min(run.budgetDeadlineAt - Date.now(), run.budgetRunMs ?? Infinity));
   const timer = setTimeout(() => {
@@ -110,12 +123,14 @@ export async function runClaimedTask(
   if (budgetLimit <= 0) requestAbort("budget_limit");
   let completion: RunCompletion;
   try {
+    observeStop();
     controller.signal.throwIfAborted();
     // 중단 신호에 응답하지 않는 실행도 기다림을 끝냅니다. Promise.race는 뒤늦은 실패도 처리합니다.
     const result = await Promise.race([
       executor.analyze({
         instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal, runId: run.id, effort: run.effort ?? "medium", ...(run.effortPolicy ? { effortPolicy: run.effortPolicy } : {}), ...(run.workflow ? { workflow: run.workflow } : {}), ...(run.scope ? { scope: run.scope } : {}), ...(run.planning ? { planning: run.planning } : {}),
       }, (event) => {
+        observeStop();
         if (acceptingEvents && !controller.signal.aborted) store.record(run.id, event);
       }),
       interrupted,
@@ -126,7 +141,7 @@ export async function runClaimedTask(
   } catch (error) {
     if (controller.signal.aborted) {
       // 중단 사유를 먼저 보존하고, 컨테이너 실행의 실제 종료는 아래에서 따로 관측합니다.
-      const errorCode = stopReason === "timeout" ? "timeout" : stopReason === "budget_limit" ? "budget_limit" : stopReason === "server_shutdown" ? "server_shutdown" : "cancel_requested";
+      const errorCode = stopReason === "timeout" ? "timeout" : stopReason === "budget_limit" ? "budget_limit" : stopReason === "server_shutdown" ? "server_shutdown" : stopReason === "scope_changed" ? "scope_changed" : stopReason === "unknown" ? "stop_reason_unknown" : "cancel_requested";
       completion = { status: "interrupted", result: null, errorCode, usage: null };
     } else {
       const code = error instanceof AnalysisError ? error.code : "execution_error";
@@ -138,6 +153,7 @@ export async function runClaimedTask(
   } finally {
     acceptingEvents = false;
     clearTimeout(timer);
+    clearInterval(stopObserver);
     options.signal.removeEventListener("abort", abort);
   }
   if (executor.confirmTermination) {
