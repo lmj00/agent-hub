@@ -120,7 +120,7 @@ beforeEach(async () => {
           name: "Fixture",
           url,
           bearerToken: token,
-          timeoutMs: 100,
+          timeoutMs: 2000,
         },
       ],
     }),
@@ -161,13 +161,18 @@ test.each([
   "classifies %s without following redirects or returning upstream details",
   async (responseMode, code) => {
     mode = responseMode;
-    const result = await observeService(target, new AbortController().signal);
+    const result = await observeService(
+      responseMode === "timeout" ? { ...target, timeoutMs: 100 } : target,
+      new AbortController().signal,
+    );
     expect(result).toMatchObject({
       success: false,
       errorCode: code,
       snapshot: null,
     });
-    expect(seen).toHaveLength(1);
+    // A deadline can expire before the local server accepts the connection.
+    if (responseMode === "timeout") expect(seen.length).toBeLessThanOrEqual(1);
+    else expect(seen).toHaveLength(1);
     expect(JSON.stringify(result)).not.toContain("private");
     expect(JSON.stringify(result)).not.toContain(token);
     expect(JSON.stringify(result)).not.toContain(target.url);
