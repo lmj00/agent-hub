@@ -1,0 +1,4 @@
+# Replace with your own DNS name; auth.json origin must be https://the-same-name.
+agent-hub.example.com {
+	reverse_proxy 127.0.0.1:3000
+}

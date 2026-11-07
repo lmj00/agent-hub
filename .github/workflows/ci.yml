@@ -43,6 +43,7 @@ jobs:
           docker build -f docker/analysis-runner.Dockerfile -t agent-hub-sandbox-test:local .
           docker build -t agent-hub-execution-test:local apps/server/tests/fixtures/container-runner
           docker build -f docker/verification-node.Dockerfile -t agent-hub-verification-node:local .
+          docker build -f docker/operations-check.Dockerfile -t agent-hub-operations-test:local .
       - name: Load the scoped runner AppArmor profile
         run: sudo apparmor_parser -r apps/server/security/agent-hub-codex.apparmor
       - name: Test with real container boundaries and synthetic credentials

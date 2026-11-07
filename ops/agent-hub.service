@@ -1,0 +1,38 @@
+[Unit]
+Description=agent-hub project controller
+Requires=docker.service
+After=network-online.target docker.service
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=agent-hub
+Group=agent-hub
+SupplementaryGroups=docker
+WorkingDirectory=/opt/agent-hub
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/agent-hub/server.env
+ExecStartPre=/usr/bin/test -r ${AUTH_CONFIG}
+ExecStartPre=/usr/bin/test -r ${EXECUTION_CONFIG}
+ExecStartPre=/usr/bin/test -r /opt/agent-hub/apps/web/dist/index.html
+ExecStart=/usr/local/bin/node /opt/agent-hub/apps/server/dist/main.js
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillMode=control-group
+StateDirectory=agent-hub
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/agent-hub
+LogNamespace=agent-hub
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

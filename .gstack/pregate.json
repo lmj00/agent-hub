@@ -58,11 +58,13 @@
       "apps/server/tests/runtime-skill-evidence.test.ts",
       "apps/server/tests/change-application.test.ts",
       "apps/server/tests/goal-verification.test.ts",
-      "apps/server/tests/goal-verification-evidence.test.ts"
+      "apps/server/tests/goal-verification-evidence.test.ts",
+      "apps/server/tests/operations.test.ts"
     ],
     "apps/web/src/**": [
       "apps/web/e2e/workspace.spec.ts",
-      "apps/web/tests/api.test.ts"
+      "apps/web/tests/api.test.ts",
+      "apps/server/tests/operations.test.ts"
     ],
     "apps/web/e2e/**": [
       "apps/web/e2e/workspace.spec.ts"
@@ -198,7 +200,8 @@
     ],
     ".dockerignore": [
       "apps/server/tests/runtime-skills.test.ts",
-      "apps/server/tests/codex-sandbox.test.ts"
+      "apps/server/tests/codex-sandbox.test.ts",
+      "apps/server/tests/operations.test.ts"
     ],
     "apps/server/src/modules/execution/runtime-skill-store.ts": [
       "apps/server/tests/runtime-skill-store.test.ts",
@@ -209,7 +212,8 @@
       "apps/server/tests/runtime-skill-store.test.ts",
       "apps/server/tests/development-executor.test.ts",
       "apps/server/tests/goal-planning.test.ts",
-      "apps/server/tests/change-application.test.ts"
+      "apps/server/tests/change-application.test.ts",
+      "apps/server/tests/operations.test.ts"
     ],
     "apps/server/tests/fixtures/container-runner/**": [
       "apps/server/tests/execution-process.test.ts"
@@ -228,6 +232,18 @@
     "apps/server/src/modules/execution/runtime-skill-evidence.ts": [
       "apps/server/tests/runtime-skill-evidence.test.ts",
       "apps/web/e2e/workspace.spec.ts"
+    ],
+    "ops/**": [
+      "apps/server/tests/operations.test.ts"
+    ],
+    "docker/operations-check.Dockerfile": [
+      "apps/server/tests/operations.test.ts"
+    ],
+    "scripts/check-operations.mjs": [
+      "apps/server/tests/operations.test.ts"
+    ],
+    ".github/workflows/ci.yml": [
+      "apps/server/tests/operations.test.ts"
     ]
   }
 }

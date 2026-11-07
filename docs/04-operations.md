@@ -1,0 +1,134 @@
+# 운영 준비와 확인 절차
+
+이 문서는 설치할 파일과 운영자가 확인할 순서를 정리합니다. **실제 AWS 설치와 원격 24시간 운영은 아직 수행하지 않았습니다.** 백업·알림·장기 관측은 [구현 계획의 O1~O4](02-implementation-plan.md#implementation-tasks--운영-준비)에서 따로 관리합니다.
+
+## 서버 구성과 저장 위치
+
+브라우저는 Caddy의 HTTPS 주소에 접속합니다. Caddy는 같은 서버의 `127.0.0.1:3000`으로 요청을 전달하고, Node 서버는 로그인과 작업 처리를 담당합니다. systemd는 Node 종료를 감지해 제한된 횟수로 재시작합니다. 개발·테스트는 기존 Docker 실행기를 사용합니다.
+
+| 위치 | 내용과 권한 |
+| --- | --- |
+| `/opt/agent-hub` | 검증한 코드·잠금 파일·Linux용 의존성·빌드. 운영 계정이 임의로 바꾸지 못하도록 배포 계정이 관리 |
+| `/etc/agent-hub` | 비공개 설정. 디렉터리 `0700`, 파일 `0600`, 소유자 `agent-hub` |
+| `/var/lib/agent-hub/state` | SQLite와 같은 부모에 생기는 `.development-*` Git 저장소·`.prepared-*` 입력. 숨김 디렉터리도 보존 |
+| `/var/lib/agent-hub/codex` | 이 서비스 전용 ChatGPT 로그인. 다른 개인 Codex 설정을 복사하지 않음 |
+| `/var/lib/agent-hub/workspaces` | 비밀 없는 개발용 원본 사본. 실행 중인 트레이딩 서비스 디렉터리를 직접 지정하지 않음 |
+
+상태·인증·개발 사본은 `agent-hub` 소유의 비공개 경로입니다. DB 절대 경로는 개발 Git·입력 경로 계산에 쓰이므로 임의로 바꾸지 않습니다. 코드 배포 파일과 상태 파일을 함께 삭제하거나 SQLite 파일 하나만 복사해 복원이 된 것으로 판단하지 않습니다.
+
+서버는 Docker 데몬을 제어하는 신뢰된 프로그램입니다. 이 구성의 `docker` 그룹 권한은 호스트 관리자 수준이므로 systemd의 파일 제한이 Docker를 통한 호스트 접근까지 막는다고 해석하면 안 됩니다. AI 컨테이너에는 Docker 소켓을 전달하지 않습니다. [Docker 권한 설명](https://docs.docker.com/engine/install/linux-postinstall/)
+
+## 설치 전 준비
+
+운영 대상은 systemd가 PID 1로 실행되는 전용 Linux 서버입니다. 아래 명령은 **운영자가 대상 서버에서 적용하는 절차**이며 저장소를 읽거나 테스트하는 것만으로 설치되지 않습니다.
+
+1. `.nvmrc`의 Node 버전을 `/usr/local/bin/node`에 준비하고 `node --version`을 확인합니다. 서비스는 로그인 셸이나 nvm 초기화에 의존하지 않습니다. pnpm은 루트 `package.json`의 `packageManager`와 맞춥니다.
+2. **호스트 Git CLI**, 로컬 Docker Engine·CLI와 Caddy를 준비합니다. 개발용 Git 준비·반영은 호스트에서 실행하므로 이미지 안의 Git만으로는 부족합니다. Docker 소켓을 네트워크로 공개하지 않습니다. Caddy 검사 버전은 `2.11.9`이며 운영 패키지도 설치 후 `caddy version`을 기록합니다.
+3. 전용 `agent-hub` 일반 계정과 그룹을 준비합니다. UID 0으로 서버를 실행하지 않습니다. 서비스의 `SupplementaryGroups=docker`와 실제 그룹·소켓 소유권을 대조합니다.
+4. `/opt/agent-hub`에 검토한 버전을 준비하고 그 Linux 환경에서 다음을 실행합니다. macOS의 `node_modules`는 복사하지 않습니다.
+
+```sh
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm build
+sudo -u agent-hub git --version
+docker build -f docker/analysis-runner.Dockerfile -t agent-hub-analysis:local .
+docker build -f docker/verification-node.Dockerfile -t agent-hub-verification-node:local .
+```
+
+`apps/server/dist`, `migrations`, `security`, `runtime`, `skills/gstack`, `apps/web/dist`, 공통 패키지와 의존성을 함께 보존합니다. AppArmor가 켜진 Docker 호스트에서는 [전용 프로필](../README.md#컨테이너로-실행-종료-확인하기)도 먼저 설치합니다. 실제 프로젝트의 테스트 도구·의존성은 해당 테스트 이미지에 미리 넣습니다.
+
+## 비공개 설정 준비
+
+다음은 새 설치의 경로 준비 예시입니다. 기존 경로가 있다면 소유권·내용부터 확인합니다.
+
+```sh
+sudo install -d -o agent-hub -g agent-hub -m 0700 /etc/agent-hub
+sudo install -d -o agent-hub -g agent-hub -m 0700 /var/lib/agent-hub
+sudo -u agent-hub mkdir -m 0700 /var/lib/agent-hub/state /var/lib/agent-hub/codex /var/lib/agent-hub/workspaces
+sudo install -o agent-hub -g agent-hub -m 0600 ops/server.env.example /etc/agent-hub/server.env
+```
+
+`server.env`는 systemd가 읽는 `이름=값` 형식입니다. `export`나 셸 명령을 넣지 않습니다. `LOCAL_API_ONLY`는 운영 설정에 추가하지 않습니다. `PORT`를 바꾸면 Caddy의 전달 포트도 함께 바꿉니다.
+
+로그인 설정은 빌드한 CLI로 생성합니다. 예시 도메인을 실제 도메인으로 바꾸고 출력되는 비밀번호는 비공개로 보관합니다. 공유 로그 환경에서는 `--password-stdin`으로 비밀번호 관리 도구의 출력을 전달합니다. CLI는 기존 파일을 덮어쓰지 않습니다.
+
+```sh
+sudo -u agent-hub /usr/local/bin/node /opt/agent-hub/apps/server/dist/auth-setup-cli.js \
+  --config /etc/agent-hub/auth.json --origin https://agent-hub.example.com
+```
+
+전용 Codex 로그인은 README의 인증 준비 절차에 따라 `/var/lib/agent-hub/codex`에 준비합니다. `/etc/agent-hub/execution.json`은 `0600`으로 저장합니다. 아래는 의존성 없는 예제 프로젝트를 준비한 뒤 수정해서 쓰는 형식 예시입니다. 디렉터리와 고정 테스트가 실제로 존재해야 합니다.
+
+```json
+{
+  "model": "gpt-6.1-sol",
+  "codexHome": "/var/lib/agent-hub/codex",
+  "containerImage": "agent-hub-analysis:local",
+  "timeoutMs": 300000,
+  "workspaces": {
+    "example-project": "/var/lib/agent-hub/workspaces/example-project"
+  },
+  "verification": {
+    "example-project": {
+      "image": "agent-hub-verification-node:local",
+      "command": ["node", "--test", "tests/calculation.test.mjs"],
+      "timeoutMs": 60000
+    }
+  },
+  "automaticRecovery": {}
+}
+```
+
+`automaticRecovery: {}`는 [기존 기본 정책](../README.md#자동-복구-켜기)을 켭니다. 별도로 목표·프로젝트의 기간 예산과 실행 허용 범위를 정합니다. 서비스 읽기 관측이 필요하면 비공개 `SERVICE_CONFIG`를 준비한 뒤 환경 파일의 해당 줄을 켭니다.
+
+## 서비스·HTTPS·로그 적용
+
+[서비스 파일](../ops/agent-hub.service)은 인증·실행 설정·화면 빌드가 없으면 시작하지 않습니다. 실패 시 5초 후 재시작하며 5분 내 시작 횟수를 5회로 제한합니다. `systemctl stop`에 의한 종료는 자동 재시작하지 않습니다. 종료가 확인되지 않은 AI 컨테이너는 기존 복구 정책에 따라 보류됩니다. 재시작 설정이 성공이나 종료 확인을 대신하지 않습니다. [systemd 서비스 정책](https://www.freedesktop.org/software/systemd/man/259/systemd.service.html)
+
+```sh
+sudo install -m 0644 ops/agent-hub.service /etc/systemd/system/agent-hub.service
+sudo install -d -m 0755 /etc/systemd/journald@agent-hub.conf.d
+sudo install -m 0644 ops/journald-agent-hub.conf /etc/systemd/journald@agent-hub.conf.d/60-limits.conf
+sudo systemd-analyze verify /etc/systemd/system/agent-hub.service
+sudo systemctl daemon-reload
+```
+
+[전용 로그 설정](../ops/journald-agent-hub.conf)은 `agent-hub` namespace에만 적용합니다. 초기 정책은 디스크 256MiB, 메모리 로그 64MiB, 보존 7일입니다. 용량 보장이나 측정한 서버 사양은 아닙니다. 전역 journald 설정과 다른 서비스의 로그는 변경하지 않습니다. 이미 namespace가 실행 중이면 해당 `systemd-journald@agent-hub.service`만 재시작해 설정을 다시 읽습니다. DB의 업무 이력과 Docker 실행 파일 보존은 이 정책과 별개입니다. [journald namespace 설정](https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html)
+
+[Caddyfile](../ops/Caddyfile)의 도메인을 바꾸고 `auth.json`의 HTTPS origin과 일치시킵니다. 기존 Caddy를 공유한다면 기존 사이트를 덮어쓰지 않고 사이트 블록을 추가합니다. Caddy의 인증서 저장 경로는 서비스 계정이 쓰고 재시작 후에도 보존할 수 있어야 합니다.
+
+```sh
+sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo systemctl enable --now agent-hub.service
+sudo systemctl reload caddy.service
+```
+
+새 Caddy 설치는 `reload` 전에 배포 패키지의 서비스 시작 절차를 따릅니다. DNS가 해당 서버를 가리키고 인증서 발급에 필요한 80·443 포트가 연결되어야 합니다. Node의 3000 포트는 외부에 공개하지 않습니다. 로컬 검사에서 만든 CA는 공인 인증서가 아닙니다. [Caddy 자동 HTTPS](https://caddyserver.com/docs/automatic-https)
+
+## 상태 확인·중지·업데이트
+
+```sh
+sudo systemctl status agent-hub.service --no-pager
+sudo journalctl --namespace=agent-hub -u agent-hub.service -n 100 --no-pager
+curl --fail https://agent-hub.example.com/health/live
+```
+
+생존 확인은 HTTP 응답 여부만 뜻합니다. 브라우저로 로그인한 뒤 `/health/ready`와 관리 화면의 실행 상태·최근 활동·보류 이유를 함께 확인합니다. `/health/ready`는 로그인 전 `401`이 정상입니다. 긴 AI 실행 중 대기열의 마지막 확인 시각이 오래됐다는 이유만으로 프로세스가 죽었다고 판단하지 않습니다.
+
+중지는 `sudo systemctl stop agent-hub.service`를 사용합니다. 설정 오류를 고친 뒤 시작 횟수 제한이 남았다면 `sudo systemctl reset-failed agent-hub.service` 후 다시 시작합니다. 원인을 확인하지 않고 반복해서 제한을 초기화하지 않습니다.
+
+업데이트 순서는 **서버 중지 → 실행·반영의 종료 확인 → 일관된 백업 → 검증한 빌드와 이미지 교체 → 시작 → 로그인·DB·실행 상태 확인**입니다. 자동 백업·복원 명령은 O2에서 구현할 예정입니다. 그 전에는 무인 업데이트 절차로 사용하지 않습니다. 마이그레이션 이후 옛 실행 파일만 복원하는 방법은 롤백으로 보장하지 않습니다.
+
+## 저장소에서 재현하는 검사
+
+Docker가 준비된 개발 환경에서 실행합니다. 첫 명령은 공개 소스로 검사 이미지를 미리 빌드합니다. 테스트도 캐시를 재사용해 현재 소스로 다시 빌드하므로 오래된 이미지로 통과하지 않습니다. 실제 검사는 외부 네트워크·호스트 경로·Docker 소켓 없는 컨테이너 안에서 수행합니다.
+
+```sh
+docker build -f docker/operations-check.Dockerfile -t agent-hub-operations-test:local .
+RUN_CONTAINER_TESTS=1 pnpm --filter @agent-hub/server exec vitest run tests/operations.test.ts
+```
+
+검사 범위는 실제 `systemd-analyze`의 서비스 파일 해석, Caddy 설정 검증, 누락 설정 거부, 로컬 CA를 명시적으로 신뢰한 HTTPS 로그인·접근 차단·프로젝트 저장, Node 종료 후 재시작의 데이터·세션 보존입니다. 테스트 계정과 빈 실행 설정만 사용하며 모델 호출은 없습니다. 인증서 검증을 끄지 않습니다.
+
+컨테이너의 `docker.service`는 의존 관계 해석용 빈 fixture입니다. **systemd가 PID 1로 재시작하는 동작, 실제 Docker 작업 복구, 공인 인증서 발급, AWS 방화벽·외부 점검·24시간 자율 운영은 이 검사의 범위가 아닙니다.** O4와 실제 운영 기록에서 확인합니다.
