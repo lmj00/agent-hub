@@ -35,6 +35,7 @@
 - [이전 계획과 검증 기록](history/implementation-records.md): 단계별 검토·실험·발견한 문제.
 - [기술 선택의 상세 기록](history/technology-decisions.md): 비교한 대안·감수한 단점·변경 이유.
 - [실제 작업의 자원 사용 기록](history/resource-measurements.md): 측정 환경·메모리·파일 증가량과 해석의 한계.
+- [20분 지속 관리 시험](history/continuous-operation.md): 입력 변화·관측 실패·대기·앱 다시 열기에 따른 실제 AI 동작.
 
 기록 안의 “현재”, “다음 단계”, 테스트 수는 **작성 당시 기준**입니다. 새 작업을 결정할 때는 현재 진행 문서를 먼저 확인합니다. 과거 소스 줄 번호를 최신 위치로 해석하지 않습니다.
 
