@@ -1,6 +1,17 @@
 # 운영 준비와 확인 절차
 
-이 문서는 설치할 파일과 운영자가 확인할 순서를 정리합니다. **실제 AWS 설치와 원격 24시간 운영은 아직 수행하지 않았습니다.** 백업·알림·장기 관측은 [구현 계획의 O1~O4](02-implementation-plan.md#implementation-tasks--운영-준비)에서 따로 관리합니다.
+이 문서는 설치할 파일과 운영자가 확인할 순서를 정리합니다. **실제 AWS 설치와 원격 24시간 운영은 아직 수행하지 않았습니다.** 백업·알림·장기 관측은 [구현 계획의 O1~O4](plans/operations.md#implementation-tasks--운영-준비)에서 따로 관리합니다.
+
+## 필요한 절차 찾기
+
+| 하려는 일 | 읽을 곳 |
+| --- | --- |
+| 처음 설치 | [설치 전 준비](#설치-전-준비) → [비공개 설정](#비공개-설정-준비) → [서비스·HTTPS](#서비스https로그-적용) |
+| 서버 상태 확인·중지·업데이트 | [운영 명령](#상태-확인중지업데이트) |
+| 작업 데이터와 개발 코드 보존 | [백업·복원](#db개발-코드-백업과-복원) |
+| 실제로 검사한 범위 확인 | [저장소에서 재현하는 검사](#저장소에서-재현하는-검사) |
+
+설치 명령은 운영자가 대상 Linux 서버에서 실행합니다. 이 문서를 읽거나 로컬 테스트를 실행하는 것만으로 원격 서버가 설치되지는 않습니다.
 
 ## 서버 구성과 저장 위치
 
@@ -36,7 +47,7 @@ docker build -f docker/analysis-runner.Dockerfile -t agent-hub-analysis:local .
 docker build -f docker/verification-node.Dockerfile -t agent-hub-verification-node:local .
 ```
 
-`apps/server/dist`, `migrations`, `security`, `runtime`, `skills/gstack`, `apps/web/dist`, 공통 패키지와 의존성을 함께 보존합니다. AppArmor가 켜진 Docker 호스트에서는 [전용 프로필](../README.md#컨테이너로-실행-종료-확인하기)도 먼저 설치합니다. 실제 프로젝트의 테스트 도구·의존성은 해당 테스트 이미지에 미리 넣습니다.
+`apps/server/dist`, `migrations`, `security`, `runtime`, `skills/gstack`, `apps/web/dist`, 공통 패키지와 의존성을 함께 보존합니다. AppArmor가 켜진 Docker 호스트에서는 [전용 프로필](guides/agents.md#컨테이너로-실행-종료-확인하기)도 먼저 설치합니다. 실제 프로젝트의 테스트 도구·의존성은 해당 테스트 이미지에 미리 넣습니다.
 
 ## 비공개 설정 준비
 
@@ -80,7 +91,7 @@ sudo -u agent-hub /usr/local/bin/node /opt/agent-hub/apps/server/dist/auth-setup
 }
 ```
 
-`automaticRecovery: {}`는 [기존 기본 정책](../README.md#자동-복구-켜기)을 켭니다. 별도로 목표·프로젝트의 기간 예산과 실행 허용 범위를 정합니다. 서비스 읽기 관측이 필요하면 비공개 `SERVICE_CONFIG`를 준비한 뒤 환경 파일의 해당 줄을 켭니다.
+`automaticRecovery: {}`는 [기존 기본 정책](guides/agents.md#자동-복구-켜기)을 켭니다. 별도로 목표·프로젝트의 기간 예산과 실행 허용 범위를 정합니다. 서비스 읽기 관측이 필요하면 비공개 `SERVICE_CONFIG`를 준비한 뒤 환경 파일의 해당 줄을 켭니다.
 
 ## 서비스·HTTPS·로그 적용
 
@@ -94,7 +105,13 @@ sudo systemd-analyze verify /etc/systemd/system/agent-hub.service
 sudo systemctl daemon-reload
 ```
 
-[전용 로그 설정](../ops/journald-agent-hub.conf)은 `agent-hub` namespace에만 적용합니다. 초기 정책은 디스크 256MiB, 메모리 로그 64MiB, 보존 7일입니다. 용량 보장이나 측정한 서버 사양은 아닙니다. 전역 journald 설정과 다른 서비스의 로그는 변경하지 않습니다. 이미 namespace가 실행 중이면 해당 `systemd-journald@agent-hub.service`만 재시작해 설정을 다시 읽습니다. DB의 업무 이력과 Docker 실행 파일 보존은 이 정책과 별개입니다. [journald namespace 설정](https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html)
+[전용 로그 설정](../ops/journald-agent-hub.conf)은 `agent-hub` namespace에만 적용합니다. 초기 정책은 디스크 256MiB, 메모리 로그 64MiB, 보존 7일입니다.
+
+용량 보장이나 측정한 서버 사양은 아닙니다. 전역 journald 설정과 다른 서비스의 로그는 변경하지 않습니다.
+
+이미 namespace가 실행 중이면 해당 `systemd-journald@agent-hub.service`만 재시작해 설정을 다시 읽습니다. DB의 업무 이력과 Docker 실행 파일 보존은 이 정책과 별개입니다.
+
+[journald namespace 설정](https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html)
 
 [Caddyfile](../ops/Caddyfile)의 도메인을 바꾸고 `auth.json`의 HTTPS origin과 일치시킵니다. 기존 Caddy를 공유한다면 기존 사이트를 덮어쓰지 않고 사이트 블록을 추가합니다. Caddy의 인증서 저장 경로는 서비스 계정이 쓰고 재시작 후에도 보존할 수 있어야 합니다.
 
