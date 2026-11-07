@@ -12,7 +12,8 @@
     "auth:setup": "tsx src/auth-setup-cli.ts",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "monitor": "tsx src/monitor-cli.ts"
   },
   "dependencies": {
     "@agent-hub/contracts": "workspace:*",

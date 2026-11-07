@@ -6,6 +6,7 @@ import csrf from "@fastify/csrf-protection";
 import rateLimit from "@fastify/rate-limit";
 import type { AuthConfig } from "./auth-config.js";
 import { verifyPassword } from "./password.js";
+import { acceptsReadinessToken, readinessToken } from "./readiness-token.js";
 
 declare module "fastify" {
   interface Session { authenticated?: boolean; expiresAt?: number; }
@@ -24,6 +25,7 @@ function matchesHost(host: string | undefined, origin: URL) {
 
 export async function installAuthentication(app: FastifyInstance, config: AuthConfig, store: SessionStore) {
   const origin = new URL(config.origin);
+  const monitorToken = readinessToken(config);
   const secure = origin.protocol === "https:";
   const cookieName = secure ? "__Host-agent_hub_session" : "agent_hub_session";
   app.addHook("onRequest", async (request, reply) => {
@@ -44,6 +46,10 @@ export async function installAuthentication(app: FastifyInstance, config: AuthCo
   await app.register(csrf, { sessionPlugin: "@fastify/session", getToken: request => typeof request.headers["x-csrf-token"] === "string" ? request.headers["x-csrf-token"] : undefined, logLevel: "debug" });
   await app.register(rateLimit, { global: false, max: 10, timeWindow: 60000 });
   app.addHook("onRequest", (request, reply, done) => {
+    if (request.method === "GET" && request.routeOptions.url === "/health/ready"
+      && acceptsReadinessToken(request.headers.authorization, monitorToken)) {
+      done(); return;
+    }
     if (!publicRoutes.has(request.routeOptions.url ?? "") && request.session.authenticated !== true) {
       void reply.code(401).send({ error: "AUTHENTICATION_REQUIRED", message: "Sign in to continue" }); return;
     }

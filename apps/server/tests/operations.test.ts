@@ -61,6 +61,8 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
           missingConfigRejected: true,
           httpsValidated: true,
           authenticationChecked: true,
+          scopedMonitorHttpsChecked: true,
+          monitorDetectsAppAndProxyStop: true,
           restartPreservedDataAndSession: true,
           modelCalls: 0,
           systemdSupervisionTested: false,

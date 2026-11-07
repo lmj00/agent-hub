@@ -296,6 +296,57 @@ try {
   assert.equal((await http("/")).status, 200);
   assert.equal((await http("/health/ready")).status, 401);
   assert.equal((await http("/projects")).status, 401);
+  const monitorConfig = join(directory, "monitor.json");
+  command(process.execPath, [
+    join(root, "apps/server/dist/monitor-cli.js"),
+    "setup",
+    "--auth-config",
+    runtime.AUTH_CONFIG,
+    "--destination",
+    monitorConfig,
+  ]);
+  const monitorCredential = JSON.parse(
+    readFileSync(monitorConfig, "utf8"),
+  ).bearerToken;
+  const monitorHeaders = { authorization: `Bearer ${monitorCredential}` };
+  assert.equal(
+    (await http("/health/ready", { headers: monitorHeaders })).status,
+    200,
+  );
+  assert.equal(
+    (await http("/projects", { headers: monitorHeaders })).status,
+    401,
+  );
+  const monitorEnvironment = {
+    ...env,
+    NODE_EXTRA_CA_CERTS: join(
+      env.XDG_DATA_HOME,
+      "caddy/pki/authorities/local/root.crt",
+    ),
+  };
+  async function monitor(expectedStatus, expectedReason, trusted = true) {
+    const probe = launch(
+      process.execPath,
+      [
+        join(root, "apps/server/dist/monitor-cli.js"),
+        "check",
+        "--config",
+        monitorConfig,
+      ],
+      trusted ? monitorEnvironment : env,
+    );
+    const result = await probe.ended;
+    assert.equal(result.code, expectedStatus === "available" ? 0 : 1);
+    const output = JSON.parse(probe.output());
+    assert.equal(output.status, expectedStatus);
+    assert.equal(output.reason, expectedReason);
+    assert.ok(
+      !probe.output().includes(monitorCredential),
+      "Monitor credential leaked to output",
+    );
+  }
+  await monitor("unavailable", "request_failed", false);
+  await monitor("available", "ready");
   const initial = await http("/auth/session");
   const login = await http("/auth/login", {
     method: "POST",
@@ -341,6 +392,7 @@ try {
   });
   assert.equal(created.status, 201);
   assert.equal((await stop(app)).code, 0);
+  await monitor("unavailable", "http_error");
   app = await startApp();
   const projects = await http("/projects", { headers });
   assert.equal(
@@ -351,8 +403,10 @@ try {
   assert.equal(projects.json().projects.length, 1);
   assert.equal(projects.json().projects[0].id, created.json().id);
   assert.equal((await http("/health/ready", { headers })).status, 200);
+  await monitor("available", "ready");
   assert.equal((await stop(app)).code, 0);
   assert.equal((await stop(caddy)).code, 0);
+  await monitor("unavailable", "request_failed");
   for (const child of children)
     assert.ok(
       !child.output().includes(password),
@@ -368,6 +422,8 @@ try {
       missingConfigRejected: true,
       httpsValidated: true,
       authenticationChecked: true,
+      scopedMonitorHttpsChecked: true,
+      monitorDetectsAppAndProxyStop: true,
       restartPreservedDataAndSession: true,
       modelCalls: 0,
       systemdSupervisionTested: false,
