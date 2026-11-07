@@ -1,5 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
-import { createProject, type CreateProjectInput, type Project, type ProjectStore } from "./create-project.js";
+import {
+  createProject,
+  type CreateProjectInput,
+  type Project,
+  type ProjectStore,
+} from "./create-project.js";
 import {
   createProjectSchema,
   errorResponses as projectErrorResponses,
@@ -17,7 +22,10 @@ function toResponse(project: Project) {
   };
 }
 
-export const projectRoutes: FastifyPluginAsync<{ store: ProjectStore }> = async (app, { store }) => {
+export const projectRoutes: FastifyPluginAsync<{ store: ProjectStore }> = async (
+  app,
+  { store },
+) => {
   app.addHook("onRequest", async (_request, reply) => {
     reply.header("Cache-Control", "no-store");
   });
@@ -27,7 +35,8 @@ export const projectRoutes: FastifyPluginAsync<{ store: ProjectStore }> = async 
       error instanceof Error &&
       "statusCode" in error &&
       typeof error.statusCode === "number" &&
-      error.statusCode >= 400 && error.statusCode < 500
+      error.statusCode >= 400 &&
+      error.statusCode < 500
     ) {
       return reply.code(error.statusCode).send({
         error: "INVALID_REQUEST",
@@ -36,7 +45,9 @@ export const projectRoutes: FastifyPluginAsync<{ store: ProjectStore }> = async 
     }
 
     request.log.error({ err: error }, "Project request failed");
-    return reply.code(500).send({ error: "INTERNAL_ERROR", message: "Unable to process project request" });
+    return reply
+      .code(500)
+      .send({ error: "INTERNAL_ERROR", message: "Unable to process project request" });
   });
 
   app.post<{ Body: CreateProjectInput }>(
@@ -45,14 +56,22 @@ export const projectRoutes: FastifyPluginAsync<{ store: ProjectStore }> = async 
       onRequest: async (request, reply) => {
         const contentType = request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase();
         if (contentType !== "application/json") {
-          return reply.code(415).send({ error: "INVALID_REQUEST", message: "Content-Type must be application/json" });
+          return reply
+            .code(415)
+            .send({ error: "INVALID_REQUEST", message: "Content-Type must be application/json" });
         }
       },
-      schema: { body: createProjectSchema, response: { 201: projectResponseSchema, ...projectErrorResponses } },
+      schema: {
+        body: createProjectSchema,
+        response: { 201: projectResponseSchema, ...projectErrorResponses },
+      },
     },
     async (request, reply) => {
       const project = createProject(request.body, store);
-      return reply.code(201).header("Location", `/projects/${project.id}`).send(toResponse(project));
+      return reply
+        .code(201)
+        .header("Location", `/projects/${project.id}`)
+        .send(toResponse(project));
     },
   );
 
@@ -64,7 +83,12 @@ export const projectRoutes: FastifyPluginAsync<{ store: ProjectStore }> = async 
 
   app.get<{ Params: { id: string } }>(
     "/projects/:id",
-    { schema: { params: projectParamsSchema, response: { 200: projectResponseSchema, ...projectErrorResponses } } },
+    {
+      schema: {
+        params: projectParamsSchema,
+        response: { 200: projectResponseSchema, ...projectErrorResponses },
+      },
+    },
     async (request, reply) => {
       const project = store.findById(request.params.id);
       if (!project) {

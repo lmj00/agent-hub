@@ -61,6 +61,10 @@ Node 서버는 호스트 systemd로 관리합니다. 백엔드까지 Compose에 
 
 ## 언제 다시 결정하나
 
+코드 형식과 기본 오류 검사는 Biome을 사용하고, 타입 검사는 기존 TypeScript 컴파일러로 유지합니다. Biome은 포맷과 검사를 한 도구로 관리할 수 있으며 [공식 설치 안내](https://biomejs.dev/installation/quick-start/)에 따라 버전을 고정합니다. 검사 범위와 활성 규칙은 `biome.json`, 실행 방법은 [개발 참여 안내](../CONTRIBUTING.md)를 기준으로 합니다.
+
+Prettier와 ESLint·typescript-eslint 조합도 검토했습니다. 도입 시 확인한 typescript-eslint 8.72.1의 TypeScript 지원 범위는 `>=4.8.4 <6.1.0`으로, 이 저장소의 7.0.2와 맞지 않았습니다. Biome의 기본 오류 규칙부터 명시적으로 적용하며, 추가 규칙은 실제 결함 예방 효과와 현재 코드·도구의 지원을 확인해 도입합니다. 포맷 변경은 동작 변경과 분리하고, 생성된 마이그레이션·호환성 재현 자료는 자동 포맷하지 않습니다.
+
 실제 문제가 생기면 근거를 남기고 바꿉니다. 여러 서버가 필요하거나, 긴 DB 처리로 응답이 지연되거나, 반복 배포 비용이 커지면 관련 선택을 재검토합니다. 패턴 이름을 맞추기 위해 범용 계층·별도 큐·원격 worker를 미리 추가하지 않습니다.
 
 역할별 gstack 적용 방식, 보안 경계, 복구·검증의 세부 대안은 [날짜별 결정 기록](history/technology-decisions.md)에 있습니다. 현재 동작 규칙은 [구조 문서](01-architecture.md), 완료 여부는 [진행 상태](02-implementation-plan.md)를 따릅니다.

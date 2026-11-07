@@ -14,18 +14,13 @@ export function readGoalVerificationEvidence(
 ): GoalVerificationEvidence | null {
   const verification = run.planResult?.verification;
   if (!verification) return null;
-  if (verification.version !== 1)
-    throw new Error("Unsupported Goal verification evidence");
+  if (verification.version !== 1) throw new Error("Unsupported Goal verification evidence");
   const result = verification.test?.result;
   const review = verification.review;
   const assessment = review ? parseAssessment(review.assessment) : null;
   const completionApplied =
-    run.planResult!.status === "applied" &&
-    run.planResult!.reason === "complete";
-  if (
-    completionApplied &&
-    (!result || !assessment?.complete || result.status !== "passed")
-  )
+    run.planResult!.status === "applied" && run.planResult!.reason === "complete";
+  if (completionApplied && (!result || !assessment?.complete || result.status !== "passed"))
     throw new Error("Incomplete Goal completion evidence");
   return parseResponse(goalVerificationEvidenceSchema, {
     sourceRevision: verification.sourceRevision,

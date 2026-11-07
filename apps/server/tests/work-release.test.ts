@@ -1,11 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  cpSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
@@ -39,10 +33,7 @@ import {
   ensureRetryState,
   refreshRetryErrorStreak,
 } from "../src/modules/execution/retry-state-store.js";
-import {
-  initialRetryState,
-  defaultRetryPolicy,
-} from "../src/modules/execution/retry-policy.js";
+import { initialRetryState, defaultRetryPolicy } from "../src/modules/execution/retry-policy.js";
 
 const definition: GoalDefinition = {
   description: "Improve example",
@@ -78,8 +69,7 @@ afterEach(() => {
   database.close();
   rmSync(directory, { recursive: true, force: true });
 });
-const row = (id: string) =>
-  database.db.select().from(tasks).where(eq(tasks.id, id)).get()!;
+const row = (id: string) => database.db.select().from(tasks).where(eq(tasks.id, id)).get()!;
 function work(overrides: Partial<typeof tasks.$inferInsert> = {}) {
   const id = randomUUID();
   database.db
@@ -110,10 +100,7 @@ function work(overrides: Partial<typeof tasks.$inferInsert> = {}) {
     .run();
   return id;
 }
-function recordedRun(
-  taskId: string,
-  overrides: Partial<typeof runs.$inferInsert> = {},
-) {
+function recordedRun(taskId: string, overrides: Partial<typeof runs.$inferInsert> = {}) {
   const id = randomUUID(),
     start = new Date(Date.now() - 1000),
     end = new Date();
@@ -177,10 +164,7 @@ test("creates one linked successor, preserves cancellation and policy, and remai
       retryState: before.retryState,
     });
     expect(goals.findById(goalId)).toMatchObject({ version: 2, definition });
-    const old = parseResponse(
-      taskSchema,
-      (await app.inject(`/tasks/${source}`)).json(),
-    );
+    const old = parseResponse(taskSchema, (await app.inject(`/tasks/${source}`)).json());
     const next = parseResponse(
       taskSchema,
       (await app.inject(`/tasks/${accepted.newTaskId}`)).json(),
@@ -191,15 +175,15 @@ test("creates one linked successor, preserves cancellation and policy, and remai
       planningTaskId: before.plannedWork!.planningTaskId,
     });
     expect(next).toMatchObject({ previousTaskId: source, nextTaskId: null });
-    const listed = (await app.inject(`/projects/${projectId}/tasks`)).json()
-      .tasks;
+    const listed = (await app.inject(`/projects/${projectId}/tasks`)).json().tasks;
     expect(listed).toEqual(expect.arrayContaining([old, next]));
-    expect(
-      createDrizzleRunStore(database.db).claimNext("fixture", ["example"]),
-    ).toEqual({ kind: "idle", reason: "development_pending" });
-    expect(() =>
-      createDrizzleRunStore(database.db).claim(next.id, "fixture"),
-    ).toThrow("DEVELOPMENT_EXECUTOR_UNAVAILABLE");
+    expect(createDrizzleRunStore(database.db).claimNext("fixture", ["example"])).toEqual({
+      kind: "idle",
+      reason: "development_pending",
+    });
+    expect(() => createDrizzleRunStore(database.db).claim(next.id, "fixture")).toThrow(
+      "DEVELOPMENT_EXECUTOR_UNAVAILABLE",
+    );
   } finally {
     await app.close();
   }
@@ -227,10 +211,7 @@ test("replays the original receipt after goal edits and reopening, and rejects a
 test("serializes duplicate HTTP requests across independent connections", async () => {
   const source = work(),
     payload = command(),
-    apps = [
-      buildApp({ databasePath: path() }),
-      buildApp({ databasePath: path() }),
-    ];
+    apps = [buildApp({ databasePath: path() }), buildApp({ databasePath: path() })];
   try {
     const responses = await Promise.all(
       Array.from({ length: 8 }, (_, i) =>
@@ -272,35 +253,24 @@ test.each(["tasks", "goal_revisions", "task_releases"])(
   },
 );
 
-test.each([
-  "queued",
-  "running",
-  "succeeded",
-  "failed",
-  "blocked",
-  "waiting_retry",
-] as const)("does not release a %s task", (status) =>
-  reject(work({ status }), "TASK_NOT_RELEASABLE"),
+test.each(["queued", "running", "succeeded", "failed", "blocked", "waiting_retry"] as const)(
+  "does not release a %s task",
+  (status) => reject(work({ status }), "TASK_NOT_RELEASABLE"),
 );
 test("does not release a planning task or a manual task lacking provenance", () => {
   reject(work({ kind: "planning" }), "TASK_NOT_RELEASABLE");
   reject(work({ plannedWork: null }), "TASK_NOT_RELEASABLE");
 });
-test.each(["paused", "completed"] as const)(
-  "does not release work for a %s goal",
-  (status) => {
-    const source = work();
-    database.client
-      .prepare("UPDATE goals SET status = ? WHERE id = ?")
-      .run(status, goalId);
-    reject(source, status === "paused" ? "GOAL_PAUSED" : "GOAL_COMPLETED");
-  },
-);
+test.each(["paused", "completed"] as const)("does not release work for a %s goal", (status) => {
+  const source = work();
+  database.client.prepare("UPDATE goals SET status = ? WHERE id = ?").run(status, goalId);
+  reject(source, status === "paused" ? "GOAL_PAUSED" : "GOAL_COMPLETED");
+});
 test("requires the expected goal version and the original project binding", () => {
   const source = work();
-  expect(() =>
-    release(source, { ...command(), expectedGoalVersion: 20 }),
-  ).toThrow("GOAL_VERSION_CHANGED");
+  expect(() => release(source, { ...command(), expectedGoalVersion: 20 })).toThrow(
+    "GOAL_VERSION_CHANGED",
+  );
   const other = randomUUID();
   database.db
     .insert(projects)
@@ -311,11 +281,7 @@ test("requires the expected goal version and the original project binding", () =
       createdAt: new Date(),
     })
     .run();
-  database.db
-    .update(tasks)
-    .set({ projectId: other })
-    .where(eq(tasks.id, source))
-    .run();
+  database.db.update(tasks).set({ projectId: other }).where(eq(tasks.id, source)).run();
   reject(source, "GOAL_BINDING_INVALID");
 });
 test.each(["outside", "private", "missing-history", "new-child-exclusion"])(
@@ -334,10 +300,7 @@ test.each(["outside", "private", "missing-history", "new-child-exclusion"])(
         .where(eq(tasks.id, source))
         .run();
     if (scenario === "missing-history")
-      database.db
-        .delete(goalRevisions)
-        .where(eq(goalRevisions.goalId, goalId))
-        .run();
+      database.db.delete(goalRevisions).where(eq(goalRevisions.goalId, goalId)).run();
     if (scenario === "new-child-exclusion") {
       database.db
         .update(tasks)
@@ -416,26 +379,15 @@ test("carries legacy history through repeated cancellation and reconstructs inhe
     .run();
   const next = release(first).release.newTaskId;
   expect(
-    database.db
-      .select()
-      .from(taskReleases)
-      .where(eq(taskReleases.newTaskId, next))
-      .get()!.priorAttempts,
+    database.db.select().from(taskReleases).where(eq(taskReleases.newTaskId, next)).get()!
+      .priorAttempts,
   ).toBe(1);
   // Exercise shared retry accounting in isolation. Real released planned work
   // stays blocked until a development executor exists, asserted above.
-  database.db
-    .update(tasks)
-    .set({ plannedWork: null })
-    .where(eq(tasks.id, next))
-    .run();
+  database.db.update(tasks).set({ plannedWork: null }).where(eq(tasks.id, next)).run();
   const claim = createDrizzleRunStore(database.db).claim(next, "fixture");
   expect(row(next).retryState).toMatchObject({ retries: 1, totalRunMs: 1000 });
-  const current = database.db
-    .select()
-    .from(runs)
-    .where(eq(runs.id, claim.id))
-    .get()!;
+  const current = database.db.select().from(runs).where(eq(runs.id, claim.id)).get()!;
   const finish = new Date(current.startedAt.getTime() + 500);
   database.db
     .update(runs)
@@ -456,11 +408,7 @@ test("carries legacy history through repeated cancellation and reconstructs inhe
     consecutiveErrors: 2,
     lastError: "transient",
   });
-  database.db
-    .update(tasks)
-    .set({ retryState: null })
-    .where(eq(tasks.id, next))
-    .run();
+  database.db.update(tasks).set({ retryState: null }).where(eq(tasks.id, next)).run();
   expect(ensureRetryState(database.db, next)).toMatchObject({
     retries: 1,
     totalRunMs: 1500,
@@ -484,11 +432,7 @@ test("allows an unstarted task with zero retries, but never a second execution w
     retryState: initialRetryState({ ...defaultRetryPolicy, maxRetries: 0 }),
   });
   const next = release(source).release.newTaskId;
-  database.db
-    .update(tasks)
-    .set({ plannedWork: null })
-    .where(eq(tasks.id, next))
-    .run();
+  database.db.update(tasks).set({ plannedWork: null }).where(eq(tasks.id, next)).run();
   const claimed = createDrizzleRunStore(database.db).claim(next, "fixture");
   expect(row(next).retryState!.retries).toBe(0);
   database.db
@@ -524,21 +468,15 @@ test("keeps the saved retry policy and future delay even if the server policy ch
     maxRetries: 20,
   }).release(source, command()).release.newTaskId;
   expect(row(next).retryState).toEqual({ ...state, reason: null });
-  database.db
-    .update(tasks)
-    .set({ plannedWork: null })
-    .where(eq(tasks.id, next))
-    .run();
-  expect(
-    createDrizzleRunStore(database.db).claimNext("fixture", ["example"]),
-  ).toEqual({ kind: "idle" });
+  database.db.update(tasks).set({ plannedWork: null }).where(eq(tasks.id, next)).run();
+  expect(createDrizzleRunStore(database.db).claimNext("fixture", ["example"])).toEqual({
+    kind: "idle",
+  });
   expect(database.db.select().from(runs).all()).toHaveLength(1);
 });
 test("moves suppression to the successor and only retires a proved old planning reservation", () => {
   const source = work();
-  expect(
-    readPlanningWork(database.db, goalId).suppressed.map((t) => t.taskId),
-  ).toEqual([source]);
+  expect(readPlanningWork(database.db, goalId).suppressed.map((t) => t.taskId)).toEqual([source]);
   const planner = createPlanningStore(database.db);
   const planned = planner.reserveNext(["example"]);
   expect(planned).toBeTruthy();
@@ -547,11 +485,7 @@ test("moves suppression to the successor and only retires a proved old planning 
     unresolved: true,
     suppressed: [],
   });
-  database.db
-    .update(tasks)
-    .set({ status: "succeeded" })
-    .where(eq(tasks.id, next))
-    .run();
+  database.db.update(tasks).set({ status: "succeeded" }).where(eq(tasks.id, next)).run();
   expect(readPlanningWork(database.db, goalId)).toMatchObject({
     unresolved: false,
     suppressed: [],
@@ -569,9 +503,7 @@ test("moves suppression to the successor and only retires a proved old planning 
     .set({ status: "cancelled", cancelRequestedAt: new Date() })
     .where(eq(tasks.id, next))
     .run();
-  expect(
-    readPlanningWork(database.db, goalId).suppressed.map((t) => t.taskId),
-  ).toEqual([next]);
+  expect(readPlanningWork(database.db, goalId).suppressed.map((t) => t.taskId)).toEqual([next]);
 });
 test("does not retire an old planning run until its termination is confirmed", () => {
   const source = work(),
@@ -582,18 +514,11 @@ test("does not retire an old planning run until its termination is confirmed", (
     terminationConfirmedAt: null,
   });
   const next = release(source).release.newTaskId;
-  database.db
-    .update(tasks)
-    .set({ status: "succeeded" })
-    .where(eq(tasks.id, next))
-    .run();
+  database.db.update(tasks).set({ status: "succeeded" }).where(eq(tasks.id, next)).run();
   expect(planner.reserveNext(["example"])).toBeNull();
   expect(
-    database.db
-      .select()
-      .from(planningCycles)
-      .where(eq(planningCycles.taskId, old.taskId))
-      .get()!.status,
+    database.db.select().from(planningCycles).where(eq(planningCycles.taskId, old.taskId)).get()!
+      .status,
   ).toBe("reserved");
   database.db
     .update(runs)
@@ -694,9 +619,7 @@ test("upgrades the pre-release database without changing tasks, runs or recovery
   cpSync(migrationsDirectory, folder, { recursive: true });
   const journalPath = join(folder, "meta/_journal.json"),
     journal = JSON.parse(readFileSync(journalPath, "utf8"));
-  journal.entries = journal.entries.filter(
-    (entry: { idx: number }) => entry.idx < 21,
-  );
+  journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 21);
   writeFileSync(journalPath, JSON.stringify(journal));
   const oldPath = join(directory, "old.sqlite"),
     old = openDatabase(oldPath, folder);
@@ -726,17 +649,7 @@ test("upgrades the pre-release database without changing tasks, runs or recovery
     .prepare(
       "INSERT INTO runs(id,task_id,instance_id,status,model,effort,started_at,last_activity_at,termination_confirmed_at) VALUES (?,?,?,?,?,?,?,?,?)",
     )
-    .run(
-      runId,
-      id,
-      "old",
-      "cancelled",
-      "fixture",
-      "medium",
-      Date.now(),
-      Date.now(),
-      Date.now(),
-    );
+    .run(runId, id, "old", "cancelled", "fixture", "medium", Date.now(), Date.now(), Date.now());
   old.db
     .insert(recoveryRequests)
     .values({
@@ -751,10 +664,12 @@ test("upgrades the pre-release database without changing tasks, runs or recovery
     .run();
   const before = [
     old.db.select().from(tasks).all(),
-    (old.client.prepare("SELECT * FROM runs").all() as Record<string, unknown>[]).map(({ execution, ...row }) => {
-      expect(execution).toBeNull();
-      return row;
-    }),
+    (old.client.prepare("SELECT * FROM runs").all() as Record<string, unknown>[]).map(
+      ({ execution, ...row }) => {
+        expect(execution).toBeNull();
+        return row;
+      },
+    ),
     old.db.select().from(recoveryRequests).all(),
   ];
   old.close();
@@ -764,7 +679,9 @@ test("upgrades the pre-release database without changing tasks, runs or recovery
     database.client.prepare("SELECT * FROM runs").all(),
     database.db.select().from(recoveryRequests).all(),
   ]).toMatchObject(before);
-  expect(database.client.prepare("SELECT count(*) AS count FROM run_executions").get()).toEqual({ count: 0 });
+  expect(database.client.prepare("SELECT count(*) AS count FROM run_executions").get()).toEqual({
+    count: 0,
+  });
   expect(database.db.select().from(taskReleases).all()).toEqual([]);
   expect(() => database.checkReady()).not.toThrow();
   database.client.exec("DROP TABLE task_releases");

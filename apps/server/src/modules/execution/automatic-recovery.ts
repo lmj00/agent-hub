@@ -49,14 +49,17 @@ export function createAutomaticRecovery(options: {
             .where(
               and(
                 inArray(projects.workspaceKey, options.workspaceKeys),
-                or(inArray(tasks.status, [
-                  "running",
-                  "interrupted",
-                  "waiting_retry",
-                  "waiting_capacity",
-                  "failed",
-                  "blocked",
-                ]), sql`EXISTS (SELECT 1 FROM ${changeApplications} WHERE ${changeApplications.taskId} = ${tasks.id} AND ${changeApplications.status} = 'pending')`),
+                or(
+                  inArray(tasks.status, [
+                    "running",
+                    "interrupted",
+                    "waiting_retry",
+                    "waiting_capacity",
+                    "failed",
+                    "blocked",
+                  ]),
+                  sql`EXISTS (SELECT 1 FROM ${changeApplications} WHERE ${changeApplications.taskId} = ${tasks.id} AND ${changeApplications.status} = 'pending')`,
+                ),
               ),
             )
             .orderBy(asc(tasks.createdAt), asc(tasks.id))
@@ -75,24 +78,14 @@ export function createAutomaticRecovery(options: {
                 .select({ id: recoveryRequests.id })
                 .from(recoveryRequests)
                 .where(
-                  and(
-                    eq(recoveryRequests.taskId, task.id),
-                    eq(recoveryRequests.status, "pending"),
-                  ),
+                  and(eq(recoveryRequests.taskId, task.id), eq(recoveryRequests.status, "pending")),
                 )
                 .get()
             )
               continue;
             let state = ensureRetryState(tx, task.id, options.policy)!;
-            const save = (
-              next: RetryState,
-              status = task.status,
-              kind?: string,
-            ) => {
-              tx.update(tasks)
-                .set({ status, retryState: next })
-                .where(eq(tasks.id, task.id))
-                .run();
+            const save = (next: RetryState, status = task.status, kind?: string) => {
+              tx.update(tasks).set({ status, retryState: next }).where(eq(tasks.id, task.id)).run();
               if (kind) {
                 const sequence =
                   (tx
@@ -113,8 +106,12 @@ export function createAutomaticRecovery(options: {
             };
             // 서버가 현재 실행 중이면 이 함수는 호출되지 않습니다. 새 소유자만 옛 실행을 대조합니다.
             if (!run.terminationConfirmedAt || application?.status === "pending") {
-              const action = task.cancelRequestedAt || task.status === "cancelled" ? "cancel" : "reconcile";
-              const requestKey = application?.status === "pending" ? `auto-application-${application.id}` : `auto-${action}-${run.id}`;
+              const action =
+                task.cancelRequestedAt || task.status === "cancelled" ? "cancel" : "reconcile";
+              const requestKey =
+                application?.status === "pending"
+                  ? `auto-application-${application.id}`
+                  : `auto-${action}-${run.id}`;
               const previous = tx
                 .select()
                 .from(recoveryRequests)
@@ -133,11 +130,11 @@ export function createAutomaticRecovery(options: {
                   requestKey,
                   providerGateVersion: null,
                 } satisfies RecoveryInput;
-              const reason = application?.status === "pending" ? "change_application_unconfirmed" : "termination_unconfirmed";
-              if (
-                state.decisionRunId !== run.id ||
-                state.reason !== reason
-              ) {
+              const reason =
+                application?.status === "pending"
+                  ? "change_application_unconfirmed"
+                  : "termination_unconfirmed";
+              if (state.decisionRunId !== run.id || state.reason !== reason) {
                 save(
                   {
                     ...state,
@@ -172,10 +169,7 @@ export function createAutomaticRecovery(options: {
             }
             if (readGoalExecutionBlock(tx, task)) continue;
             if (task.budgetWait) continue;
-            if (
-              state.decisionRunId !== run.id ||
-              state.reason === "termination_unconfirmed"
-            ) {
+            if (state.decisionRunId !== run.id || state.reason === "termination_unconfirmed") {
               state = { ...state, decisionRunId: run.id };
               const limit = retryLimitReason(state);
               if (
@@ -208,11 +202,7 @@ export function createAutomaticRecovery(options: {
               }
               const nextAttemptAt = new Date(
                 now.getTime() +
-                  retryDelay(
-                    state.policy,
-                    state.retries,
-                    (options.random ?? Math.random)(),
-                  ),
+                  retryDelay(state.policy, state.retries, (options.random ?? Math.random)()),
               ).toISOString();
               save(
                 { ...state, nextAttemptAt, reason: "retry_scheduled" },
@@ -221,11 +211,7 @@ export function createAutomaticRecovery(options: {
               );
               return true;
             }
-            if (
-              !state.nextAttemptAt ||
-              Date.parse(state.nextAttemptAt) > now.getTime()
-            )
-              continue;
+            if (!state.nextAttemptAt || Date.parse(state.nextAttemptAt) > now.getTime()) continue;
             if (
               readProviderGate(tx)?.blocked ||
               tx.select({ id: runs.id }).from(runs).where(unresolvedRun).get()
@@ -238,12 +224,7 @@ export function createAutomaticRecovery(options: {
                 "blocked",
                 `recovery.held.${limit}`,
               );
-            else
-              save(
-                { ...state, reason: "retry_ready" },
-                "queued",
-                "recovery.retry_ready",
-              );
+            else save({ ...state, reason: "retry_ready" }, "queued", "recovery.retry_ready");
             return true;
           }
           return false;

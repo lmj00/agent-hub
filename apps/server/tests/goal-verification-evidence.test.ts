@@ -8,10 +8,7 @@ import { parseResponse, runDetailsSchema } from "@agent-hub/contracts";
 import { buildApp } from "../src/app.js";
 import { openDatabase } from "../src/db/connection.js";
 import { projects, runs, tasks } from "../src/db/schema.js";
-import {
-  hashPassword,
-  type PasswordHash,
-} from "../src/modules/auth/password.js";
+import { hashPassword, type PasswordHash } from "../src/modules/auth/password.js";
 import { loadAuthConfig } from "../src/modules/auth/auth-config.js";
 import type { GoalVerification } from "../src/modules/goals/goal-verification.js";
 import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
@@ -176,8 +173,7 @@ function save(status: "proposed" | "applied", reason?: string) {
     .where(eq(runs.id, runId))
     .run();
 }
-const read = () =>
-  app.inject({ method: "GET", url: `/runs/${runId}`, headers: { cookie } });
+const read = () => app.inject({ method: "GET", url: `/runs/${runId}`, headers: { cookie } });
 
 test("requires login, redacts test and review output, and excludes all private proof metadata", async () => {
   expect((await app.inject(`/runs/${runId}`)).statusCode).toBe(401);
@@ -203,9 +199,7 @@ test("requires login, redacts test and review output, and excludes all private p
   ])
     expect(JSON.stringify(body.goalVerification)).not.toContain(value);
   expect(body.goalVerification!.test!.output).toContain("[REDACTED]");
-  expect(body.goalVerification!.review!.assessment.report).toContain(
-    "[REDACTED]",
-  );
+  expect(body.goalVerification!.review!.assessment.report).toContain("[REDACTED]");
   expect(database.db.select().from(runs).get()!.status).toBe("blocked");
 });
 
@@ -220,9 +214,7 @@ test("only an applied completion record declares historical Goal completion and 
     databasePath: join(directory, "hub.sqlite"),
     auth: loadAuthConfig(join(directory, "auth.json")),
   });
-  expect((await read()).json().goalVerification).toEqual(
-    before.goalVerification,
-  );
+  expect((await read()).json().goalVerification).toEqual(before.goalVerification);
 });
 
 test("partial and rejected proof stays distinct from completed Goal state", async () => {
@@ -259,11 +251,7 @@ test("partial and rejected proof stays distinct from completed Goal state", asyn
 });
 
 test("legacy runs have no proof and malformed completion history produces a generic error", async () => {
-  database.db
-    .update(runs)
-    .set({ planResult: null })
-    .where(eq(runs.id, runId))
-    .run();
+  database.db.update(runs).set({ planResult: null }).where(eq(runs.id, runId)).run();
   expect((await read()).json().goalVerification).toBeNull();
   verification.test = null;
   save("applied", "complete");

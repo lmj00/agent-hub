@@ -63,8 +63,7 @@ function commit() {
   git("add", "--all");
   git("commit", "--quiet", "--allow-empty", "-m", "fixture");
 }
-const intent = (selected = scope) =>
-  inputIntent(root, source, randomUUID(), selected);
+const intent = (selected = scope) => inputIntent(root, source, randomUUID(), selected);
 beforeEach(() => {
   directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-prepared-source-")));
   source = join(directory, "source");
@@ -85,19 +84,14 @@ test("copies only allowed immutable blobs and records a private revision-bound m
   file("src/.npmrc");
   file("src/.claude/settings.json");
   commit();
-  const prepared = await prepareWorkspace(
-    intent({ ...scope, allowedPaths: ["src"] }),
-    signal(),
-  );
+  const prepared = await prepareWorkspace(intent({ ...scope, allowedPaths: ["src"] }), signal());
   expect(prepared).toMatchObject({
     phase: "ready",
     revision: git("rev-parse", "HEAD"),
     digest: expect.stringMatching(/^[a-f0-9]{64}$/),
   });
   expect(prepared.files.map((value) => value.path)).toEqual(["src/main.ts"]);
-  expect(
-    readFileSync(join(prepared.directory, "src/main.ts"), "utf8"),
-  ).toContain("42");
+  expect(readFileSync(join(prepared.directory, "src/main.ts"), "utf8")).toContain("42");
   for (const path of [
     "src/private",
     "docs",
@@ -110,9 +104,7 @@ test("copies only allowed immutable blobs and records a private revision-bound m
   ])
     expect(existsSync(join(prepared.directory, path))).toBe(false);
   expect(lstatSync(prepared.directory).mode & 0o777).toBe(0o700);
-  expect(lstatSync(join(prepared.directory, "src/main.ts")).mode & 0o777).toBe(
-    0o600,
-  );
+  expect(lstatSync(join(prepared.directory, "src/main.ts")).mode & 0o777).toBe(0o600);
   expect(existsSync(join(prepared.directory, ".git"))).toBe(true);
   expect(git("status", "--porcelain")).toBe("");
   await assertSourceUnchanged(prepared, signal());
@@ -120,9 +112,7 @@ test("copies only allowed immutable blobs and records a private revision-bound m
   await expect(assertSourceUnchanged(prepared, signal())).rejects.toThrow();
   file("src/main.ts", "changed");
   await expect(assertSourceUnchanged(prepared, signal())).rejects.toThrow();
-  expect(
-    readFileSync(join(prepared.directory, "src/main.ts"), "utf8"),
-  ).toContain("42");
+  expect(readFileSync(join(prepared.directory, "src/main.ts"), "utf8")).toContain("42");
   removePreparedWorkspace(root, prepared);
   expect(existsSync(prepared.directory)).toBe(false);
   removePreparedWorkspace(root, prepared);
@@ -151,48 +141,31 @@ test("rejects a subdirectory instead of silently reading the ancestor repository
   file("src/main.ts");
   commit();
   const input = inputIntent(root, join(source, "src"), randomUUID(), scope);
-  await expect(prepareWorkspace(input, signal())).rejects.toThrow(
-    "working tree root",
-  );
+  await expect(prepareWorkspace(input, signal())).rejects.toThrow("working tree root");
 });
 
-test.each([false, true])(
-  "never follows a source symlink; excluded=%s",
-  async (excluded) => {
-    file("src/main.ts");
-    writeFileSync(join(directory, "outside"), "outside secret fixture");
-    symlinkSync(join(directory, "outside"), join(source, "src/link"));
-    commit();
-    const input = intent({
-      ...scope,
-      excludedPaths: excluded ? ["src/link"] : [],
-    });
-    if (excluded) {
-      const prepared = await prepareWorkspace(input, signal());
-      expect(prepared.files.map((value) => value.path)).toEqual([
-        "src/main.ts",
-      ]);
-      expect(existsSync(join(input.directory, "src/link"))).toBe(false);
-    } else
-      await expect(prepareWorkspace(input, signal())).rejects.toThrow(
-        "symlink or submodule",
-      );
-  },
-);
+test.each([false, true])("never follows a source symlink; excluded=%s", async (excluded) => {
+  file("src/main.ts");
+  writeFileSync(join(directory, "outside"), "outside secret fixture");
+  symlinkSync(join(directory, "outside"), join(source, "src/link"));
+  commit();
+  const input = intent({
+    ...scope,
+    excludedPaths: excluded ? ["src/link"] : [],
+  });
+  if (excluded) {
+    const prepared = await prepareWorkspace(input, signal());
+    expect(prepared.files.map((value) => value.path)).toEqual(["src/main.ts"]);
+    expect(existsSync(join(input.directory, "src/link"))).toBe(false);
+  } else await expect(prepareWorkspace(input, signal())).rejects.toThrow("symlink or submodule");
+});
 
 test("rejects a submodule without initializing or traversing it", async () => {
   file("main.ts");
   commit();
-  git(
-    "update-index",
-    "--add",
-    "--cacheinfo",
-    `160000,${git("rev-parse", "HEAD")},vendor`,
-  );
+  git("update-index", "--add", "--cacheinfo", `160000,${git("rev-parse", "HEAD")},vendor`);
   git("commit", "--quiet", "-m", "submodule");
-  await expect(prepareWorkspace(intent(), signal())).rejects.toThrow(
-    "symlink or submodule",
-  );
+  await expect(prepareWorkspace(intent(), signal())).rejects.toThrow("symlink or submodule");
 });
 
 test("does not execute repository fsmonitor hooks or inherit host Git configuration", async () => {
@@ -224,9 +197,7 @@ test("rejects configured clean filters before status can launch a repository com
   );
   git("config", "filter.unsafe.clean", script);
   file("main.ts", "modified");
-  await expect(prepareWorkspace(intent(), signal())).rejects.toThrow(
-    "Git filters",
-  );
+  await expect(prepareWorkspace(intent(), signal())).rejects.toThrow("Git filters");
   expect(existsSync(executed)).toBe(false);
 });
 
@@ -255,13 +226,10 @@ test.each(["file", "total", "count"])(
   "refuses oversized %s input without silently truncating scope",
   async (bound) => {
     if (bound === "file") file("large.txt", "x".repeat(1048577));
-    if (bound === "total")
-      for (let i = 0; i < 9; i++) file(`large-${i}.txt`, "x".repeat(1048576));
+    if (bound === "total") for (let i = 0; i < 9; i++) file(`large-${i}.txt`, "x".repeat(1048576));
     if (bound === "count") for (let i = 0; i < 501; i++) file(`small-${i}.txt`);
     commit();
-    await expect(prepareWorkspace(intent(), signal())).rejects.toThrow(
-      "limits",
-    );
+    await expect(prepareWorkspace(intent(), signal())).rejects.toThrow("limits");
   },
 );
 
@@ -270,16 +238,12 @@ test("cleanup refuses replaced markers, links and directories outside the privat
   commit();
   const input = await prepareWorkspace(intent(), signal());
   await expect(prepareWorkspace(input, signal())).rejects.toThrow();
-  expect(() =>
-    removePreparedWorkspace(root, { ...input, directory: source }),
-  ).toThrow();
+  expect(() => removePreparedWorkspace(root, { ...input, directory: source })).toThrow();
   writeFileSync(
     join(input.directory, ".hub-prepared-input.json"),
     JSON.stringify({ id: "other", runId: input.runId }),
   );
-  expect(() => removePreparedWorkspace(root, input)).toThrow(
-    "identity mismatch",
-  );
+  expect(() => removePreparedWorkspace(root, input)).toThrow("identity mismatch");
   expect(existsSync(join(source, "main.ts"))).toBe(true);
   rmSync(input.directory, { recursive: true });
   symlinkSync(source, input.directory);
@@ -293,7 +257,5 @@ test("an aborted preparation does not create files and cannot use a linked root"
   expect(existsSync(input.directory)).toBe(false);
   const link = join(directory, "root-link");
   symlinkSync(root, link);
-  expect(() => inputIntent(link, source, randomUUID(), scope)).toThrow(
-    "private",
-  );
+  expect(() => inputIntent(link, source, randomUUID(), scope)).toThrow("private");
 });

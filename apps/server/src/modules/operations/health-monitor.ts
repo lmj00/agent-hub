@@ -78,28 +78,19 @@ export async function checkHealth(
         Authorization: `Bearer ${config.bearerToken}`,
       },
     });
-    const reject = async (
-      reason: HealthMonitorResult["reason"],
-    ): Promise<never> => {
+    const reject = async (reason: HealthMonitorResult["reason"]): Promise<never> => {
       await response.body?.cancel();
       throw new MonitorError(reason);
     };
-    if (response.status >= 300 && response.status < 400)
-      await reject("redirect_refused");
-    if (response.status === 401 || response.status === 403)
-      await reject("authentication_required");
-    if (response.status !== 200 && response.status !== 503)
-      await reject("http_error");
+    if (response.status >= 300 && response.status < 400) await reject("redirect_refused");
+    if (response.status === 401 || response.status === 403) await reject("authentication_required");
+    if (response.status !== 200 && response.status !== 503) await reject("http_error");
     if (
-      response.headers
-        .get("content-type")
-        ?.split(";")[0]
-        ?.trim()
-        .toLowerCase() !== "application/json"
+      response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !==
+      "application/json"
     )
       await reject("invalid_response");
-    if (Number(response.headers.get("content-length")) > 4096)
-      await reject("response_too_large");
+    if (Number(response.headers.get("content-length")) > 4096) await reject("response_too_large");
     if (!response.body) throw new MonitorError("invalid_response");
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
@@ -120,9 +111,7 @@ export async function checkHealth(
     }
     let body: unknown;
     try {
-      body = JSON.parse(
-        new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)),
-      );
+      body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
     } catch {
       throw new MonitorError("invalid_response");
     }

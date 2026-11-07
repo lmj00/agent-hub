@@ -133,31 +133,15 @@ async function acceptedGitFixture() {
     ],
     signal(),
   );
-  const intent = developmentRepositoryIntent(
-    developmentRoot(databasePath),
-    source,
-    ids.projectId,
-  );
+  const intent = developmentRepositoryIntent(developmentRoot(databasePath), source, ids.projectId);
   const initial = await prepareDevelopmentRepository(intent, signal());
   const storage = join(initial.directory, "git");
   const blob = (
-    await git(
-      storage,
-      ["hash-object", "-w", "--stdin"],
-      signal(),
-      "export const answer = 42;\n",
-    )
+    await git(storage, ["hash-object", "-w", "--stdin"], signal(), "export const answer = 42;\n")
   )
     .toString()
     .trim();
-  const tree = (
-    await git(
-      storage,
-      ["mktree"],
-      signal(),
-      `100644 blob ${blob}\tanswer.mjs\n`,
-    )
-  )
+  const tree = (await git(storage, ["mktree"], signal(), `100644 blob ${blob}\tanswer.mjs\n`))
     .toString()
     .trim();
   const identity = {
@@ -168,22 +152,11 @@ async function acceptedGitFixture() {
   };
   const commit = applicationCommit(identity);
   expect(
-    (
-      await git(
-        storage,
-        ["hash-object", "-w", "-t", "commit", "--stdin"],
-        signal(),
-        commit.body,
-      )
-    )
+    (await git(storage, ["hash-object", "-w", "-t", "commit", "--stdin"], signal(), commit.body))
       .toString()
       .trim(),
   ).toBe(commit.oid);
-  await git(
-    storage,
-    ["update-ref", developmentRef, commit.oid, initial.head],
-    signal(),
-  );
+  await git(storage, ["update-ref", developmentRef, commit.oid, initial.head], signal());
   const repository = { ...initial, head: commit.oid, headTree: tree };
   database.db
     .insert(developmentRepositories)
@@ -239,9 +212,9 @@ test("backs up committed WAL state and remaining prepared input, previews it and
     expect(created.databasePath).toBe(databasePath);
     expect(await inspectStateBackup(backup, signal())).toEqual(created);
     expect(database.db.select().from(projects).get()?.id).toBe(project.id);
-    await expect(
-      restoreStateBackup(backup, databasePath, signal()),
-    ).rejects.toThrow("must not already exist");
+    await expect(restoreStateBackup(backup, databasePath, signal())).rejects.toThrow(
+      "must not already exist",
+    );
   } finally {
     database.close();
   }
@@ -253,9 +226,7 @@ test("backs up committed WAL state and remaining prepared input, previews it and
   } finally {
     restored.close();
   }
-  expect(readFileSync(join(inputs, "remaining/input.txt"), "utf8")).toBe(
-    "prepared fixture\n",
-  );
+  expect(readFileSync(join(inputs, "remaining/input.txt"), "utf8")).toBe("prepared fixture\n");
   expect(existsSync(join(directory, "old-state/hub.sqlite"))).toBe(true);
 });
 
@@ -263,9 +234,7 @@ test("refuses a live execution owner without creating a completed backup", async
   const database = connect(),
     owner = acquireExecutionOwner(database.db);
   try {
-    await expect(
-      createStateBackup(databasePath, backup, signal()),
-    ).rejects.toThrow("already owns");
+    await expect(createStateBackup(databasePath, backup, signal())).rejects.toThrow("already owns");
     expect(existsSync(backup)).toBe(false);
   } finally {
     owner.release();
@@ -279,32 +248,24 @@ test("restores the actual accepted Git commit and its database journal at the or
   fixture.database.close();
   renameSync(join(directory, "state"), join(directory, "old-state"));
   const before = readFileSync(join(backup, "manifest.json"));
-  expect(
-    (await previewStateRestore(backup, databasePath, signal())).databasePath,
-  ).toBe(databasePath);
+  expect((await previewStateRestore(backup, databasePath, signal())).databasePath).toBe(
+    databasePath,
+  );
   expect(existsSync(join(directory, "state"))).toBe(false);
   await restoreStateBackup(backup, databasePath, signal());
   const restored = connect();
+  expect(restored.db.select().from(developmentRepositories).get()?.prepared?.head).toBe(
+    fixture.repository.head,
+  );
+  expect(restored.db.select().from(changeApplications).get()?.resultCommit).toBe(
+    fixture.repository.head,
+  );
   expect(
-    restored.db.select().from(developmentRepositories).get()?.prepared?.head,
-  ).toBe(fixture.repository.head);
-  expect(
-    restored.db.select().from(changeApplications).get()?.resultCommit,
-  ).toBe(fixture.repository.head);
-  expect(
-    (
-      await git(
-        fixture.storage,
-        ["show", `${developmentRef}:answer.mjs`],
-        signal(),
-      )
-    ).toString(),
+    (await git(fixture.storage, ["show", `${developmentRef}:answer.mjs`], signal())).toString(),
   ).toBe("export const answer = 42;\n");
   expect(readFileSync(join(backup, "manifest.json"))).toEqual(before);
   expect(
-    (await git(join(directory, "source"), ["rev-parse", "HEAD"], signal()))
-      .toString()
-      .trim(),
+    (await git(join(directory, "source"), ["rev-parse", "HEAD"], signal())).toString().trim(),
   ).toBe(fixture.initial.sourceRevision);
 });
 
@@ -314,11 +275,7 @@ test.each(["running", "unconfirmed-run", "unconfirmed-container"])(
     const database = connect(),
       ids = completedRun(database);
     if (mode === "running")
-      database.db
-        .update(runs)
-        .set({ status: "running" })
-        .where(eq(runs.id, ids.runId))
-        .run();
+      database.db.update(runs).set({ status: "running" }).where(eq(runs.id, ids.runId)).run();
     if (mode === "unconfirmed-run")
       database.db
         .update(runs)
@@ -337,9 +294,7 @@ test.each(["running", "unconfirmed-run", "unconfirmed-container"])(
           createdAt: ids.now,
         })
         .run();
-    await expect(
-      createStateBackup(databasePath, backup, signal()),
-    ).rejects.toThrow("reconcile");
+    await expect(createStateBackup(databasePath, backup, signal())).rejects.toThrow("reconcile");
     expect(existsSync(backup)).toBe(false);
     expect(database.db.select().from(runs).get()?.id).toBe(ids.runId);
   },
@@ -347,45 +302,31 @@ test.each(["running", "unconfirmed-run", "unconfirmed-container"])(
 
 test("refuses pending Git application rather than backing up an ambiguous acceptance state", async () => {
   const { database } = await acceptedGitFixture();
-  database.db
-    .update(changeApplications)
-    .set({ status: "pending", appliedAt: null })
-    .run();
-  await expect(
-    createStateBackup(databasePath, backup, signal()),
-  ).rejects.toThrow("reconcile");
+  database.db.update(changeApplications).set({ status: "pending", appliedAt: null }).run();
+  await expect(createStateBackup(databasePath, backup, signal())).rejects.toThrow("reconcile");
   expect(existsSync(backup)).toBe(false);
 });
 
 test("refuses inconsistent Git refs and cleans its owned partial bundle and owner", async () => {
   const fixture = await acceptedGitFixture();
-  await git(
-    fixture.storage,
-    ["update-ref", developmentRef, fixture.initial.head],
-    signal(),
+  await git(fixture.storage, ["update-ref", developmentRef, fixture.initial.head], signal());
+  await expect(createStateBackup(databasePath, backup, signal())).rejects.toThrow(
+    "Git head disagrees",
   );
-  await expect(
-    createStateBackup(databasePath, backup, signal()),
-  ).rejects.toThrow("Git head disagrees");
   expect(existsSync(backup)).toBe(false);
-  expect(
-    readdirSync(directory).filter((name) =>
-      name.startsWith(".agent-hub-backup-"),
-    ),
-  ).toEqual([]);
+  expect(readdirSync(directory).filter((name) => name.startsWith(".agent-hub-backup-"))).toEqual(
+    [],
+  );
   expect(fixture.database.db.select().from(executionOwner).all()).toEqual([]);
 });
 
 test("checks stored application history even when the accepted Git head still matches", async () => {
   const fixture = await acceptedGitFixture();
   // A valid ref and object store do not prove the stored acceptance record agrees.
-  fixture.database.db
-    .update(changeApplications)
-    .set({ tree: fixture.initial.headTree })
-    .run();
-  await expect(
-    createStateBackup(databasePath, backup, signal()),
-  ).rejects.toThrow("Applied change tree");
+  fixture.database.db.update(changeApplications).set({ tree: fixture.initial.headTree }).run();
+  await expect(createStateBackup(databasePath, backup, signal())).rejects.toThrow(
+    "Applied change tree",
+  );
   expect(existsSync(backup)).toBe(false);
   expect(fixture.database.db.select().from(executionOwner).all()).toEqual([]);
 });
@@ -399,16 +340,13 @@ test.each(["changed", "missing", "extra", "symlink", "traversal"])(
     const snapshot = join(backup, "state/hub.sqlite");
     if (mode === "changed") writeFileSync(snapshot, "corrupted database");
     if (mode === "missing") rmSync(snapshot);
-    if (mode === "extra")
-      writeFileSync(join(backup, "state/extra.txt"), "unexpected");
+    if (mode === "extra") writeFileSync(join(backup, "state/extra.txt"), "unexpected");
     if (mode === "symlink") {
       rmSync(snapshot);
       symlinkSync(databasePath, snapshot);
     }
     if (mode === "traversal") {
-      const manifest = JSON.parse(
-        readFileSync(join(backup, "manifest.json"), "utf8"),
-      );
+      const manifest = JSON.parse(readFileSync(join(backup, "manifest.json"), "utf8"));
       manifest.entries[0].path = "../outside";
       writeFileSync(join(backup, "manifest.json"), JSON.stringify(manifest));
     }
@@ -420,13 +358,11 @@ test.each(["changed", "missing", "extra", "symlink", "traversal"])(
 test("rejects schema drift without migrating or removing the source schema", async () => {
   const database = connect();
   database.client.exec("CREATE TABLE unexpected (value TEXT)");
-  await expect(
-    createStateBackup(databasePath, backup, signal()),
-  ).rejects.toThrow("exact database schema");
+  await expect(createStateBackup(databasePath, backup, signal())).rejects.toThrow(
+    "exact database schema",
+  );
   expect(
-    database.client
-      .prepare("SELECT name FROM sqlite_schema WHERE name = 'unexpected'")
-      .get(),
+    database.client.prepare("SELECT name FROM sqlite_schema WHERE name = 'unexpected'").get(),
   ).toEqual({ name: "unexpected" });
   expect(existsSync(backup)).toBe(false);
 });
@@ -436,15 +372,11 @@ test("rejects relocation and an existing backup directory while preserving the e
   database.close();
   await createStateBackup(databasePath, backup, signal());
   const manifest = readFileSync(join(backup, "manifest.json"));
+  await expect(createStateBackup(databasePath, backup, signal())).rejects.toThrow(
+    "must not already exist",
+  );
   await expect(
-    createStateBackup(databasePath, backup, signal()),
-  ).rejects.toThrow("must not already exist");
-  await expect(
-    previewStateRestore(
-      backup,
-      join(directory, "relocated/hub.sqlite"),
-      signal(),
-    ),
+    previewStateRestore(backup, join(directory, "relocated/hub.sqlite"), signal()),
   ).rejects.toThrow("original absolute");
   expect(readFileSync(join(backup, "manifest.json"))).toEqual(manifest);
   expect(existsSync(join(directory, "relocated"))).toBe(false);
@@ -455,18 +387,12 @@ test("partial copy failure removes only owned temporary output and leaves source
   const inputs = preparedInputRoot(databasePath);
   writeFileSync(join(inputs, "first.txt"), "private source", { mode: 0o600 });
   symlinkSync(databasePath, join(inputs, "zz-link"));
-  await expect(
-    createStateBackup(databasePath, backup, signal()),
-  ).rejects.toThrow("symbolic links");
-  expect(readFileSync(join(inputs, "first.txt"), "utf8")).toBe(
-    "private source",
-  );
+  await expect(createStateBackup(databasePath, backup, signal())).rejects.toThrow("symbolic links");
+  expect(readFileSync(join(inputs, "first.txt"), "utf8")).toBe("private source");
   expect(existsSync(backup)).toBe(false);
-  expect(
-    readdirSync(directory).filter((name) =>
-      name.startsWith(".agent-hub-backup-"),
-    ),
-  ).toEqual([]);
+  expect(readdirSync(directory).filter((name) => name.startsWith(".agent-hub-backup-"))).toEqual(
+    [],
+  );
   expect(database.db.select().from(executionOwner).all()).toEqual([]);
 });
 
@@ -475,9 +401,9 @@ test("a cancelled operation creates no completed backup", async () => {
   database.close();
   const controller = new AbortController();
   controller.abort(new Error("cancelled fixture"));
-  await expect(
-    createStateBackup(databasePath, backup, controller.signal),
-  ).rejects.toThrow("cancelled fixture");
+  await expect(createStateBackup(databasePath, backup, controller.signal)).rejects.toThrow(
+    "cancelled fixture",
+  );
   expect(existsSync(backup)).toBe(false);
 });
 
@@ -490,9 +416,9 @@ test("refuses an owner on another host without clearing its ownership record", a
     pid: 2147483647,
   };
   database.db.insert(executionOwner).values(owner).run();
-  await expect(
-    createStateBackup(databasePath, backup, signal()),
-  ).rejects.toThrow("termination cannot be confirmed");
+  await expect(createStateBackup(databasePath, backup, signal())).rejects.toThrow(
+    "termination cannot be confirmed",
+  );
   expect(database.db.select().from(executionOwner).get()).toEqual(owner);
   expect(existsSync(backup)).toBe(false);
 });
@@ -501,17 +427,14 @@ test.each(["hardlink", "public-parent", "foreign-key"])(
   "refuses unsafe %s source state",
   async (mode) => {
     const database = connect();
-    if (mode === "hardlink")
-      linkSync(databasePath, join(directory, "shared.sqlite"));
+    if (mode === "hardlink") linkSync(databasePath, join(directory, "shared.sqlite"));
     if (mode === "public-parent") chmodSync(join(directory, "state"), 0o755);
     if (mode === "foreign-key") {
       const ids = completedRun(database);
       database.client.pragma("foreign_keys = OFF");
       database.db.delete(projects).where(eq(projects.id, ids.projectId)).run();
     }
-    await expect(
-      createStateBackup(databasePath, backup, signal()),
-    ).rejects.toThrow();
+    await expect(createStateBackup(databasePath, backup, signal())).rejects.toThrow();
     expect(existsSync(backup)).toBe(false);
     expect(database.db.select().from(executionOwner).all()).toEqual([]);
   },
@@ -519,27 +442,19 @@ test.each(["hardlink", "public-parent", "foreign-key"])(
 
 test("refuses a Git repository that depends on objects outside its state bundle", async () => {
   const fixture = await acceptedGitFixture();
-  writeFileSync(
-    join(fixture.storage, "objects/info/alternates"),
-    "/synthetic/other/objects\n",
-    { mode: 0o600 },
-  );
-  await expect(
-    createStateBackup(databasePath, backup, signal()),
-  ).rejects.toThrow("self-contained");
+  writeFileSync(join(fixture.storage, "objects/info/alternates"), "/synthetic/other/objects\n", {
+    mode: 0o600,
+  });
+  await expect(createStateBackup(databasePath, backup, signal())).rejects.toThrow("self-contained");
   expect(existsSync(backup)).toBe(false);
 });
 
 const runCli = (args: string[]) =>
-  promisify(execFile)(
-    process.execPath,
-    ["--import", "tsx", "src/backup-cli.ts", ...args],
-    {
-      cwd: fileURLToPath(new URL("../", import.meta.url)),
-      timeout: 8000,
-      maxBuffer: 65536,
-    },
-  );
+  promisify(execFile)(process.execPath, ["--import", "tsx", "src/backup-cli.ts", ...args], {
+    cwd: fileURLToPath(new URL("../", import.meta.url)),
+    timeout: 8000,
+    maxBuffer: 65536,
+  });
 
 // Keep one process startup per case: these check command contracts, not the
 // combined startup time of several independent CLI invocations.
@@ -548,15 +463,7 @@ test("actual CLI creates a private, inspectable bundle", async () => {
   const ids = completedRun(database);
   database.close();
   const created = JSON.parse(
-    (
-      await runCli([
-        "create",
-        "--database",
-        databasePath,
-        "--destination",
-        backup,
-      ])
-    ).stdout,
+    (await runCli(["create", "--database", databasePath, "--destination", backup])).stdout,
   );
   expect(created).toMatchObject({
     action: "create",
@@ -565,9 +472,7 @@ test("actual CLI creates a private, inspectable bundle", async () => {
   expect(created.files).toBeGreaterThan(0);
   expect(statSync(backup).mode & 0o777).toBe(0o700);
   expect(statSync(join(backup, "manifest.json")).mode & 0o777).toBe(0o600);
-  expect((await inspectStateBackup(backup, signal())).schemaDigest).toBe(
-    created.schemaDigest,
-  );
+  expect((await inspectStateBackup(backup, signal())).schemaDigest).toBe(created.schemaDigest);
   renameSync(join(directory, "state"), join(directory, "old-state"));
   await restoreStateBackup(backup, databasePath, signal());
   expect(connect().db.select().from(runs).get()?.id).toBe(ids.runId);
@@ -583,18 +488,17 @@ async function stoppedCliBackup() {
 
 test("actual CLI inspects the saved bundle schema", async () => {
   const { manifest } = await stoppedCliBackup();
-  expect(
-    JSON.parse((await runCli(["inspect", "--backup", backup])).stdout),
-  ).toMatchObject({ action: "inspect", schemaDigest: manifest.schemaDigest });
+  expect(JSON.parse((await runCli(["inspect", "--backup", backup])).stdout)).toMatchObject({
+    action: "inspect",
+    schemaDigest: manifest.schemaDigest,
+  });
 });
 
 test("actual CLI previews restoration without writing state", async () => {
   await stoppedCliBackup();
   renameSync(join(directory, "state"), join(directory, "old-state"));
   const args = ["restore", "--backup", backup, "--database", databasePath];
-  expect(JSON.parse((await runCli(args)).stdout).action).toBe(
-    "restore-preview",
-  );
+  expect(JSON.parse((await runCli(args)).stdout).action).toBe("restore-preview");
   expect(existsSync(join(directory, "state"))).toBe(false);
 });
 
@@ -603,16 +507,7 @@ test("actual CLI restores the saved records with --apply", async () => {
   renameSync(join(directory, "state"), join(directory, "old-state"));
   expect(
     JSON.parse(
-      (
-        await runCli([
-          "restore",
-          "--backup",
-          backup,
-          "--database",
-          databasePath,
-          "--apply",
-        ])
-      ).stdout,
+      (await runCli(["restore", "--backup", backup, "--database", databasePath, "--apply"])).stdout,
     ).action,
   ).toBe("restore");
   expect(connect().db.select().from(runs).get()?.id).toBe(ids.runId);
@@ -635,13 +530,13 @@ test("CLI creation failure has a nonzero exit and does not expose private record
 
 test("CLI inspection failure has a nonzero exit and does not expose private paths", async () => {
   const privateText = "private-fixture-record-never-print";
-  await expect(
-    runCli(["inspect", "--backup", join(directory, privateText)]),
-  ).rejects.toMatchObject({
-    code: 1,
-    stdout: "",
-    stderr:
-      "Backup operation failed. Check private paths, compatibility, integrity and that all execution is stopped and reconciled.\n",
-  });
+  await expect(runCli(["inspect", "--backup", join(directory, privateText)])).rejects.toMatchObject(
+    {
+      code: 1,
+      stdout: "",
+      stderr:
+        "Backup operation failed. Check private paths, compatibility, integrity and that all execution is stopped and reconciled.\n",
+    },
+  );
   expect(existsSync(backup)).toBe(false);
 });

@@ -2,10 +2,7 @@ import { join } from "node:path";
 import type { FastifyPluginAsync } from "fastify";
 import staticFiles from "@fastify/static";
 
-export const webRoutes: FastifyPluginAsync<{ directory: string }> = async (
-  app,
-  { directory },
-) => {
+export const webRoutes: FastifyPluginAsync<{ directory: string }> = async (app, { directory }) => {
   await app.register(staticFiles, {
     root: join(directory, "assets"),
     prefix: "/assets/",

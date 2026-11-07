@@ -3,21 +3,10 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { CapacityState } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  events,
-  projects,
-  providerGates,
-  recoveryRequests,
-  runs,
-  tasks,
-} from "../../db/schema.js";
+import { events, projects, providerGates, recoveryRequests, runs, tasks } from "../../db/schema.js";
 import { assertExecutionOwner } from "./execution-owner.js";
 import { unresolvedRun } from "./drizzle-run-store.js";
-import {
-  providerScope,
-  readProviderGate,
-  reserveProviderCheck,
-} from "./provider-gate.js";
+import { providerScope, readProviderGate, reserveProviderCheck } from "./provider-gate.js";
 import { ensureRetryState } from "./retry-state-store.js";
 import { retryLimitReason, type RetryPolicy } from "./retry-policy.js";
 import { capacityCheckAt, type CapacityPolicy } from "./capacity-policy.js";
@@ -38,14 +27,8 @@ export function createCapacityRecovery(options: {
         (tx) => {
           assertExecutionOwner(tx, options.ownerToken);
           const gate = readProviderGate(tx);
-          if (
-            !gate?.blocked ||
-            gate.reason !== "capacity" ||
-            gate.probeRunId
-          )
-            return false;
-          if (tx.select({ id: runs.id }).from(runs).where(unresolvedRun).get())
-            return false;
+          if (!gate?.blocked || gate.reason !== "capacity" || gate.probeRunId) return false;
+          if (tx.select({ id: runs.id }).from(runs).where(unresolvedRun).get()) return false;
           const now = (options.now ?? (() => new Date()))();
           const replaced = replaceUnavailableGoalProbe(tx, gate, options, now);
           if (replaced !== undefined) return replaced;
@@ -57,11 +40,7 @@ export function createCapacityRecovery(options: {
             ? tx.select().from(tasks).where(eq(tasks.id, source.taskId)).get()
             : undefined;
           const project = task
-            ? tx
-                .select()
-                .from(projects)
-                .where(eq(projects.id, task.projectId))
-                .get()
+            ? tx.select().from(projects).where(eq(projects.id, task.projectId)).get()
             : undefined;
           const latest = task
             ? tx
@@ -76,17 +55,12 @@ export function createCapacityRecovery(options: {
                 .select({ id: recoveryRequests.id })
                 .from(recoveryRequests)
                 .where(
-                  and(
-                    eq(recoveryRequests.taskId, task.id),
-                    eq(recoveryRequests.status, "pending"),
-                  ),
+                  and(eq(recoveryRequests.taskId, task.id), eq(recoveryRequests.status, "pending")),
                 )
                 .get()
             : false;
           if (pending) return false;
-          const retry = task
-            ? ensureRetryState(tx, task.id, options.retryPolicy)
-            : null;
+          const retry = task ? ensureRetryState(tx, task.id, options.retryPolicy) : null;
           const unavailable =
             !task ||
             readGoalExecutionBlock(tx, task) !== null ||
@@ -199,10 +173,7 @@ export function createCapacityRecovery(options: {
             event("capacity.check_scheduled");
             return true;
           }
-          if (
-            retry!.nextAttemptAt !== state.nextCheckAt ||
-            retry!.reason !== "capacity_waiting"
-          ) {
+          if (retry!.nextAttemptAt !== state.nextCheckAt || retry!.reason !== "capacity_waiting") {
             tx.update(tasks)
               .set({
                 status: "waiting_capacity",
@@ -218,11 +189,7 @@ export function createCapacityRecovery(options: {
             event("capacity.check_scheduled");
             return true;
           }
-          if (
-            !state.nextCheckAt ||
-            Date.parse(state.nextCheckAt) > now.getTime()
-          )
-            return false;
+          if (!state.nextCheckAt || Date.parse(state.nextCheckAt) > now.getTime()) return false;
           reserveProviderCheck(tx, task!.id, gate.version, now);
           tx.update(providerGates)
             .set({ capacityState: { ...state, reason: "ready" } })

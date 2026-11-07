@@ -1,11 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  cpSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
@@ -13,13 +7,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { GoalDefinition, TaskKind } from "@agent-hub/contracts";
 import { buildApp } from "../src/app.js";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
-import {
-  goals,
-  projects,
-  providerGates,
-  runs,
-  tasks,
-} from "../src/db/schema.js";
+import { goals, projects, providerGates, runs, tasks } from "../src/db/schema.js";
 import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { createDrizzleRecoveryStore } from "../src/modules/execution/drizzle-recovery-store.js";
@@ -107,8 +95,7 @@ function task(linked = true, kind: TaskKind = "work", project = projectId) {
   vi.setSystemTime(Date.now() + 1);
   return id;
 }
-const taskRow = (id: string) =>
-  database.db.select().from(tasks).where(eq(tasks.id, id)).get()!;
+const taskRow = (id: string) => database.db.select().from(tasks).where(eq(tasks.id, id)).get()!;
 const pause = () =>
   goalStore.change(goalId, randomUUID(), goalStore.findById(goalId).version, {
     action: "pause",
@@ -117,12 +104,7 @@ function failure(taskId: string, code = "transient", proof = true) {
   const run = store.claim(taskId, "fixture");
   vi.setSystemTime(Date.now() + 100);
   store.finish(run.id, {
-    status:
-      code === "capacity"
-        ? "waiting_capacity"
-        : proof
-          ? "failed"
-          : "interrupted",
+    status: code === "capacity" ? "waiting_capacity" : proof ? "failed" : "interrupted",
     errorCode: code,
     result: null,
     usage: null,
@@ -206,26 +188,16 @@ test("a goal belonging to another project never authorizes an execution", () => 
 
 test("completed goals and invalid stored task bindings cannot start work", () => {
   const id = task();
-  database.db
-    .update(goals)
-    .set({ status: "completed" })
-    .where(eq(goals.id, goalId))
-    .run();
+  database.db.update(goals).set({ status: "completed" }).where(eq(goals.id, goalId)).run();
   expect(() => store.claim(id, "fixture")).toThrow("GOAL_COMPLETED");
   expect(() =>
-    database.client
-      .prepare("UPDATE tasks SET goal_version = NULL WHERE id = ?")
-      .run(id),
+    database.client.prepare("UPDATE tasks SET goal_version = NULL WHERE id = ?").run(id),
   ).toThrow();
   expect(() =>
-    database.client
-      .prepare("UPDATE tasks SET goal_version = 0 WHERE id = ?")
-      .run(id),
+    database.client.prepare("UPDATE tasks SET goal_version = 0 WHERE id = ?").run(id),
   ).toThrow();
   expect(() =>
-    database.client
-      .prepare("UPDATE tasks SET kind = 'invalid' WHERE id = ?")
-      .run(id),
+    database.client.prepare("UPDATE tasks SET kind = 'invalid' WHERE id = ?").run(id),
   ).toThrow();
   expect(() => task(false, "planning")).toThrow();
 });
@@ -345,9 +317,11 @@ test("HTTP exposes goal linkage but cannot forge planning tasks or reuse an inte
   const id = task(true, "planning"),
     app = buildApp({ databasePath: join(directory, "hub.sqlite") });
   try {
-    expect(
-      (await app.inject({ method: "GET", url: `/tasks/${id}` })).json(),
-    ).toMatchObject({ kind: "planning", goalId, goalVersion: 1 });
+    expect((await app.inject({ method: "GET", url: `/tasks/${id}` })).json()).toMatchObject({
+      kind: "planning",
+      goalId,
+      goalVersion: 1,
+    });
     const body = { instruction: "Read the example", requestKey: id };
     expect(
       (
@@ -374,9 +348,9 @@ test("HTTP exposes goal linkage but cannot forge planning tasks or reuse an inte
       ).statusCode,
     ).toBe(400);
     const run = store.claim(id, "fixture");
-    expect(
-      (await app.inject({ method: "GET", url: `/runs/${run.id}` })).json(),
-    ).toMatchObject({ goalVersion: 1 });
+    expect((await app.inject({ method: "GET", url: `/runs/${run.id}` })).json()).toMatchObject({
+      goalVersion: 1,
+    });
   } finally {
     await app.close();
   }
@@ -387,9 +361,7 @@ test("migration preserves existing tasks, runs and recovery references without r
   cpSync(migrationsDirectory, folder, { recursive: true });
   const file = join(folder, "meta/_journal.json"),
     journal = JSON.parse(readFileSync(file, "utf8"));
-  journal.entries = journal.entries.filter(
-    (entry: { idx: number }) => entry.idx < 16,
-  );
+  journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 16);
   writeFileSync(file, JSON.stringify(journal));
   const path = join(directory, "old.sqlite"),
     old = openDatabase(path, folder);
@@ -412,11 +384,10 @@ test("migration preserves existing tasks, runs and recovery references without r
       taskId: "t",
       goalVersion: null,
     });
-    expect(
-      upgraded.client
-        .prepare("SELECT task_id,run_id FROM recovery_requests")
-        .get(),
-    ).toEqual({ task_id: "t", run_id: "r" });
+    expect(upgraded.client.prepare("SELECT task_id,run_id FROM recovery_requests").get()).toEqual({
+      task_id: "t",
+      run_id: "r",
+    });
     expect(upgraded.client.pragma("foreign_key_check")).toEqual([]);
     expect(upgraded.client.pragma("foreign_keys", { simple: true })).toBe(1);
   } finally {

@@ -22,13 +22,7 @@ const defaults: GoalDefinition = {
   budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
 };
 
-export function GoalPanel({
-  projectId,
-  onExpired,
-}: {
-  projectId: string;
-  onExpired: () => void;
-}) {
+export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpired: () => void }) {
   const [revision, setRevision] = useState(0),
     [editing, setEditing] = useState<Goal | "new" | null>(null);
   const [historyId, setHistoryId] = useState<string | null>(null),
@@ -36,17 +30,10 @@ export function GoalPanel({
     [busy, setBusy] = useState(false);
   const pending = useRef<{ signature: string; key: string } | null>(null);
   const load = useCallback(
-    (signal: AbortSignal) =>
-      api.request(`/projects/${projectId}/goals`, goalsSchema, { signal }),
+    (signal: AbortSignal) => api.request(`/projects/${projectId}/goals`, goalsSchema, { signal }),
     [projectId],
   );
-  const poll = usePolling(
-    `goals:${projectId}`,
-    load,
-    onExpired,
-    5000,
-    revision,
-  );
+  const poll = usePolling(`goals:${projectId}`, load, onExpired, 5000, revision);
   const goals = poll.data?.goals ?? [];
   async function change(path: string, method: "POST" | "PATCH", body: object) {
     if (busy) return;
@@ -80,17 +67,15 @@ export function GoalPanel({
           프로젝트 목표 <span className="count">{goals.length}</span>
         </summary>
         <p className="subtle-note">
-          목표와 실행 기준을 저장합니다. 목표에서 자동으로 작업을 만드는 기능은
-          아직 연결되지 않았습니다.
+          목표와 실행 기준을 저장합니다. 목표에서 자동으로 작업을 만드는 기능은 아직 연결되지
+          않았습니다.
         </p>
         {poll.error || error ? (
           <p className="error-text" role="alert">
             {errorMessage(error ?? poll.error)}
           </p>
         ) : null}
-        {poll.error ? (
-          <small>마지막 확인 {dateTime(poll.checkedAt)}</small>
-        ) : null}
+        {poll.error ? <small>마지막 확인 {dateTime(poll.checkedAt)}</small> : null}
         <div className="goal-list">
           {goals.map((goal) => (
             <article className="goal-card" key={goal.id}>
@@ -102,10 +87,8 @@ export function GoalPanel({
               </div>
               <p>{goal.definition.completionCriteria}</p>
               <p className="subtle-note">
-                {goal.definition.kind === "finite"
-                  ? "완료 기준이 있는 목표"
-                  : "지속 관리 목표"}{" "}
-                · 우선순위 {goal.definition.priority}
+                {goal.definition.kind === "finite" ? "완료 기준이 있는 목표" : "지속 관리 목표"} ·
+                우선순위 {goal.definition.priority}
               </p>
               <details className="goal-scope">
                 <summary>범위와 예산</summary>
@@ -121,7 +104,8 @@ export function GoalPanel({
                   {goal.definition.budget.maxRunMs / 60000}분 실행
                 </p>
                 <small>
-                  현재 기간의 사용량은 실행 예산에서 확인합니다. 예산 수정은 다음 기간부터 적용되며, 다음 점검 예약은 아직 연결되지 않았습니다.
+                  현재 기간의 사용량은 실행 예산에서 확인합니다. 예산 수정은 다음 기간부터 적용되며,
+                  다음 점검 예약은 아직 연결되지 않았습니다.
                 </small>
               </details>
               <div className="goal-actions">
@@ -149,9 +133,7 @@ export function GoalPanel({
                 </button>
                 <button
                   className="text-button"
-                  onClick={() =>
-                    setHistoryId(historyId === goal.id ? null : goal.id)
-                  }
+                  onClick={() => setHistoryId(historyId === goal.id ? null : goal.id)}
                 >
                   변경 이력
                 </button>
@@ -185,15 +167,11 @@ export function GoalPanel({
             onClose={() => setEditing(null)}
             onSave={(definition) =>
               change(
-                editing === "new"
-                  ? `/projects/${projectId}/goals`
-                  : `/goals/${editing.id}`,
+                editing === "new" ? `/projects/${projectId}/goals` : `/goals/${editing.id}`,
                 editing === "new" ? "POST" : "PATCH",
                 {
                   definition,
-                  ...(editing === "new"
-                    ? {}
-                    : { expectedVersion: editing.version }),
+                  ...(editing === "new" ? {} : { expectedVersion: editing.version }),
                 },
               )
             }
@@ -206,8 +184,7 @@ export function GoalPanel({
 
 function GoalHistory({ id, onExpired }: { id: string; onExpired: () => void }) {
   const load = useCallback(
-    (signal: AbortSignal) =>
-      api.request(`/goals/${id}/revisions`, goalHistorySchema, { signal }),
+    (signal: AbortSignal) => api.request(`/goals/${id}/revisions`, goalHistorySchema, { signal }),
     [id],
   );
   const poll = usePolling(`goal-history:${id}`, load, onExpired, 10000);
@@ -217,8 +194,7 @@ function GoalHistory({ id, onExpired }: { id: string; onExpired: () => void }) {
       {poll.data?.revisions.map((goal) => (
         <details key={goal.version}>
           <summary>
-            버전 {goal.version} · {labels[goal.status]} ·{" "}
-            {dateTime(goal.updatedAt)}
+            버전 {goal.version} · {labels[goal.status]} · {dateTime(goal.updatedAt)}
           </summary>
           <p>{goal.definition.description}</p>
           <p>완료 기준: {goal.definition.completionCriteria}</p>
@@ -264,9 +240,7 @@ function GoalForm({
         required
         maxLength={10000}
         value={draft.description}
-        onChange={(event) =>
-          setDraft({ ...draft, description: event.target.value })
-        }
+        onChange={(event) => setDraft({ ...draft, description: event.target.value })}
       />
       <label htmlFor="goal-criteria">완료·평가 기준</label>
       <textarea
@@ -274,9 +248,7 @@ function GoalForm({
         required
         maxLength={6000}
         value={draft.completionCriteria}
-        onChange={(event) =>
-          setDraft({ ...draft, completionCriteria: event.target.value })
-        }
+        onChange={(event) => setDraft({ ...draft, completionCriteria: event.target.value })}
       />
       <div className="goal-fields">
         <label>
@@ -302,9 +274,7 @@ function GoalForm({
             max={100}
             required
             value={draft.priority}
-            onChange={(event) =>
-              setDraft({ ...draft, priority: Number(event.target.value) })
-            }
+            onChange={(event) => setDraft({ ...draft, priority: Number(event.target.value) })}
           />
         </label>
       </div>
@@ -312,8 +282,8 @@ function GoalForm({
         <summary>허용 범위와 실행 예산</summary>
         <div className="stack">
           <p className="subtle-note">
-            경로는 작업 폴더 기준으로 한 줄에 하나씩 입력합니다. 점(.)은 전체
-            폴더이며 제외 경로를 함께 적용합니다.
+            경로는 작업 폴더 기준으로 한 줄에 하나씩 입력합니다. 점(.)은 전체 폴더이며 제외 경로를
+            함께 적용합니다.
           </p>
           <label htmlFor="goal-allowed">허용 경로</label>
           <textarea
@@ -411,20 +381,11 @@ function GoalForm({
       <div className="goal-actions">
         <button
           className="primary"
-          disabled={
-            busy ||
-            !draft.description.trim() ||
-            !draft.completionCriteria.trim()
-          }
+          disabled={busy || !draft.description.trim() || !draft.completionCriteria.trim()}
         >
           목표 저장
         </button>
-        <button
-          type="button"
-          className="secondary"
-          disabled={busy}
-          onClick={onClose}
-        >
+        <button type="button" className="secondary" disabled={busy} onClick={onClose}>
           입력 닫기
         </button>
       </div>

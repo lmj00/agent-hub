@@ -50,22 +50,15 @@ export async function deliverNotification(
       headers: {
         "Content-Type": "application/json",
         "Idempotency-Key": payload.id,
-        ...(config.bearerToken
-          ? { Authorization: `Bearer ${config.bearerToken}` }
-          : {}),
+        ...(config.bearerToken ? { Authorization: `Bearer ${config.bearerToken}` } : {}),
       },
       body: JSON.stringify(payload),
     });
     // The receiver's body is neither needed nor trusted, including on errors.
     await response.body?.cancel();
-    if (response.status >= 300 && response.status < 400)
-      return "redirect_refused";
+    if (response.status >= 300 && response.status < 400) return "redirect_refused";
     return response.ok ? "delivered" : "http_error";
   } catch {
-    return signal.aborted
-      ? "stopped"
-      : deadline.aborted
-        ? "timeout"
-        : "request_failed";
+    return signal.aborted ? "stopped" : deadline.aborted ? "timeout" : "request_failed";
   }
 }

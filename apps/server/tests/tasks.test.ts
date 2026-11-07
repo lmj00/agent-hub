@@ -20,14 +20,19 @@ beforeEach(async () => {
   databasePath = join(directory, "hub.sqlite");
   app = buildApp({ databasePath });
   const response = await app.inject({
-    method: "POST", url: "/projects", payload: { name: "Example project", workspaceKey: "example" },
+    method: "POST",
+    url: "/projects",
+    payload: { name: "Example project", workspaceKey: "example" },
   });
   projectId = response.json().id;
 });
 
 afterEach(async () => {
-  try { await app.close(); }
-  finally { rmSync(directory, { recursive: true, force: true }); }
+  try {
+    await app.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("registers a queued task and preserves detail, list and request key after reopening", async () => {
@@ -38,7 +43,22 @@ test("registers a queued task and preserves detail, list and request key after r
   const after = Date.now();
   expect(created.statusCode).toBe(201);
   const task = created.json();
-  expect(task).toEqual({ ...input, kind: "work", goalId: null, goalVersion: null, goalReview: null, planningTaskId: null, previousTaskId: null, nextTaskId: null, budgetWait: null, id: expect.any(String), projectId, status: "queued", retryState: null, createdAt: expect.any(String) });
+  expect(task).toEqual({
+    ...input,
+    kind: "work",
+    goalId: null,
+    goalVersion: null,
+    goalReview: null,
+    planningTaskId: null,
+    previousTaskId: null,
+    nextTaskId: null,
+    budgetWait: null,
+    id: expect.any(String),
+    projectId,
+    status: "queued",
+    retryState: null,
+    createdAt: expect.any(String),
+  });
   expect(Date.parse(task.createdAt)).toBeGreaterThanOrEqual(before);
   expect(Date.parse(task.createdAt)).toBeLessThanOrEqual(after);
   expect(created.headers.location).toBe(`/tasks/${task.id}`);
@@ -57,19 +77,29 @@ test("registers a queued task and preserves detail, list and request key after r
 });
 
 test("keeps one task for a burst of identical registrations", async () => {
-  const responses = await Promise.all(Array.from({ length: 10 }, () => app.inject({
-    method: "POST", url: taskUrl(), payload: input,
-  })));
-  expect(responses.filter(response => response.statusCode === 201)).toHaveLength(1);
-  expect(responses.filter(response => response.statusCode === 200)).toHaveLength(9);
-  expect(new Set(responses.map(response => response.json().id)).size).toBe(1);
+  const responses = await Promise.all(
+    Array.from({ length: 10 }, () =>
+      app.inject({
+        method: "POST",
+        url: taskUrl(),
+        payload: input,
+      }),
+    ),
+  );
+  expect(responses.filter((response) => response.statusCode === 201)).toHaveLength(1);
+  expect(responses.filter((response) => response.statusCode === 200)).toHaveLength(9);
+  expect(new Set(responses.map((response) => response.json().id)).size).toBe(1);
   const list = await app.inject({ method: "GET", url: taskUrl() });
   expect(list.json().tasks).toHaveLength(1);
 });
 
 test("rejects a changed instruction for the same key without changing the saved task", async () => {
   const created = await app.inject({ method: "POST", url: taskUrl(), payload: input });
-  const conflict = await app.inject({ method: "POST", url: taskUrl(), payload: { ...input, instruction: "Different task" } });
+  const conflict = await app.inject({
+    method: "POST",
+    url: taskUrl(),
+    payload: { ...input, instruction: "Different task" },
+  });
   expect(conflict.statusCode).toBe(409);
   expect(conflict.json().error).toBe("REQUEST_KEY_CONFLICT");
   const list = await app.inject({ method: "GET", url: taskUrl() });
@@ -77,15 +107,29 @@ test("rejects a changed instruction for the same key without changing the saved 
 });
 
 test("scopes request keys and lists to each project and permits a new key for the same instruction", async () => {
-  const other = await app.inject({ method: "POST", url: "/projects", payload: { name: "Other", workspaceKey: "other" } });
+  const other = await app.inject({
+    method: "POST",
+    url: "/projects",
+    payload: { name: "Other", workspaceKey: "other" },
+  });
   const otherUrl = `/projects/${other.json().id}/tasks`;
   const first = await app.inject({ method: "POST", url: taskUrl(), payload: input });
-  const second = await app.inject({ method: "POST", url: otherUrl, payload: { ...input, instruction: "Other instruction" } });
-  const third = await app.inject({ method: "POST", url: taskUrl(), payload: { ...input, requestKey: "request-2" } });
+  const second = await app.inject({
+    method: "POST",
+    url: otherUrl,
+    payload: { ...input, instruction: "Other instruction" },
+  });
+  const third = await app.inject({
+    method: "POST",
+    url: taskUrl(),
+    payload: { ...input, requestKey: "request-2" },
+  });
   expect([first.statusCode, second.statusCode, third.statusCode]).toEqual([201, 201, 201]);
   const list = await app.inject({ method: "GET", url: taskUrl() });
   expect(list.json().tasks).toHaveLength(2);
-  expect(list.json().tasks.every((task: { projectId: string }) => task.projectId === projectId)).toBe(true);
+  expect(
+    list.json().tasks.every((task: { projectId: string }) => task.projectId === projectId),
+  ).toBe(true);
   const otherList = await app.inject({ method: "GET", url: otherUrl });
   expect(otherList.json()).toEqual({ tasks: [second.json()] });
 });
@@ -96,12 +140,35 @@ test("orders tasks by newest creation time and then by id", async () => {
   const second = "00000000-0000-4000-8000-000000000002";
   const newest = "00000000-0000-4000-8000-000000000003";
   try {
-    database.db.insert(tasks).values([
-      { ...input, projectId, id: second, requestKey: "b", createdAt: new Date("2026-01-01T00:00:00Z") },
-      { ...input, projectId, id: first, requestKey: "a", createdAt: new Date("2026-01-01T00:00:00Z") },
-      { ...input, projectId, id: newest, requestKey: "c", createdAt: new Date("2026-01-02T00:00:00Z") },
-    ]).run();
-  } finally { database.close(); }
+    database.db
+      .insert(tasks)
+      .values([
+        {
+          ...input,
+          projectId,
+          id: second,
+          requestKey: "b",
+          createdAt: new Date("2026-01-01T00:00:00Z"),
+        },
+        {
+          ...input,
+          projectId,
+          id: first,
+          requestKey: "a",
+          createdAt: new Date("2026-01-01T00:00:00Z"),
+        },
+        {
+          ...input,
+          projectId,
+          id: newest,
+          requestKey: "c",
+          createdAt: new Date("2026-01-02T00:00:00Z"),
+        },
+      ])
+      .run();
+  } finally {
+    database.close();
+  }
   const list = await app.inject({ method: "GET", url: taskUrl() });
   expect(list.json().tasks.map((task: { id: string }) => task.id)).toEqual([newest, first, second]);
 });
@@ -126,7 +193,11 @@ test.each([
 
 test("accepts boundary lengths and preserves internal newlines in the instruction", async () => {
   const instruction = `a\n${"b".repeat(9998)}`;
-  const response = await app.inject({ method: "POST", url: taskUrl(), payload: { instruction, requestKey: "x".repeat(100) } });
+  const response = await app.inject({
+    method: "POST",
+    url: taskUrl(),
+    payload: { instruction, requestKey: "x".repeat(100) },
+  });
   expect(response.statusCode).toBe(201);
   expect(response.json().instruction).toBe(instruction);
 });
@@ -142,15 +213,24 @@ test("returns 404 for missing projects and tasks and 400 for malformed ids", asy
   expect(missing.statusCode).toBe(404);
   expect(missing.json().error).toBe("TASK_NOT_FOUND");
   expect((await app.inject({ method: "GET", url: "/tasks/not-a-uuid" })).statusCode).toBe(400);
-  expect((await app.inject({ method: "POST", url: "/projects/invalid/tasks", payload: input })).statusCode).toBe(400);
+  expect(
+    (await app.inject({ method: "POST", url: "/projects/invalid/tasks", payload: input }))
+      .statusCode,
+  ).toBe(400);
 });
 
 test("rejects malformed JSON and non-JSON requests", async () => {
   const malformed = await app.inject({
-    method: "POST", url: taskUrl(), headers: { "content-type": "application/json" }, payload: '{"instruction":',
+    method: "POST",
+    url: taskUrl(),
+    headers: { "content-type": "application/json" },
+    payload: '{"instruction":',
   });
   const text = await app.inject({
-    method: "POST", url: taskUrl(), headers: { "content-type": "text/plain" }, payload: JSON.stringify(input),
+    method: "POST",
+    url: taskUrl(),
+    headers: { "content-type": "text/plain" },
+    payload: JSON.stringify(input),
   });
   expect(malformed.statusCode).toBe(400);
   expect(text.statusCode).toBe(415);
@@ -159,8 +239,11 @@ test("rejects malformed JSON and non-JSON requests", async () => {
 
 test("reports missing task storage in readiness without exposing SQL in API errors", async () => {
   const database = openDatabase(databasePath);
-  try { database.client.exec("DROP TABLE tasks"); }
-  finally { database.close(); }
+  try {
+    database.client.exec("DROP TABLE tasks");
+  } finally {
+    database.close();
+  }
 
   const responses = [
     await app.inject({ method: "POST", url: taskUrl(), payload: input }),
@@ -169,7 +252,10 @@ test("reports missing task storage in readiness without exposing SQL in API erro
   ];
   for (const response of responses) {
     expect(response.statusCode).toBe(500);
-    expect(response.json()).toEqual({ error: "INTERNAL_ERROR", message: "Unable to process task request" });
+    expect(response.json()).toEqual({
+      error: "INTERNAL_ERROR",
+      message: "Unable to process task request",
+    });
   }
   expect((await app.inject({ method: "GET", url: "/health/ready" })).statusCode).toBe(503);
   expect((await app.inject({ method: "GET", url: "/health/live" })).statusCode).toBe(200);

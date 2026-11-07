@@ -9,13 +9,15 @@ import {
   maxRunExecutions,
 } from "./analysis.js";
 import { createCodexExecutor } from "./codex-executor.js";
-import {
-  createAnalysisWorkflow,
-  parseStepUpdate,
-} from "./analysis-workflow.js";
+import { createAnalysisWorkflow, parseStepUpdate } from "./analysis-workflow.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import { runVerificationContainer, verificationRunnerInput } from "./verification-process.js";
-import { parseRuntimeSkillContext, runtimeSkillPolicyVersion, sameRuntimeSkill, selectRuntimeSkill } from "./runtime-skills.js";
+import {
+  parseRuntimeSkillContext,
+  runtimeSkillPolicyVersion,
+  sameRuntimeSkill,
+  selectRuntimeSkill,
+} from "./runtime-skills.js";
 import { parseVerificationRequest } from "./verification-config.js";
 import {
   maxDevelopmentArtifactBytes,
@@ -36,11 +38,8 @@ type RunnerMessage =
   | { type: "result"; result: AnalysisResult }
   | { type: "error"; code: AnalysisError["code"]; retryAt?: string | null };
 
-export function createConfiguredExecutor(
-  config: ExecutionConfig,
-): AnalysisExecutor {
-  if (!config.containerImage)
-    return createAnalysisWorkflow(createCodexExecutor(config.codexHome));
+export function createConfiguredExecutor(config: ExecutionConfig): AnalysisExecutor {
+  if (!config.containerImage) return createAnalysisWorkflow(createCodexExecutor(config.codexHome));
   return createContainerExecutor(config.containerImage, config.codexHome);
 }
 
@@ -62,9 +61,7 @@ function confirmExecution(entry: PendingExecution): Promise<Date | null> {
   // in-flight observation so a second stop cannot discard the first proof.
   entry.observation ??= (async () => {
     const identity = await entry.prepared;
-    const proof = identity
-      ? await stopAndConfirmContainer(identity)
-      : new Date();
+    const proof = identity ? await stopAndConfirmContainer(identity) : new Date();
     if (proof) entry.confirmedAt = proof;
     return proof;
   })().finally(() => {
@@ -73,28 +70,28 @@ function confirmExecution(entry: PendingExecution): Promise<Date | null> {
   return entry.observation;
 }
 
-export function createContainerExecutor(
-  image: string,
-  codexHome: string,
-): AnalysisExecutor {
+export function createContainerExecutor(image: string, codexHome: string): AnalysisExecutor {
   const executions = new Map<string, RunExecutions>();
   return {
     runtimeSkillVersion: runtimeSkillPolicyVersion,
     async analyze(request, onEvent) {
-      if (!request.runId)
-        throw new Error("A run ID is required for container execution");
+      if (!request.runId) throw new Error("A run ID is required for container execution");
       const runId = request.runId;
       request.signal.throwIfAborted();
       if (request.development) {
         if (request.workflow || request.responseMode === "goal-plan")
           throw new AnalysisError("unsupported_settings");
-        request = { ...request, development: parseDevelopmentInput(request.development, { verification: !!request.verification }) };
+        request = {
+          ...request,
+          development: parseDevelopmentInput(request.development, {
+            verification: !!request.verification,
+          }),
+        };
       }
       if (request.verification) {
         request = { ...request, verification: parseVerificationRequest(request.verification) };
         verificationRunnerInput(request);
-      }
-      else runnerInput(request);
+      } else runnerInput(request);
       const run = executions.get(runId) ?? {
         entries: [],
         active: false,
@@ -106,9 +103,7 @@ export function createContainerExecutor(
         run.entries.some((entry) => !entry.saved) ||
         run.entries.length >= maxRunExecutions
       )
-        throw new Error(
-          "Previous execution must be confirmed before another phase",
-        );
+        throw new Error("Previous execution must be confirmed before another phase");
       executions.set(runId, run);
       run.active = true;
       try {
@@ -132,8 +127,7 @@ export function createContainerExecutor(
         }
         await onEvent({ kind: "execution.prepared", execution: identity });
         request.signal.throwIfAborted();
-        if (run.sealed)
-          throw new Error("Execution was stopped during preparation");
+        if (run.sealed) throw new Error("Execution was stopped during preparation");
         const result = request.verification
           ? await runVerificationContainer(identity, request, () => confirmExecution(entry))
           : await runContainerProtocol(identity, request, onEvent);
@@ -144,8 +138,7 @@ export function createContainerExecutor(
           executionTermination: { identity, confirmedAt },
         });
         request.signal.throwIfAborted();
-        if (run.sealed)
-          throw new Error("Execution was stopped before phase completion");
+        if (run.sealed) throw new Error("Execution was stopped before phase completion");
         entry.saved = true;
         return result;
       } catch (error) {
@@ -166,18 +159,11 @@ export function createContainerExecutor(
         // A failed create is never started; an unidentified shell cannot run code.
         if (!(await confirmExecution(entry))) return null;
       }
-      return new Date(
-        Math.max(...run.entries.map((entry) => entry.confirmedAt!.getTime())),
-      );
+      return new Date(Math.max(...run.entries.map((entry) => entry.confirmedAt!.getTime())));
     },
     async cleanup(runId) {
       const run = executions.get(runId);
-      if (
-        !run ||
-        !run.sealed ||
-        run.entries.some((entry) => !entry.confirmedAt)
-      )
-        return;
+      if (!run || !run.sealed || run.entries.some((entry) => !entry.confirmedAt)) return;
       for (const entry of run.entries) {
         const identity = await entry.prepared;
         if (identity) await removeFinishedContainer(identity);
@@ -206,7 +192,8 @@ function runContainerProtocol(
     const fail = (error?: unknown) => {
       // Preserve policy refusals across the child-protocol boundary.
       failure =
-        error instanceof AnalysisError && (error.code === "budget_limit" || error.code === "unsupported_settings")
+        error instanceof AnalysisError &&
+        (error.code === "budget_limit" || error.code === "unsupported_settings")
           ? error
           : new AnalysisError("provider_error", true);
       reject(failure);
@@ -215,11 +202,7 @@ function runContainerProtocol(
     child.stdout!.setEncoding("utf8");
     child.stdout!.on("data", (chunk: string) => {
       bytes += Buffer.byteLength(chunk);
-      if (
-        bytes >
-        2 * 1024 * 1024 +
-          (request.development ? maxDevelopmentArtifactBytes : 0)
-      ) {
+      if (bytes > 2 * 1024 * 1024 + (request.development ? maxDevelopmentArtifactBytes : 0)) {
         fail();
         return;
       }
@@ -233,35 +216,59 @@ function runContainerProtocol(
             if (failure) return;
             const message = JSON.parse(line) as RunnerMessage;
             if (!runnerReady) {
-              if (message?.type !== "runner.ready" || Object.keys(message).length !== 3 ||
-                  message.runtimeSkillVersion !== runtimeSkillPolicyVersion ||
-                  message.bundleDigest !== currentSkill!.selection.bundleDigest) throw new AnalysisError("unsupported_settings");
+              if (
+                message?.type !== "runner.ready" ||
+                Object.keys(message).length !== 3 ||
+                message.runtimeSkillVersion !== runtimeSkillPolicyVersion ||
+                message.bundleDigest !== currentSkill!.selection.bundleDigest
+              )
+                throw new AnalysisError("unsupported_settings");
               request.signal.throwIfAborted();
               runnerReady = true;
               child.stdin!.write(runnerInput(request));
               return;
             }
-            if (
-              message.type === "event" &&
-              typeof message.event?.kind === "string"
-            ) {
+            if (message.type === "event" && typeof message.event?.kind === "string") {
               const skill = message.event.runtimeSkill;
-              if (skill || message.event.kind === "skill.selected" || message.event.kind === "skill.loaded") {
-                if (!currentSkill || !stepStarted || skillLoaded || !skill || skill.type !== "loaded" ||
-                    Object.keys(skill).length !== 3 || message.event.kind !== "skill.loaded") throw new Error("Invalid skill event");
-                const loaded = parseRuntimeSkillContext({ sequence: skill.sequence, selection: skill.selection });
-                if (!sameRuntimeSkill(loaded, currentSkill)) throw new Error("Skill confirmation differs");
+              if (
+                skill ||
+                message.event.kind === "skill.selected" ||
+                message.event.kind === "skill.loaded"
+              ) {
+                if (
+                  !currentSkill ||
+                  !stepStarted ||
+                  skillLoaded ||
+                  !skill ||
+                  skill.type !== "loaded" ||
+                  Object.keys(skill).length !== 3 ||
+                  message.event.kind !== "skill.loaded"
+                )
+                  throw new Error("Invalid skill event");
+                const loaded = parseRuntimeSkillContext({
+                  sequence: skill.sequence,
+                  selection: skill.selection,
+                });
+                if (!sameRuntimeSkill(loaded, currentSkill))
+                  throw new Error("Skill confirmation differs");
                 request.signal.throwIfAborted();
-                await onEvent({ kind: "skill.loaded", runtimeSkill: { type: "loaded", ...loaded } });
+                await onEvent({
+                  kind: "skill.loaded",
+                  runtimeSkill: { type: "loaded", ...loaded },
+                });
                 request.signal.throwIfAborted();
                 skillLoaded = true;
-                child.stdin!.write(JSON.stringify({ type: "skill.saved", sequence: loaded.sequence, digest: loaded.selection.digest }) + "\n");
+                child.stdin!.write(
+                  JSON.stringify({
+                    type: "skill.saved",
+                    sequence: loaded.sequence,
+                    digest: loaded.selection.digest,
+                  }) + "\n",
+                );
                 return;
               }
               // 자식이 보낸 실행 ID는 신뢰하지 않고 SDK 이벤트만 전달합니다.
-              const step = message.event.step
-                ? parseStepUpdate(message.event.step)
-                : undefined;
+              const step = message.event.step ? parseStepUpdate(message.event.step) : undefined;
               if (step && !request.workflow)
                 throw new Error("Child cannot manage parent-owned workflow steps");
               if (
@@ -272,23 +279,27 @@ function runContainerProtocol(
                 throw new Error("Invalid session ID");
               if (
                 step &&
-                message.event.kind !==
-                  (step.type === "start" ? "step.started" : "step.completed")
+                message.event.kind !== (step.type === "start" ? "step.started" : "step.completed")
               )
                 throw new Error("Invalid step event");
-              if (currentSkill && !skillLoaded && step?.type !== "start") throw new Error("Skill must be saved before model events");
+              if (currentSkill && !skillLoaded && step?.type !== "start")
+                throw new Error("Skill must be saved before model events");
               request.signal.throwIfAborted();
               await onEvent({
                 kind: message.event.kind,
-                ...(message.event.sessionId
-                  ? { sessionId: message.event.sessionId }
-                  : {}),
+                ...(message.event.sessionId ? { sessionId: message.event.sessionId } : {}),
                 ...(step ? { step } : {}),
               });
               if (step) {
                 if (step.type === "start" && request.runtimeSkill) {
-                  currentSkill = { sequence: step.sequence, selection: request.runtimeSkill.selection };
-                  await onEvent({ kind: "skill.selected", runtimeSkill: { type: "selected", ...currentSkill } });
+                  currentSkill = {
+                    sequence: step.sequence,
+                    selection: request.runtimeSkill.selection,
+                  };
+                  await onEvent({
+                    kind: "skill.selected",
+                    runtimeSkill: { type: "selected", ...currentSkill },
+                  });
                   skillLoaded = false;
                   stepStarted = true;
                 } else if (step.type === "complete") stepStarted = false;
@@ -322,13 +333,9 @@ function runContainerProtocol(
                   : {}),
               };
               child.stdin!.end();
-            } else if (
-              message.type === "error" &&
-              analysisErrorCodes.includes(message.code)
-            ) {
+            } else if (message.type === "error" && analysisErrorCodes.includes(message.code)) {
               const retryAt =
-                message.code === "capacity" &&
-                typeof message.retryAt === "string"
+                message.code === "capacity" && typeof message.retryAt === "string"
                   ? new Date(message.retryAt)
                   : null;
               if (retryAt && !Number.isFinite(retryAt.getTime()))
@@ -352,14 +359,20 @@ function runContainerProtocol(
       await processing;
       if (failure) reject(failure);
       else if (!runnerReady) reject(new AnalysisError("unsupported_settings"));
-      else if (code !== 0 || buffer || !result)
-        reject(new AnalysisError("provider_error", true));
+      else if (code !== 0 || buffer || !result) reject(new AnalysisError("provider_error", true));
       else resolve(result);
     });
     // No executable task goes to an image until it confirms the protocol and
     // bundle. Old runners reject this message before constructing their SDK.
-    child.stdin!.write(currentSkill ? JSON.stringify({ type: "runner.hello",
-      runtimeSkillVersion: runtimeSkillPolicyVersion, bundleDigest: currentSkill.selection.bundleDigest }) + "\n" : runnerInput(request));
+    child.stdin!.write(
+      currentSkill
+        ? JSON.stringify({
+            type: "runner.hello",
+            runtimeSkillVersion: runtimeSkillPolicyVersion,
+            bundleDigest: currentSkill.selection.bundleDigest,
+          }) + "\n"
+        : runnerInput(request),
+    );
   });
 }
 
@@ -376,10 +389,7 @@ function runnerInput(request: AnalysisRequest) {
     stepSequence: request.stepSequence,
     runtimeSkill: request.runtimeSkill,
   });
-  if (
-    Buffer.byteLength(line) >
-    (request.development ? maxDevelopmentRequestBytes : 65536)
-  )
+  if (Buffer.byteLength(line) > (request.development ? maxDevelopmentRequestBytes : 65536))
     throw new AnalysisError("input_unavailable");
   return line + "\n";
 }

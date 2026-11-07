@@ -112,17 +112,16 @@ test("keeps failure and historical success across restart without presenting the
   });
   expect(JSON.stringify(result)).not.toContain(target.url);
   expect(JSON.stringify(result)).not.toContain(target.fingerprint);
-  expect(
-    store.list(target.projectId, { ...observer(), enabledKeys: new Set() })[0],
-  ).toMatchObject({ state: "unknown", reason: "observer_disabled" });
+  expect(store.list(target.projectId, { ...observer(), enabledKeys: new Set() })[0]).toMatchObject({
+    state: "unknown",
+    reason: "observer_disabled",
+  });
 });
 test("insertion sequence, rather than UUID or clock order, determines the latest observation", () => {
   const time = new Date();
   store.save(target, good(time));
   store.save(target, bad(new Date(time.getTime() - 1000)));
-  expect(store.list(target.projectId, observer())[0]?.latest?.success).toBe(
-    false,
-  );
+  expect(store.list(target.projectId, observer())[0]?.latest?.success).toBe(false);
 });
 test("configuration changes invalidate old evidence and removed targets remain historical only", () => {
   store.save(target, good());
@@ -144,9 +143,9 @@ test("configuration changes invalidate old evidence and removed targets remain h
 });
 test("an invalid project rolls back config changes and a failed observation write preserves prior evidence", () => {
   store.save(target, good());
-  expect(() =>
-    store.configure([{ ...target, projectId: randomUUID() }]),
-  ).toThrow("unknown project");
+  expect(() => store.configure([{ ...target, projectId: randomUUID() }])).toThrow(
+    "unknown project",
+  );
   expect(store.list(target.projectId, observer())[0]?.enabled).toBe(true);
   database.client.exec(
     "CREATE TRIGGER reject_observation BEFORE INSERT ON service_observations BEGIN SELECT RAISE(ABORT, 'fixture'); END;",
@@ -157,16 +156,10 @@ test("an invalid project rolls back config changes and a failed observation writ
 test("retention bounds the latest history while preserving the last successful observation", () => {
   store.save(target, good());
   for (let index = 0; index < 1005; index++) store.save(target, bad());
-  expect(database.db.select().from(serviceObservations).all()).toHaveLength(
-    1001,
-  );
-  expect(
-    store.list(target.projectId, observer())[0]?.lastSuccessful?.success,
-  ).toBe(true);
+  expect(database.db.select().from(serviceObservations).all()).toHaveLength(1001);
+  expect(store.list(target.projectId, observer())[0]?.lastSuccessful?.success).toBe(true);
   store.save(target, good());
-  expect(database.db.select().from(serviceObservations).all()).toHaveLength(
-    1000,
-  );
+  expect(database.db.select().from(serviceObservations).all()).toHaveLength(1000);
 });
 test("the observer serializes requests and stopping it aborts only its pending read", async () => {
   const signals: AbortSignal[] = [];
@@ -216,19 +209,13 @@ test("persistence failure marks that target unknown and does not prevent other t
   cleanup.push(() => monitor.stop());
   monitor.start();
   await vi.waitFor(() =>
-    expect(database.db.select().from(serviceObservations).all()).toHaveLength(
-      1,
-    ),
+    expect(database.db.select().from(serviceObservations).all()).toHaveLength(1),
   );
   expect(
-    store
-      .list(target.projectId, monitor.getStatus())
-      .find((item) => item.key === target.key),
+    store.list(target.projectId, monitor.getStatus()).find((item) => item.key === target.key),
   ).toMatchObject({ state: "unknown", reason: "observer_error" });
   expect(
-    store
-      .list(target.projectId, monitor.getStatus())
-      .find((item) => item.key === next.key),
+    store.list(target.projectId, monitor.getStatus()).find((item) => item.key === next.key),
   ).toMatchObject({ state: "waiting" });
   expect(report).toHaveBeenCalledWith({
     code: "SERVICE_OBSERVER_ERROR",

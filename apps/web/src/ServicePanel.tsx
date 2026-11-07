@@ -1,8 +1,5 @@
 import { useCallback } from "react";
-import {
-  servicesSchema,
-  type Service,
-} from "@agent-hub/contracts";
+import { servicesSchema, type Service } from "@agent-hub/contracts";
 import { api, errorMessage } from "./api.js";
 import { dateTime } from "./format.js";
 import { usePolling } from "./use-polling.js";
@@ -32,8 +29,7 @@ export function ServicePanel({
         <span className="small-tag">상태 조회만 수행</span>
       </div>
       <p className="services-intro">
-        서비스가 보고한 프로세스·업무 상태를 확인합니다. 상태 수집과 업무 성공은
-        다릅니다.
+        서비스가 보고한 프로세스·업무 상태를 확인합니다. 상태 수집과 업무 성공은 다릅니다.
       </p>
       {result.error ? (
         <div className="notice error" role="alert">
@@ -43,31 +39,19 @@ export function ServicePanel({
       ) : null}
       <div className="service-list">
         {result.data?.services.map((service) => (
-          <ServiceCard
-            key={service.key}
-            service={service}
-            disconnected={!!result.error}
-          />
+          <ServiceCard key={service.key} service={service} disconnected={!!result.error} />
         ))}
       </div>
     </section>
   );
 }
 
-function ServiceCard({
-  service,
-  disconnected,
-}: {
-  service: Service;
-  disconnected: boolean;
-}) {
+function ServiceCard({ service, disconnected }: { service: Service; disconnected: boolean }) {
   const state = disconnected ? "unknown" : service.state;
   const current = service.latest?.success ? service.latest : null;
   const record = current ?? service.lastSuccessful;
   const historical =
-    disconnected ||
-    !current ||
-    ["stale", "unknown", "unavailable"].includes(service.state);
+    disconnected || !current || ["stale", "unknown", "unavailable"].includes(service.state);
   const snapshot = record?.snapshot;
   return (
     <article className="service-card">
@@ -75,9 +59,7 @@ function ServiceCard({
         <div>
           <h3>{service.name}</h3>
           <small>
-            {service.enabled
-              ? `수집 간격 최소 ${service.intervalMs / 1000}초`
-              : "관측 꺼짐"}
+            {service.enabled ? `수집 간격 최소 ${service.intervalMs / 1000}초` : "관측 꺼짐"}
           </small>
         </div>
         <span className={`service-state service-${state}`}>
@@ -97,13 +79,9 @@ function ServiceCard({
       {snapshot ? (
         <div className={`service-evidence ${historical ? "historical" : ""}`}>
           <p className="eyebrow">
-            {historical
-              ? "이전 수집 기록 · 현재 정상의 근거가 아닙니다"
-              : "수집한 업무 상태"}
+            {historical ? "이전 수집 기록 · 현재 정상의 근거가 아닙니다" : "수집한 업무 상태"}
           </p>
-          {snapshot.summary ? (
-            <p className="service-summary">{snapshot.summary}</p>
-          ) : null}
+          {snapshot.summary ? <p className="service-summary">{snapshot.summary}</p> : null}
           <dl className="service-facts">
             <div>
               <dt>서비스 보고 시각</dt>

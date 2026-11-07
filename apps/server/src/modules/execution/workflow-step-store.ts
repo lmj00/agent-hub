@@ -8,10 +8,7 @@ import { AnalysisError } from "./analysis.js";
 import { defaultEffortPolicy } from "./effort-policy.js";
 import { parseStepUpdate, selectNextEffort } from "./analysis-workflow.js";
 
-type StepDb = Pick<
-  ReturnType<typeof openDatabase>["db"],
-  "select" | "update" | "insert"
->;
+type StepDb = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update" | "insert">;
 
 // The server recomputes every next choice from persisted reports and the Run's limits.
 export function saveWorkflowStep(
@@ -51,8 +48,7 @@ export function saveWorkflowStep(
       .run();
     return;
   }
-  if (update.sequence > run.workflowPolicy.maxSteps)
-    throw new AnalysisError("workflow_limit");
+  if (update.sequence > run.workflowPolicy.maxSteps) throw new AnalysisError("workflow_limit");
   if (update.sequence === 1) {
     if (history.length !== 1 || latest.purpose || latest.status !== "running")
       throw new AnalysisError("invalid_plan");

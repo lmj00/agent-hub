@@ -14,10 +14,7 @@ import {
 } from "../src/modules/execution/effort-policy.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { runTask } from "../src/modules/execution/run-task.js";
-import {
-  AnalysisError,
-  type AnalysisExecutor,
-} from "../src/modules/execution/analysis.js";
+import { AnalysisError, type AnalysisExecutor } from "../src/modules/execution/analysis.js";
 
 let directory: string;
 let database: ReturnType<typeof openDatabase>;
@@ -43,24 +40,15 @@ afterEach(() => {
 
 test("initial task signals select medium, high or xhigh before any failure", () => {
   const policy = parseEffortPolicy({ mode: "adaptive" });
-  expect(selectInitialEffort("README를 요약해 줘", policy).effort).toBe(
-    "medium",
-  );
-  expect(
-    selectInitialEffort("동시성 경합의 원인을 분석해 줘", policy),
-  ).toMatchObject({
+  expect(selectInitialEffort("README를 요약해 줘", policy).effort).toBe("medium");
+  expect(selectInitialEffort("동시성 경합의 원인을 분석해 줘", policy)).toMatchObject({
     effort: "high",
     reason: expect.stringContaining("동시성"),
   });
   expect(
-    selectInitialEffort(
-      "여러 시스템의 복잡한 인과 관계와 교착 원인을 분석해 줘",
-      policy,
-    ).effort,
+    selectInitialEffort("여러 시스템의 복잡한 인과 관계와 교착 원인을 분석해 줘", policy).effort,
   ).toBe("xhigh");
-  expect(
-    selectInitialEffort("보안·트랜잭션·동시성 경합을 함께 검토", policy).effort,
-  ).toBe("xhigh");
+  expect(selectInitialEffort("보안·트랜잭션·동시성 경합을 함께 검토", policy).effort).toBe("xhigh");
   expect(
     selectInitialEffort("분산 시스템의 복잡한 원인", {
       ...policy,
@@ -70,9 +58,7 @@ test("initial task signals select medium, high or xhigh before any failure", () 
     effort: "high",
     reason: expect.stringContaining("허용 상한"),
   });
-  expect(selectInitialEffort("보안 분석", defaultEffortPolicy).effort).toBe(
-    "medium",
-  );
+  expect(selectInitialEffort("보안 분석", defaultEffortPolicy).effort).toBe("medium");
 });
 
 test("only medium through xhigh are allowed and invalid policy is rejected before execution", () => {
@@ -133,9 +119,7 @@ test.each([
     expect(analyze.mock.calls[0]![0]).toMatchObject({ effort });
     expect(store.findById(result.runId)).toMatchObject({
       effort,
-      steps: [
-        { effort, effortPolicyVersion: 1, effortReason: expect.any(String) },
-      ],
+      steps: [{ effort, effortPolicyVersion: 1, effortReason: expect.any(String) }],
     });
     const app = buildApp({ databasePath: join(directory, "hub.sqlite") });
     try {

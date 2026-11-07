@@ -1,30 +1,17 @@
 import { randomUUID } from "node:crypto";
-import {
-  cpSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import {
-  taskSchema,
-  parseResponse,
-  type GoalDefinition,
-} from "@agent-hub/contracts";
+import { taskSchema, parseResponse, type GoalDefinition } from "@agent-hub/contracts";
 import { buildApp } from "../src/app.js";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
 import { projects, tasks, runs } from "../src/db/schema.js";
 import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { createPlanningStore } from "../src/modules/goals/planning-store.js";
-import {
-  defaultRetryPolicy,
-  initialRetryState,
-} from "../src/modules/execution/retry-policy.js";
+import { defaultRetryPolicy, initialRetryState } from "../src/modules/execution/retry-policy.js";
 
 const definition: GoalDefinition = {
   description: "Improve the example",
@@ -37,8 +24,7 @@ const definition: GoalDefinition = {
   budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
 };
 let directory: string, projectId: string, goalId: string;
-let database: ReturnType<typeof openDatabase>,
-  goals: ReturnType<typeof createDrizzleGoalStore>;
+let database: ReturnType<typeof openDatabase>, goals: ReturnType<typeof createDrizzleGoalStore>;
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "hub-goal-revalidation-"));
   database = openDatabase(join(directory, "hub.sqlite"));
@@ -85,17 +71,12 @@ function work(paths = ["src/main.ts"]) {
     .run();
   return id;
 }
-const row = (id: string) =>
-  database.db.select().from(tasks).where(eq(tasks.id, id)).get()!;
+const row = (id: string) => database.db.select().from(tasks).where(eq(tasks.id, id)).get()!;
 const change = (next = definition) =>
   goals.change(goalId, randomUUID(), goals.findById(goalId).version, {
     definition: next,
   });
-function recordedRun(
-  taskId: string,
-  confirmed = true,
-  status: "failed" | "running" = "failed",
-) {
+function recordedRun(taskId: string, confirmed = true, status: "failed" | "running" = "failed") {
   const id = randomUUID();
   database.db
     .insert(runs)
@@ -140,9 +121,10 @@ test("pause preserves work; resume records a scope check while keeping the task 
   const reviewed = row(id);
   goals.change(goalId, "resume", 2, { action: "resume" });
   expect(row(id)).toEqual(reviewed);
-  expect(
-    createDrizzleRunStore(database.db).claimNext("fixture", ["example"]),
-  ).toEqual({ kind: "idle", reason: "development_pending" });
+  expect(createDrizzleRunStore(database.db).claimNext("fixture", ["example"])).toEqual({
+    kind: "idle",
+    reason: "development_pending",
+  });
 });
 
 test.each([
@@ -172,10 +154,7 @@ test.each([
 test.each([
   [["src/main.ts"], { ...definition, allowedPaths: ["tests"] }],
   [["src/main.ts"], { ...definition, excludedPaths: ["src/main.ts"] }],
-  [
-    ["src"],
-    { ...definition, excludedPaths: ["src/private", "src/new-private"] },
-  ],
+  [["src"], { ...definition, excludedPaths: ["src/private", "src/new-private"] }],
   [["src/new/future.ts"], { ...definition, allowedPaths: ["src/main.ts"] }],
 ] as const)(
   "removes work outside the new scope, including not-yet-created paths: %j",
@@ -234,11 +213,7 @@ test.each(["failed", "blocked", "waiting_retry", "waiting_capacity"] as const)(
       reason: "call_limit" as const,
       retryAt: new Date(Date.now() + 60000).toISOString(),
     };
-    database.db
-      .update(tasks)
-      .set({ status, retryState, budgetWait })
-      .where(eq(tasks.id, id))
-      .run();
+    database.db.update(tasks).set({ status, retryState, budgetWait }).where(eq(tasks.id, id)).run();
     change();
     expect(row(id)).toMatchObject({
       status,
@@ -246,9 +221,7 @@ test.each(["failed", "blocked", "waiting_retry", "waiting_capacity"] as const)(
       budgetWait,
       goalVersion: 2,
     });
-    expect(
-      database.db.select().from(runs).where(eq(runs.id, runId)).get(),
-    ).toMatchObject({
+    expect(database.db.select().from(runs).where(eq(runs.id, runId)).get()).toMatchObject({
       goalVersion: 1,
       status: "failed",
       errorCode: "transient",
@@ -257,24 +230,17 @@ test.each(["failed", "blocked", "waiting_retry", "waiting_capacity"] as const)(
   },
 );
 
-test.each(["cancelled", "succeeded", "running"] as const)(
-  "does not rewrite %s work",
-  (status) => {
-    const id = work();
-    database.db.update(tasks).set({ status }).where(eq(tasks.id, id)).run();
-    const before = row(id);
-    change();
-    expect(row(id)).toEqual(before);
-  },
-);
+test.each(["cancelled", "succeeded", "running"] as const)("does not rewrite %s work", (status) => {
+  const id = work();
+  database.db.update(tasks).set({ status }).where(eq(tasks.id, id)).run();
+  const before = row(id);
+  change();
+  expect(row(id)).toEqual(before);
+});
 
 test("a stored user cancellation prevents rebinding even before the task status changes", () => {
   const id = work();
-  database.db
-    .update(tasks)
-    .set({ cancelRequestedAt: new Date() })
-    .where(eq(tasks.id, id))
-    .run();
+  database.db.update(tasks).set({ cancelRequestedAt: new Date() }).where(eq(tasks.id, id)).run();
   const before = row(id);
   change();
   expect(row(id)).toEqual(before);
@@ -283,11 +249,7 @@ test("a stored user cancellation prevents rebinding even before the task status 
 test("termination proof is required, then a later queue pass rechecks without another goal edit", () => {
   const id = work(),
     runId = recordedRun(id, false);
-  database.db
-    .update(tasks)
-    .set({ status: "blocked" })
-    .where(eq(tasks.id, id))
-    .run();
+  database.db.update(tasks).set({ status: "blocked" }).where(eq(tasks.id, id)).run();
   change();
   expect(row(id).goalVersion).toBe(1);
   database.db
@@ -295,9 +257,9 @@ test("termination proof is required, then a later queue pass rechecks without an
     .set({ terminationConfirmedAt: new Date() })
     .where(eq(runs.id, runId))
     .run();
-  expect(
-    createDrizzleRunStore(database.db).claimNext("fixture", ["example"]),
-  ).toEqual({ kind: "idle" });
+  expect(createDrizzleRunStore(database.db).claimNext("fixture", ["example"])).toEqual({
+    kind: "idle",
+  });
   expect(row(id)).toMatchObject({
     goalVersion: 2,
     status: "blocked",
@@ -315,9 +277,7 @@ test("pending recovery holds the binding until observation completes; planning a
     .run(id, runId, Date.now());
   change();
   expect(row(id).goalVersion).toBe(1);
-  database.client.exec(
-    "UPDATE recovery_requests SET status = 'completed' WHERE id = 'request'",
-  );
+  database.client.exec("UPDATE recovery_requests SET status = 'completed' WHERE id = 'request'");
   expect(createPlanningStore(database.db).reserveNext(["example"])).toBeNull();
   expect(row(id)).toMatchObject({
     goalVersion: 2,
@@ -329,21 +289,12 @@ test("legacy scope without planned paths, private paths and missing goal history
   const legacy = work(),
     privateTask = work(["src/.env"]),
     unknown = work();
-  database.db
-    .update(tasks)
-    .set({ plannedWork: null })
-    .where(eq(tasks.id, legacy))
-    .run();
-  database.db
-    .update(tasks)
-    .set({ goalVersion: 2 })
-    .where(eq(tasks.id, unknown))
-    .run();
+  database.db.update(tasks).set({ plannedWork: null }).where(eq(tasks.id, legacy)).run();
+  database.db.update(tasks).set({ goalVersion: 2 }).where(eq(tasks.id, unknown)).run();
   change();
   database.client.exec("DELETE FROM goal_revisions WHERE version = 2");
   change();
-  for (const id of [legacy, privateTask, unknown])
-    expect(row(id).goalReview).toBeNull();
+  for (const id of [legacy, privateTask, unknown]) expect(row(id).goalReview).toBeNull();
 });
 
 test("a task linked to another project cannot inherit the goal's authority", () => {
@@ -358,11 +309,7 @@ test("a task linked to another project cannot inherit the goal's authority", () 
       createdAt: new Date(),
     })
     .run();
-  database.db
-    .update(tasks)
-    .set({ projectId: other })
-    .where(eq(tasks.id, id))
-    .run();
+  database.db.update(tasks).set({ projectId: other }).where(eq(tasks.id, id)).run();
   change();
   expect(row(id)).toMatchObject({ goalVersion: 1, goalReview: null });
 });
@@ -411,9 +358,7 @@ test("migration adds an empty review while preserving existing task, run and rec
   cpSync(migrationsDirectory, folder, { recursive: true });
   const journalFile = join(folder, "meta/_journal.json"),
     journal = JSON.parse(readFileSync(journalFile, "utf8"));
-  journal.entries = journal.entries.filter(
-    (entry: { idx: number }) => entry.idx < 20,
-  );
+  journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 20);
   writeFileSync(journalFile, JSON.stringify(journal));
   const path = join(directory, "old.sqlite"),
     old = openDatabase(path, folder);
@@ -428,11 +373,10 @@ test("migration adds an empty review while preserving existing task, run and rec
       instruction: "Keep",
       goalReview: null,
     });
-    expect(
-      upgraded.client
-        .prepare("SELECT task_id,run_id FROM recovery_requests")
-        .get(),
-    ).toEqual({ task_id: "t", run_id: "r" });
+    expect(upgraded.client.prepare("SELECT task_id,run_id FROM recovery_requests").get()).toEqual({
+      task_id: "t",
+      run_id: "r",
+    });
     expect(upgraded.client.pragma("foreign_key_check")).toEqual([]);
   } finally {
     upgraded.close();

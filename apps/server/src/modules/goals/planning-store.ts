@@ -1,16 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  inArray,
-  lte,
-  ne,
-  or,
-  sql,
-} from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, lte, ne, or, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import {
   changeApplications,
@@ -30,10 +19,7 @@ import { revalidateGoalWork } from "./revalidate-goal-work.js";
 import { readPlanningWork } from "./planning-work-state.js";
 import { allowedGoalPath, privateInputPath } from "./prepared-workspace.js";
 
-import {
-  readServiceViews,
-  type ObserverStatus,
-} from "../services/drizzle-service-store.js";
+import { readServiceViews, type ObserverStatus } from "../services/drizzle-service-store.js";
 
 type Db = ReturnType<typeof openDatabase>["db"];
 type QueryDb = Pick<Db, "select">;
@@ -48,15 +34,10 @@ export function readPlanningContext(
   },
   now = new Date(),
 ): PlanningContext | undefined {
-  const cycle = db
-    .select()
-    .from(planningCycles)
-    .where(eq(planningCycles.taskId, taskId))
-    .get();
+  const cycle = db.select().from(planningCycles).where(eq(planningCycles.taskId, taskId)).get();
   if (!cycle || cycle.status !== "reserved") return undefined;
   const goal = db.select().from(goals).where(eq(goals.id, cycle.goalId)).get();
-  if (!goal || goal.version !== cycle.goalVersion || goal.status !== "active")
-    return undefined;
+  if (!goal || goal.version !== cycle.goalVersion || goal.status !== "active") return undefined;
   const history = db
     .select()
     .from(tasks)
@@ -75,31 +56,29 @@ export function readPlanningContext(
       .from(tasks)
       .where(and(eq(tasks.goalId, goal.id), ne(tasks.id, taskId)))
       .get()!.total,
-    services: readServiceViews(db, goal.projectId, observer, now, true).map(
-      (service) => {
-        const clean = (value: typeof service.latest) =>
-          value
-            ? {
-                ...value,
-                snapshot: value.snapshot
-                  ? {
-                      ...value.snapshot,
-                      summary: redactOutput(value.snapshot.summary),
-                    }
-                  : null,
-              }
-            : null;
-        return {
-          key: service.key,
-          name: redactOutput(service.name),
-          enabled: service.enabled,
-          state: service.state,
-          reason: service.reason,
-          latest: clean(service.latest),
-          lastSuccessful: clean(service.lastSuccessful),
-        };
-      },
-    ),
+    services: readServiceViews(db, goal.projectId, observer, now, true).map((service) => {
+      const clean = (value: typeof service.latest) =>
+        value
+          ? {
+              ...value,
+              snapshot: value.snapshot
+                ? {
+                    ...value.snapshot,
+                    summary: redactOutput(value.snapshot.summary),
+                  }
+                : null,
+            }
+          : null;
+      return {
+        key: service.key,
+        name: redactOutput(service.name),
+        enabled: service.enabled,
+        state: service.state,
+        reason: service.reason,
+        latest: clean(service.latest),
+        lastSuccessful: clean(service.lastSuccessful),
+      };
+    }),
     suppressedWork: work.suppressed.slice(0, 20).map((item) => ({
       ...item,
       paths: item.paths.slice(0, 5),
@@ -113,42 +92,65 @@ export function readPlanningContext(
         .where(eq(runs.taskId, task.id))
         .orderBy(desc(runs.attempt))
         .get();
-      const application = db.select().from(changeApplications)
-        .where(eq(changeApplications.taskId, task.id)).get();
-      const candidate = application ? db.select({ candidate: developmentRounds.candidate })
-        .from(developmentRounds).where(and(
-          eq(developmentRounds.runId, application.runId),
-          eq(developmentRounds.sequence, application.roundSequence),
-          eq(developmentRounds.repositoryId, application.repositoryId),
-        )).get()?.candidate : null;
-      const changes = candidate?.digest === application?.candidateDigest &&
-        candidate?.baseRevision === application?.baseRevision ? candidate?.changes : undefined;
+      const application = db
+        .select()
+        .from(changeApplications)
+        .where(eq(changeApplications.taskId, task.id))
+        .get();
+      const candidate = application
+        ? db
+            .select({ candidate: developmentRounds.candidate })
+            .from(developmentRounds)
+            .where(
+              and(
+                eq(developmentRounds.runId, application.runId),
+                eq(developmentRounds.sequence, application.roundSequence),
+                eq(developmentRounds.repositoryId, application.repositoryId),
+              ),
+            )
+            .get()?.candidate
+        : null;
+      const changes =
+        candidate?.digest === application?.candidateDigest &&
+        candidate?.baseRevision === application?.baseRevision
+          ? candidate?.changes
+          : undefined;
       return {
         id: task.id,
         kind: task.kind,
         status: task.status,
         instruction: redactOutput(task.instruction.slice(0, 500)),
         problemKey: task.plannedWork?.problemKey ?? null,
-        changeApplication: application ? {
-          runId: application.runId,
-          goalVersion: application.goalVersion,
-          status: application.status,
-          baseRevision: application.baseRevision,
-          resultCommit: application.resultCommit,
-          appliedAt: application.appliedAt?.toISOString() ?? null,
-          changedFiles: (changes ?? []).filter(change => !privateInputPath(change.path) &&
-            allowedGoalPath(change.path, goal.definition))
-            .slice(0, 40).map(change => ({ path: change.path,
-              action: change.after === null ? "deleted" as const :
-                change.before === null ? "added" as const : "modified" as const })),
-          changedFileCount: changes?.length ?? null,
-        } : null,
+        changeApplication: application
+          ? {
+              runId: application.runId,
+              goalVersion: application.goalVersion,
+              status: application.status,
+              baseRevision: application.baseRevision,
+              resultCommit: application.resultCommit,
+              appliedAt: application.appliedAt?.toISOString() ?? null,
+              changedFiles: (changes ?? [])
+                .filter(
+                  (change) =>
+                    !privateInputPath(change.path) && allowedGoalPath(change.path, goal.definition),
+                )
+                .slice(0, 40)
+                .map((change) => ({
+                  path: change.path,
+                  action:
+                    change.after === null
+                      ? ("deleted" as const)
+                      : change.before === null
+                        ? ("added" as const)
+                        : ("modified" as const),
+                })),
+              changedFileCount: changes?.length ?? null,
+            }
+          : null,
         lastRun: last
           ? {
               status: last.status,
-              result: last.result
-                ? redactOutput(last.result).slice(0, 1000)
-                : null,
+              result: last.result ? redactOutput(last.result).slice(0, 1000) : null,
               errorCode: last.errorCode,
               terminationConfirmed: !!last.terminationConfirmedAt,
             }
@@ -177,10 +179,7 @@ export function createPlanningStore(db: Db, ownerToken?: string) {
               and(
                 eq(goals.status, "active"),
                 inArray(projects.workspaceKey, workspaceKeys),
-                or(
-                  sql`${goals.nextCheckAt} IS NULL`,
-                  lte(goals.nextCheckAt, now),
-                ),
+                or(sql`${goals.nextCheckAt} IS NULL`, lte(goals.nextCheckAt, now)),
               ),
             )
             .orderBy(asc(goals.createdAt), asc(goals.id))
@@ -203,19 +202,25 @@ export function createPlanningStore(db: Db, ownerToken?: string) {
             })
             .sort((a, b) => b.score - a.score);
           for (const { goal } of candidates) {
-            const pendingApplication = tx.select({ id: changeApplications.id }).from(changeApplications)
-              .innerJoin(developmentRepositories, eq(developmentRepositories.id, changeApplications.repositoryId))
-              .where(and(eq(developmentRepositories.projectId, goal.projectId), eq(changeApplications.status, "pending"))).get();
+            const pendingApplication = tx
+              .select({ id: changeApplications.id })
+              .from(changeApplications)
+              .innerJoin(
+                developmentRepositories,
+                eq(developmentRepositories.id, changeApplications.repositoryId),
+              )
+              .where(
+                and(
+                  eq(developmentRepositories.projectId, goal.projectId),
+                  eq(changeApplications.status, "pending"),
+                ),
+              )
+              .get();
             if (pendingApplication) continue;
             const reservation = tx
               .select()
               .from(planningCycles)
-              .where(
-                and(
-                  eq(planningCycles.goalId, goal.id),
-                  eq(planningCycles.status, "reserved"),
-                ),
-              )
+              .where(and(eq(planningCycles.goalId, goal.id), eq(planningCycles.status, "reserved")))
               .get();
             if (reservation) {
               if (reservation.goalVersion === goal.version) continue;
@@ -239,11 +244,7 @@ export function createPlanningStore(db: Db, ownerToken?: string) {
                 .where(eq(planningCycles.taskId, reservation.taskId))
                 .run();
             }
-            const history = tx
-              .select()
-              .from(tasks)
-              .where(eq(tasks.goalId, goal.id))
-              .all();
+            const history = tx.select().from(tasks).where(eq(tasks.goalId, goal.id)).all();
             if (readPlanningWork(tx, goal.id).unresolved) continue;
             if (
               history.some(
@@ -255,14 +256,7 @@ export function createPlanningStore(db: Db, ownerToken?: string) {
               )
             )
               continue;
-            if (
-              readBudgetWait(
-                tx,
-                { projectId: goal.projectId, goalId: goal.id },
-                now,
-              )
-            )
-              continue;
+            if (readBudgetWait(tx, { projectId: goal.projectId, goalId: goal.id }, now)) continue;
             const taskId = randomUUID();
             tx.insert(tasks)
               .values({
@@ -293,11 +287,7 @@ export function createPlanningStore(db: Db, ownerToken?: string) {
       );
     },
     findByTask(taskId: string) {
-      return db
-        .select()
-        .from(planningCycles)
-        .where(eq(planningCycles.taskId, taskId))
-        .get();
+      return db.select().from(planningCycles).where(eq(planningCycles.taskId, taskId)).get();
     },
   };
 }

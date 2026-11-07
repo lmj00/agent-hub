@@ -48,9 +48,7 @@ export function git(
         encoding: "buffer",
       },
       (error, stdout) =>
-        error
-          ? reject(new Error("Unable to read prepared Git source"))
-          : accept(stdout),
+        error ? reject(new Error("Unable to read prepared Git source")) : accept(stdout),
     );
     child.stdin?.on("error", () => child.kill("SIGKILL"));
     child.stdin?.end(input);
@@ -60,18 +58,13 @@ export function git(
 export async function sourceRevision(source: string, signal: AbortSignal) {
   // Even status may execute a repository's clean filter. Inspect names without
   // returning config values, and reject filters before touching the worktree.
-  const configNames = (
-    await git(source, ["config", "--null", "--name-only", "--list"], signal)
-  )
+  const configNames = (await git(source, ["config", "--null", "--name-only", "--list"], signal))
     .toString()
     .split("\0");
   if (configNames.some((name) => /^filter\./i.test(name)))
     throw new Error("Goal source cannot configure Git filters");
-  const top = (await git(source, ["rev-parse", "--show-toplevel"], signal))
-    .toString()
-    .trim();
-  if (realpathSync(top) !== source)
-    throw new Error("Goal source must be a Git working tree root");
+  const top = (await git(source, ["rev-parse", "--show-toplevel"], signal)).toString().trim();
+  if (realpathSync(top) !== source) throw new Error("Goal source must be a Git working tree root");
   const tracked = (await git(source, ["ls-files", "-v", "-z"], signal))
     .toString()
     .split("\0")
@@ -80,24 +73,11 @@ export async function sourceRevision(source: string, signal: AbortSignal) {
     throw new Error("Goal source cannot hide worktree changes");
   const status = await git(
     source,
-    [
-      "status",
-      "--porcelain=v1",
-      "-z",
-      "--untracked-files=normal",
-      "--ignore-submodules=all",
-    ],
+    ["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignore-submodules=all"],
     signal,
   );
-  if (status.length)
-    throw new Error(
-      "Goal source must have committed changes before preparation",
-    );
-  const revision = (
-    await git(source, ["rev-parse", "--verify", "HEAD"], signal)
-  )
-    .toString()
-    .trim();
+  if (status.length) throw new Error("Goal source must have committed changes before preparation");
+  const revision = (await git(source, ["rev-parse", "--verify", "HEAD"], signal)).toString().trim();
   if (!/^[a-f0-9]{40,64}$/.test(revision))
     throw new Error("Goal source requires an initial commit");
   return revision;
@@ -111,13 +91,8 @@ export type GitEntry = {
   bytes: number | null;
 };
 
-export async function readGitTree(
-  source: string,
-  revision: string,
-  signal: AbortSignal,
-) {
-  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(revision))
-    throw new Error("Invalid Git revision");
+export async function readGitTree(source: string, revision: string, signal: AbortSignal) {
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(revision)) throw new Error("Invalid Git revision");
   const tree = await git(
     source,
     ["ls-tree", "-r", "-t", "-l", "-z", "--full-tree", revision],
@@ -130,8 +105,7 @@ export async function readGitTree(
     .split("\0")
     .filter(Boolean)
     .map((entry): GitEntry => {
-      const match =
-        /^(\d+) (\w+) ([a-f0-9]{40,64})\s+([\d-]+)\t([\s\S]+)$/.exec(entry);
+      const match = /^(\d+) (\w+) ([a-f0-9]{40,64})\s+([\d-]+)\t([\s\S]+)$/.exec(entry);
       if (!match) throw new Error("Invalid Git tree entry");
       const [, mode, type, blob, size, path] = match as unknown as [
         string,
@@ -155,9 +129,7 @@ export function safeGitPath(path: string) {
     Buffer.from(path, "utf8").toString("utf8") === path &&
     !path.startsWith("/") &&
     !/[\\\x00-\x1f\x7f]/.test(path) &&
-    path
-      .split("/")
-      .every((part) => part !== "." && part !== ".." && part !== "")
+    path.split("/").every((part) => part !== "." && part !== ".." && part !== "")
   );
 }
 
@@ -179,8 +151,7 @@ export async function readGitBlobs(
     const end = contents.indexOf(10, position);
     if (
       end < 0 ||
-      contents.subarray(position, end).toString() !==
-        `${file.blob} blob ${file.bytes}`
+      contents.subarray(position, end).toString() !== `${file.blob} blob ${file.bytes}`
     )
       throw new Error("Git blob does not match manifest");
     const start = end + 1,

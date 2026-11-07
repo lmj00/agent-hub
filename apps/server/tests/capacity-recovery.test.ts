@@ -41,7 +41,10 @@ const policy = {
 function connect(config = policy) {
   database = openDatabase(join(directory, "hub.sqlite"));
   owner = acquireExecutionOwner(database.db);
-  store = createDrizzleRunStore(database.db, owner.token, { automaticRecovery: retryPolicy, capacityRecovery: config });
+  store = createDrizzleRunStore(database.db, owner.token, {
+    automaticRecovery: retryPolicy,
+    capacityRecovery: config,
+  });
   recovery = createDrizzleRecoveryStore(database.db, owner.token);
   capacity = createCapacityRecovery({
     db: database.db,
@@ -97,8 +100,7 @@ function newTask() {
     .run();
   return id;
 }
-const task = () =>
-  database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+const task = () => database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
 const gate = () => store.getProviderGate();
 function blocked(retryAt: Date | null = null) {
   const run = store.claim(taskId, "fixture");
@@ -141,9 +143,7 @@ test("known retry evidence is preserved separately and enforced before any manua
     retryAt,
     capacityState: { checks: 0, nextCheckAt: retryAt.toISOString() },
   });
-  expect(() => store.reserveProviderCheck(newTask(), gate().version)).toThrow(
-    "RETRY_TOO_EARLY",
-  );
+  expect(() => store.reserveProviderCheck(newTask(), gate().version)).toThrow("RETRY_TOO_EARLY");
   capacity.tick();
   expect(capacity.tick()).toBe(false);
   vi.setSystemTime(retryAt);
@@ -167,9 +167,7 @@ test("missing provider time remains null while the internal schedule survives re
   capacity.tick();
   const saved = gate();
   expect(saved.retryAt).toBeNull();
-  expect(saved.capacityState?.nextCheckAt).toBe(
-    new Date(Date.now() + 1000).toISOString(),
-  );
+  expect(saved.capacityState?.nextCheckAt).toBe(new Date(Date.now() + 1000).toISOString());
   owner.release();
   database.close();
   connect({ ...policy, maxChecks: 20, initialDelayMs: 3000 });
@@ -198,13 +196,9 @@ test("a failed check increases the persisted delay atomically before the schedul
     checks: 1,
     nextCheckAt: new Date(Date.now() + 2000).toISOString(),
   });
-  expect(() => store.reserveProviderCheck(newTask(), gate().version)).toThrow(
-    "RETRY_TOO_EARLY",
-  );
+  expect(() => store.reserveProviderCheck(newTask(), gate().version)).toThrow("RETRY_TOO_EARLY");
   capacity.tick();
-  expect(task().retryState?.nextAttemptAt).toBe(
-    gate().capacityState?.nextCheckAt,
-  );
+  expect(task().retryState?.nextAttemptAt).toBe(gate().capacityState?.nextCheckAt);
 });
 
 test("successful response and confirmed termination clear the gate and permit ordinary work", () => {
@@ -304,9 +298,7 @@ test("cancelling the source task never revives it or consumes a capacity check",
     reason: "task_unavailable",
   });
   expect(task().status).toBe("cancelled");
-  expect(() => store.reserveProviderCheck(newTask(), gate().version)).toThrow(
-    "RETRY_TOO_EARLY",
-  );
+  expect(() => store.reserveProviderCheck(newTask(), gate().version)).toThrow("RETRY_TOO_EARLY");
 });
 
 test("an interrupted successful probe keeps its reservation until later termination proof clears it", async () => {
@@ -366,9 +358,7 @@ test("a non-capacity probe failure keeps account limits and cannot immediately r
       nextCheckAt: new Date(Date.now() + 2000).toISOString(),
     },
   });
-  expect(() => store.reserveProviderCheck(newTask(), gate().version)).toThrow(
-    "RETRY_TOO_EARLY",
-  );
+  expect(() => store.reserveProviderCheck(newTask(), gate().version)).toThrow("RETRY_TOO_EARLY");
   automatic.tick();
   capacity.tick();
   expect(task().status).toBe("waiting_capacity");

@@ -8,15 +8,9 @@ import {
   type ExecutionRecord,
 } from "./analysis.js";
 
-type Db = Pick<
-  ReturnType<typeof openDatabase>["db"],
-  "select" | "insert" | "update"
->;
+type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "insert" | "update">;
 
-export function readExecutions(
-  db: Pick<Db, "select">,
-  runId: string,
-): ExecutionRecord[] {
+export function readExecutions(db: Pick<Db, "select">, runId: string): ExecutionRecord[] {
   return db
     .select()
     .from(runExecutions)
@@ -53,8 +47,7 @@ export function recordExecution(
   now: Date,
 ) {
   if (!event.execution && !event.executionTermination) return;
-  if (event.execution && event.executionTermination)
-    throw new Error("Ambiguous execution event");
+  if (event.execution && event.executionTermination) throw new Error("Ambiguous execution event");
   const records = readExecutions(db, run.id);
   if (event.execution) {
     const identity = event.execution;
@@ -70,16 +63,11 @@ export function recordExecution(
       throw new Error("Invalid execution identity");
     if (
       records.some(
-        (row) =>
-          !row.terminationConfirmedAt ||
-          row.identity.containerId === identity.containerId,
+        (row) => !row.terminationConfirmedAt || row.identity.containerId === identity.containerId,
       )
     )
-      throw new Error(
-        "Execution identity is already assigned or termination is unconfirmed",
-      );
-    if (records.length >= maxRunExecutions)
-      throw new Error("Execution resource limit reached");
+      throw new Error("Execution identity is already assigned or termination is unconfirmed");
+    if (records.length >= maxRunExecutions) throw new Error("Execution resource limit reached");
     db.insert(runExecutions)
       .values({
         runId: run.id,
@@ -92,9 +80,7 @@ export function recordExecution(
       .run();
   } else {
     const proof = event.executionTermination!;
-    const record = records.find((row) =>
-      sameIdentity(row.identity, proof.identity),
-    );
+    const record = records.find((row) => sameIdentity(row.identity, proof.identity));
     if (
       event.kind !== "execution.terminated" ||
       !record ||
@@ -108,12 +94,7 @@ export function recordExecution(
     if (!record.terminationConfirmedAt)
       db.update(runExecutions)
         .set({ terminationConfirmedAt: proof.confirmedAt })
-        .where(
-          and(
-            eq(runExecutions.runId, run.id),
-            eq(runExecutions.sequence, record.sequence),
-          ),
-        )
+        .where(and(eq(runExecutions.runId, run.id), eq(runExecutions.sequence, record.sequence)))
         .run();
   }
 }
@@ -126,15 +107,9 @@ export function confirmExecutions(
   confirmedAt: Date | null | undefined,
 ) {
   if (!confirmedAt) return;
-  if (!Number.isFinite(confirmedAt.getTime()))
-    throw new Error("Invalid termination time");
+  if (!Number.isFinite(confirmedAt.getTime())) throw new Error("Invalid termination time");
   db.update(runExecutions)
     .set({ terminationConfirmedAt: confirmedAt })
-    .where(
-      and(
-        eq(runExecutions.runId, runId),
-        isNull(runExecutions.terminationConfirmedAt),
-      ),
-    )
+    .where(and(eq(runExecutions.runId, runId), isNull(runExecutions.terminationConfirmedAt)))
     .run();
 }

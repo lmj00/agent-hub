@@ -5,13 +5,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { openDatabase } from "../src/db/connection.js";
-import {
-  events,
-  projects,
-  recoveryRequests,
-  runs,
-  tasks,
-} from "../src/db/schema.js";
+import { events, projects, recoveryRequests, runs, tasks } from "../src/db/schema.js";
 import { createAutomaticRecovery } from "../src/modules/execution/automatic-recovery.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { createDrizzleRecoveryStore } from "../src/modules/execution/drizzle-recovery-store.js";
@@ -81,8 +75,7 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true });
   vi.useRealTimers();
 });
-const task = () =>
-  database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+const task = () => database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
 function failure(errorCode = "transient", proof = true) {
   const run = store.claim(taskId, "fixture");
   vi.setSystemTime(Date.now() + 100);
@@ -116,16 +109,9 @@ test("policy rejects invalid limits and jitter cannot exceed the maximum delay",
     expect(() => parseRetryPolicy(value)).toThrow();
   expect(retryDelay(policy, 0, 1)).toBe(1200);
   expect(retryDelay(policy, 99, 1)).toBe(10000);
-  for (const message of [
-    "network error",
-    "ECONNRESET",
-    "HTTP 503",
-    "temporarily unavailable",
-  ])
+  for (const message of ["network error", "ECONNRESET", "HTTP 503", "temporarily unavailable"])
     expect(classifyCodexError(message).code).toBe("transient");
-  expect(classifyCodexError("unrecognized failure").code).toBe(
-    "provider_error",
-  );
+  expect(classifyCodexError("unrecognized failure").code).toBe("provider_error");
   expect(classifyCodexError("429 network quota").code).toBe("capacity");
 });
 
@@ -238,12 +224,7 @@ test("repeated errors block further automatic and manual attempts without blocki
 });
 
 test("total retry count stops alternating errors even when the consecutive counter resets", () => {
-  for (const error of [
-    "transient",
-    "server_shutdown",
-    "transient",
-    "owner_lost",
-  ]) {
+  for (const error of ["transient", "server_shutdown", "transient", "owner_lost"]) {
     failure(error);
     automatic.tick();
     if (task().retryState?.nextAttemptAt) {
@@ -408,20 +389,17 @@ test("cancellation during backoff clears the reservation and no restart requeues
   expect(store.claimNext("fixture", ["example"]).kind).toBe("idle");
 });
 
-test.each([
-  "timeout",
-  "provider_error",
-  "output_limit",
-  "authentication",
-  "capacity",
-])("%s is not silently retried", (error) => {
-  failure(error);
-  automatic.tick();
-  expect(task().retryState?.nextAttemptAt).toBeNull();
-  vi.setSystemTime(Date.now() + 86400000);
-  expect(automatic.tick()).toBe(false);
-  expect(store.listByTask(taskId)).toHaveLength(1);
-});
+test.each(["timeout", "provider_error", "output_limit", "authentication", "capacity"])(
+  "%s is not silently retried",
+  (error) => {
+    failure(error);
+    automatic.tick();
+    expect(task().retryState?.nextAttemptAt).toBeNull();
+    vi.setSystemTime(Date.now() + 86400000);
+    expect(automatic.tick()).toBe(false);
+    expect(store.listByTask(taskId)).toHaveLength(1);
+  },
+);
 
 test("provider gate prevents a due retry from bypassing another project's account block", () => {
   const first = failure();

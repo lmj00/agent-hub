@@ -1,8 +1,4 @@
-import {
-  goalDefinitionSchema,
-  parseResponse,
-  type GoalDefinition,
-} from "@agent-hub/contracts";
+import { goalDefinitionSchema, parseResponse, type GoalDefinition } from "@agent-hub/contracts";
 
 export class GoalError extends Error {
   constructor(
@@ -26,11 +22,7 @@ export function normalizeGoalDefinition(value: GoalDefinition): GoalDefinition {
   }
   const description = value.description.trim(),
     completionCriteria = value.completionCriteria.trim();
-  if (
-    !description ||
-    !completionCriteria ||
-    value.budget.maxRunMs > value.budget.windowMs
-  )
+  if (!description || !completionCriteria || value.budget.maxRunMs > value.budget.windowMs)
     throw new GoalError("INVALID_GOAL");
   const normalizePaths = (paths: string[]) => {
     const normalized = paths.map((path) => path.trim());
@@ -40,15 +32,11 @@ export function normalizeGoalDefinition(value: GoalDefinition): GoalDefinition {
           !path ||
           path.startsWith("/") ||
           /[\\:*?\[\]\x00-\x1f]/.test(path) ||
-          (path !== "." &&
-            path
-              .split("/")
-              .some((part) => !part || part === "." || part === "..")),
+          (path !== "." && path.split("/").some((part) => !part || part === "." || part === "..")),
       )
     )
       throw new GoalError("INVALID_GOAL");
-    if (new Set(normalized).size !== normalized.length)
-      throw new GoalError("INVALID_GOAL");
+    if (new Set(normalized).size !== normalized.length) throw new GoalError("INVALID_GOAL");
     return normalized.sort();
   };
   const allowedPaths = normalizePaths(value.allowedPaths),
@@ -56,9 +44,7 @@ export function normalizeGoalDefinition(value: GoalDefinition): GoalDefinition {
   if (
     excludedPaths.includes(".") ||
     allowedPaths.some((path) =>
-      excludedPaths.some(
-        (excluded) => path === excluded || path.startsWith(`${excluded}/`),
-      ),
+      excludedPaths.some((excluded) => path === excluded || path.startsWith(`${excluded}/`)),
     )
   )
     throw new GoalError("INVALID_GOAL");

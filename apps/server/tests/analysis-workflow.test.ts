@@ -3,11 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import {
-  parseResponse,
-  runDetailsSchema,
-  type AnalysisAssessment,
-} from "@agent-hub/contracts";
+import { parseResponse, runDetailsSchema, type AnalysisAssessment } from "@agent-hub/contracts";
 import { buildApp } from "../src/app.js";
 import { openDatabase } from "../src/db/connection.js";
 import { projects, runs, tasks } from "../src/db/schema.js";
@@ -25,18 +21,14 @@ import type { AnalysisExecutor } from "../src/modules/execution/analysis.js";
 
 const policy = parseAnalysisWorkflow({});
 const effortPolicy = parseEffortPolicy({});
-const report = (
-  next: AnalysisAssessment["next"] = null,
-): AnalysisAssessment => ({
+const report = (next: AnalysisAssessment["next"] = null): AnalysisAssessment => ({
   report: next ? "Partial finding" : "Final report",
   evidence: ["example.ts:1"],
   unresolved: next ? ["Need further comparison"] : [],
   complete: !next,
   next,
 });
-let directory: string,
-  database: ReturnType<typeof openDatabase>,
-  taskId: string;
+let directory: string, database: ReturnType<typeof openDatabase>, taskId: string;
 let store: ReturnType<typeof createDrizzleRunStore>;
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "hub-workflow-"));
@@ -125,9 +117,7 @@ test("validates limits, reports and wire messages before granting a next call", 
     { ...report(), extra: "untrusted" },
   ])
     expect(() => parseAssessment(invalid)).toThrow("invalid_plan");
-  expect(() => parseStepUpdate({ type: "start", sequence: 0 })).toThrow(
-    "invalid_plan",
-  );
+  expect(() => parseStepUpdate({ type: "start", sequence: 0 })).toThrow("invalid_plan");
   expect(() =>
     parseStepUpdate({
       type: "complete",
@@ -136,38 +126,20 @@ test("validates limits, reports and wire messages before granting a next call", 
       usage: { inputTokens: 1, cachedInputTokens: 2, outputTokens: 0 },
     }),
   ).toThrow("invalid_plan");
-  expect(
-    parseAssessment({ ...report(), report: "sk-synthetic_secret" }).report,
-  ).toBe("[REDACTED]");
+  expect(parseAssessment({ ...report(), report: "sk-synthetic_secret" }).report).toBe("[REDACTED]");
 });
 
 test("applies the maximum, invalid-proposal fallback and change-count cap independently", () => {
   expect(
-    selectNextEffort(
-      "xhigh",
-      "medium",
-      0,
-      { ...effortPolicy, maxEffort: "high" },
-      policy,
-    ).effort,
+    selectNextEffort("xhigh", "medium", 0, { ...effortPolicy, maxEffort: "high" }, policy).effort,
   ).toBe("high");
-  expect(
-    selectNextEffort("ultra", "high", 0, effortPolicy, policy).effort,
-  ).toBe("medium");
-  expect(
-    selectNextEffort("medium", "high", 2, effortPolicy, policy),
-  ).toMatchObject({
+  expect(selectNextEffort("ultra", "high", 0, effortPolicy, policy).effort).toBe("medium");
+  expect(selectNextEffort("medium", "high", 2, effortPolicy, policy)).toMatchObject({
     effort: "high",
     reason: expect.stringContaining("변경 횟수"),
   });
   expect(
-    selectNextEffort(
-      "xhigh",
-      "medium",
-      0,
-      parseEffortPolicy({ mode: "fixed" }),
-      policy,
-    ).effort,
+    selectNextEffort("xhigh", "medium", 0, parseEffortPolicy({ mode: "fixed" }), policy).effort,
   ).toBe("medium");
 });
 
@@ -197,32 +169,18 @@ test("persists three sequential sessions in one Run, raises and lowers effort, a
     "xhigh",
     "medium",
   ]);
-  expect(executor.analyze.mock.calls[1]![0].instruction).toContain(
-    "Partial finding",
-  );
+  expect(executor.analyze.mock.calls[1]![0].instruction).toContain("Partial finding");
   expect(executor.analyze.mock.calls[1]![0].instruction).toContain("보안 검토");
-  expect(
-    executor.analyze.mock.calls.every((call) => call[0].outputSchema),
-  ).toBe(true);
+  expect(executor.analyze.mock.calls.every((call) => call[0].outputSchema)).toBe(true);
   const detail = store.findById(result.runId)!;
   expect(detail.steps.map((step) => step.sessionId)).toEqual([
     "session-1",
     "session-2",
     "session-3",
   ]);
-  expect(detail.steps.map((step) => step.usage?.inputTokens)).toEqual([
-    10, 11, 12,
-  ]);
-  expect(detail.steps.map((step) => step.effort)).toEqual([
-    "high",
-    "xhigh",
-    "medium",
-  ]);
-  expect(
-    detail.steps.every(
-      (step) => step.status === "succeeded" && step.finishedAt,
-    ),
-  ).toBe(true);
+  expect(detail.steps.map((step) => step.usage?.inputTokens)).toEqual([10, 11, 12]);
+  expect(detail.steps.map((step) => step.effort)).toEqual(["high", "xhigh", "medium"]);
+  expect(detail.steps.every((step) => step.status === "succeeded" && step.finishedAt)).toBe(true);
   expect(detail.steps[1]).toMatchObject({
     proposedEffort: "xhigh",
     purpose: "복잡한 원인 비교",
@@ -234,10 +192,9 @@ test("persists three sequential sessions in one Run, raises and lowers effort, a
       method: "GET",
       url: `/runs/${result.runId}`,
     });
-    expect(
-      parseResponse(runDetailsSchema, response.json()).steps[0]!.assessment
-        ?.report,
-    ).toBe("Partial finding");
+    expect(parseResponse(runDetailsSchema, response.json()).steps[0]!.assessment?.report).toBe(
+      "Partial finding",
+    );
   } finally {
     await app.close();
   }
@@ -268,9 +225,7 @@ test("the call limit holds incomplete work and preserves completed Step reports"
     store
       .findById(result.runId)!
       .steps.every(
-        (step) =>
-          step.status === "succeeded" &&
-          step.assessment?.report === "Partial finding",
+        (step) => step.status === "succeeded" && step.assessment?.report === "Partial finding",
       ),
   ).toBe(true);
   expect(store.getProviderGate().blocked).toBe(false);
@@ -324,9 +279,7 @@ test("the original Run deadline is not reset at a step boundary", async () => {
     analyze: vi.fn<AnalysisExecutor["analyze"]>(async () => {
       await new Promise((resolve) => setTimeout(resolve, 40));
       return {
-        output: JSON.stringify(
-          report({ purpose: "Next", effort: "medium", reason: "Needed" }),
-        ),
+        output: JSON.stringify(report({ purpose: "Next", effort: "medium", reason: "Needed" })),
         usage: null,
       };
     }),
@@ -342,7 +295,9 @@ test("the original Run deadline is not reset at a step boundary", async () => {
     const detail = store.findById(result.runId)!;
     expect(detail.steps.map((step) => step.status)).toEqual(["succeeded", "failed"]);
     expect(detail.steps[1]!.assessment).toBeNull();
-  } finally { vi.useRealTimers(); }
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("a storage failure while opening the next Step prevents the next SDK invocation", async () => {
@@ -415,23 +370,40 @@ test("a runner cannot bypass persisted step completion by returning a success me
 test.each([
   ["ultra", 2, ["high", "medium", "medium"]],
   ["xhigh", 1, ["high", "xhigh", "xhigh"]],
-])("persisted and invoked efforts agree for proposal %s with %i changes", async (proposed, maxEffortChanges, expected) => {
-  store = createDrizzleRunStore(database.db, undefined, { effortPolicy, analysisWorkflow: parseAnalysisWorkflow({ maxEffortChanges }) });
-  const executor = scripted([
-    report({ purpose: "Second", effort: proposed, reason: "New evidence" }),
-    report({ purpose: "Summary", effort: "medium", reason: "Sufficient evidence" }), report(),
-  ]);
-  const result = await execute(executor);
-  expect(result.status).toBe("succeeded");
-  expect(executor.analyze.mock.calls.map(call => call[0].effort)).toEqual(expected);
-  expect(store.findById(result.runId)!.steps.map(step => step.effort)).toEqual(expected);
-});
+])(
+  "persisted and invoked efforts agree for proposal %s with %i changes",
+  async (proposed, maxEffortChanges, expected) => {
+    store = createDrizzleRunStore(database.db, undefined, {
+      effortPolicy,
+      analysisWorkflow: parseAnalysisWorkflow({ maxEffortChanges }),
+    });
+    const executor = scripted([
+      report({ purpose: "Second", effort: proposed, reason: "New evidence" }),
+      report({ purpose: "Summary", effort: "medium", reason: "Sufficient evidence" }),
+      report(),
+    ]);
+    const result = await execute(executor);
+    expect(result.status).toBe("succeeded");
+    expect(executor.analyze.mock.calls.map((call) => call[0].effort)).toEqual(expected);
+    expect(store.findById(result.runId)!.steps.map((step) => step.effort)).toEqual(expected);
+  },
+);
 
 test("caps accumulated context without discarding the reports already saved", async () => {
-  store = createDrizzleRunStore(database.db, undefined, { effortPolicy, analysisWorkflow: parseAnalysisWorkflow({ maxSteps: 6 }) });
-  const executor = scripted(Array.from({ length: 6 }, () => ({ ...report({ purpose: "Continue", effort: "medium", reason: "Need more" }), report: "x".repeat(16000) })));
+  store = createDrizzleRunStore(database.db, undefined, {
+    effortPolicy,
+    analysisWorkflow: parseAnalysisWorkflow({ maxSteps: 6 }),
+  });
+  const executor = scripted(
+    Array.from({ length: 6 }, () => ({
+      ...report({ purpose: "Continue", effort: "medium", reason: "Need more" }),
+      report: "x".repeat(16000),
+    })),
+  );
   const result = await execute(executor);
   expect(result).toMatchObject({ status: "blocked", errorCode: "workflow_limit" });
   expect(executor.analyze.mock.calls.length).toBeLessThan(6);
-  expect(store.findById(result.runId)!.steps.filter(step => step.assessment).length).toBe(executor.analyze.mock.calls.length);
+  expect(store.findById(result.runId)!.steps.filter((step) => step.assessment).length).toBe(
+    executor.analyze.mock.calls.length,
+  );
 });

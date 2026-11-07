@@ -37,8 +37,7 @@ export const developmentRef = "refs/heads/development";
 const marker = "repository.json";
 const oid = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const uuid = /^[a-f0-9-]{36}$/;
-const digest = (value: unknown) =>
-  createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 export type DevelopmentRepositoryIntent = {
   id: string;
@@ -119,11 +118,7 @@ function assertPaths(entries: { path: string }[]) {
     leaves = new Set<string>(),
     directories = new Set<string>();
   for (const { path } of entries) {
-    if (
-      !safeGitPath(path) ||
-      Buffer.byteLength(path) > 1024 ||
-      path.split("/").length > 32
-    )
+    if (!safeGitPath(path) || Buffer.byteLength(path) > 1024 || path.split("/").length > 32)
       throw new Error("Invalid development path or depth limits");
     const parts = path.split("/");
     for (let i = 1; i <= parts.length; i++) {
@@ -141,15 +136,13 @@ function assertPaths(entries: { path: string }[]) {
     leaves.add(key);
   }
   for (const key of leaves)
-    if (directories.has(key))
-      throw new Error("Development file conflicts with directory");
+    if (directories.has(key)) throw new Error("Development file conflicts with directory");
 }
 
 function checkBaseline(entries: GitEntry[]) {
   if (
     entries.length > maxBaselineEntries ||
-    entries.reduce((sum, entry) => sum + (entry.bytes ?? 0), 0) >
-      maxBaselineBytes
+    entries.reduce((sum, entry) => sum + (entry.bytes ?? 0), 0) > maxBaselineBytes
   )
     throw new Error("Development baseline exceeds file or byte limits");
   assertPaths(entries.filter((entry) => entry.type !== "tree"));
@@ -163,18 +156,14 @@ export async function prepareDevelopmentRepository(
   const revision = await sourceRevision(intent.source, signal);
   const entries = await readGitTree(intent.source, revision, signal);
   checkBaseline(entries);
-  const tree = (
-    await git(intent.source, ["rev-parse", `${revision}^{tree}`], signal)
-  )
+  const tree = (await git(intent.source, ["rev-parse", `${revision}^{tree}`], signal))
     .toString()
     .trim();
   const objects = [
     ...new Set([
       revision,
       tree,
-      ...entries
-        .filter((entry) => entry.type !== "commit")
-        .map((entry) => entry.blob),
+      ...entries.filter((entry) => entry.type !== "commit").map((entry) => entry.blob),
     ]),
   ];
   // Explicit objects, without --revs: import this snapshot, not the original history.
@@ -224,11 +213,7 @@ export async function prepareDevelopmentRepository(
   await git(storage, ["index-pack", "--stdin"], signal, pack, {
     timeout: 15000,
   });
-  await git(
-    storage,
-    ["update-ref", developmentRef, revision, "0".repeat(revision.length)],
-    signal,
-  );
+  await git(storage, ["update-ref", developmentRef, revision, "0".repeat(revision.length)], signal);
   await git(storage, ["symbolic-ref", "HEAD", developmentRef], signal);
   await git(storage, ["fsck", "--connectivity-only"], signal, undefined, {
     timeout: 15000,
@@ -290,13 +275,9 @@ export async function recoverDevelopmentRepository(
   )
     throw new Error("Development repository identity changed");
   await assertDevelopmentBase(repository, signal);
-  await git(
-    join(repository.directory, "git"),
-    ["fsck", "--connectivity-only"],
-    signal,
-    undefined,
-    { timeout: 15000 },
-  );
+  await git(join(repository.directory, "git"), ["fsck", "--connectivity-only"], signal, undefined, {
+    timeout: 15000,
+  });
   return repository;
 }
 
@@ -315,9 +296,7 @@ export async function assertDevelopmentRepository(
     stat = lstatSync(path);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 16384)
     throw new Error("Development repository identity changed");
-  const identity = JSON.parse(
-    readFileSync(path, "utf8"),
-  ) as DevelopmentRepository;
+  const identity = JSON.parse(readFileSync(path, "utf8")) as DevelopmentRepository;
   if (
     identity.id !== repository.id ||
     identity.projectId !== repository.projectId ||
@@ -327,10 +306,7 @@ export async function assertDevelopmentRepository(
     throw new Error("Development repository identity changed");
   const storage = join(repository.directory, "git");
   privateDirectory(storage);
-  if (
-    (await sourceRevision(repository.source, signal)) !==
-    repository.sourceRevision
-  )
+  if ((await sourceRevision(repository.source, signal)) !== repository.sourceRevision)
     throw new Error("Original source changed during development");
   return storage;
 }
@@ -340,19 +316,14 @@ export async function assertDevelopmentBase(
   signal: AbortSignal,
 ) {
   const storage = await assertDevelopmentRepository(repository, signal);
-  const actual = (
-    await git(storage, ["rev-parse", "--verify", developmentRef], signal)
-  )
+  const actual = (await git(storage, ["rev-parse", "--verify", developmentRef], signal))
     .toString()
     .trim();
   if (actual !== repository.head)
-    throw new Error(
-      "Development branch changed outside the recorded application",
-    );
+    throw new Error("Development branch changed outside the recorded application");
   if (
-    (await git(storage, ["rev-parse", `${actual}^{tree}`], signal))
-      .toString()
-      .trim() !== repository.headTree
+    (await git(storage, ["rev-parse", `${actual}^{tree}`], signal)).toString().trim() !==
+    repository.headTree
   )
     throw new Error("Development branch tree changed");
 }
@@ -392,9 +363,7 @@ export function developmentInputIntent(
   if (
     !writePaths.length ||
     writePaths.length > maxChanges ||
-    writePaths.some(
-      (path) => !allowedGoalPath(path, scope) || privateInputPath(path),
-    )
+    writePaths.some((path) => !allowedGoalPath(path, scope) || privateInputPath(path))
   )
     throw new Error("Task write paths exceed Goal scope");
   if (
@@ -403,9 +372,7 @@ export function developmentInputIntent(
       previous.baseRevision !== repository.head ||
       !validCandidateDigest(previous))
   )
-    throw new Error(
-      "Previous development candidate does not match this repository",
-    );
+    throw new Error("Previous development candidate does not match this repository");
   const id = randomUUID();
   return {
     id,
@@ -434,10 +401,7 @@ export async function prepareDevelopmentInput(
     throw new Error("Development input is stale");
   await assertDevelopmentBase(repository, signal);
   const storage = join(repository.directory, "git");
-  const files = scopedGitFiles(
-    await readGitTree(storage, intent.tree, signal),
-    intent.scope,
-  );
+  const files = scopedGitFiles(await readGitTree(storage, intent.tree, signal), intent.scope);
   const contents = await readGitBlobs(storage, files, signal);
   const directory = intent.directory,
     parent = dirname(directory);
@@ -491,10 +455,7 @@ export async function recoverDevelopmentInput(
     1024 * 1024,
   ) as DevelopmentInput;
   const { files, digest: _digest, ...identity } = input;
-  if (
-    JSON.stringify(identity) !== JSON.stringify(intent) ||
-    !validInputDigest(input)
-  )
+  if (JSON.stringify(identity) !== JSON.stringify(intent) || !validInputDigest(input))
     throw new Error("Development input identity changed");
   await assertDevelopmentBase(repository, signal);
   const expected = scopedGitFiles(
@@ -522,8 +483,7 @@ export async function recoverDevelopmentInput(
   walk(input.directory);
   for (const file of files) {
     const path = join(input.directory, file.path);
-    if (realpathSync(path) !== path)
-      throw new Error("Development input file became a link");
+    if (realpathSync(path) !== path) throw new Error("Development input file became a link");
     const stat = lstatSync(path);
     if (
       !stat.isFile() ||
@@ -542,10 +502,7 @@ export async function recoverDevelopmentInput(
   return input;
 }
 
-export function removeDevelopmentInput(
-  root: string,
-  input: DevelopmentInputIntent,
-) {
+export function removeDevelopmentInput(root: string, input: DevelopmentInputIntent) {
   privateDirectory(root);
   const parent = join(root, `${input.runId}-${input.id}`);
   if (input.directory !== join(parent, "workspace") || !isWithin(root, parent))
@@ -588,9 +545,7 @@ function readChanges(input: DevelopmentInput, result: unknown): Change[] {
     !Array.isArray(result.changes) ||
     result.changes.length > maxChanges
   )
-    throw new Error(
-      "Development change bundle does not match input or exceeds limits",
-    );
+    throw new Error("Development change bundle does not match input or exceeds limits");
   let total = 0;
   const paths = new Set<string>();
   return result.changes.map((change): Change => {
@@ -652,8 +607,7 @@ export async function stageDevelopmentCandidate(
   const final = new Map(entries.map((entry) => [entry.path, entry]));
   for (const change of changes) {
     if (change.content === null) {
-      if (!final.delete(change.path))
-        throw new Error("Cannot delete an absent development file");
+      if (!final.delete(change.path)) throw new Error("Cannot delete an absent development file");
     } else
       final.set(change.path, {
         path: change.path,
@@ -696,16 +650,10 @@ export async function stageDevelopmentCandidate(
       updates.push(line);
     }
     if (updates.length)
-      await git(
-        storage,
-        ["update-index", "-z", "--index-info"],
-        signal,
-        updates.join(""),
-        { indexFile },
-      );
-    const tree = (
-      await git(storage, ["write-tree"], signal, undefined, { indexFile })
-    )
+      await git(storage, ["update-index", "-z", "--index-info"], signal, updates.join(""), {
+        indexFile,
+      });
+    const tree = (await git(storage, ["write-tree"], signal, undefined, { indexFile }))
       .toString()
       .trim();
     const manifest = await describeChanges(repository, input, tree, signal);
@@ -741,9 +689,7 @@ async function describeChanges(
   checkBaseline(entries);
   scopedGitFiles(entries, input.scope);
   const final = new Map(
-    entries
-      .filter((entry) => entry.type !== "tree")
-      .map((entry) => [entry.path, entry]),
+    entries.filter((entry) => entry.type !== "tree").map((entry) => [entry.path, entry]),
   );
   const changes: DevelopmentCandidate["changes"] = [];
   for (const path of new Set([...original.keys(), ...final.keys()])) {
@@ -757,8 +703,7 @@ async function describeChanges(
         excludedPaths: [],
       }) ||
       privateInputPath(path) ||
-      (after &&
-        (after.type !== "blob" || !["100644", "100755"].includes(after.mode)))
+      (after && (after.type !== "blob" || !["100644", "100755"].includes(after.mode)))
     )
       throw new Error("Cumulative development changes exceed permitted scope");
     changes.push({
@@ -769,8 +714,7 @@ async function describeChanges(
       bytes: after?.bytes ?? 0,
     });
   }
-  if (changes.length > maxChanges)
-    throw new Error("Cumulative development changes exceed limits");
+  if (changes.length > maxChanges) throw new Error("Cumulative development changes exceed limits");
   return changes.sort((a, b) => a.path.localeCompare(b.path, "en"));
 }
 
@@ -794,9 +738,7 @@ export async function verifyDevelopmentCandidate(
   await assertDevelopmentBase(repository, signal);
   if (
     JSON.stringify(candidate.changes) !==
-    JSON.stringify(
-      await describeChanges(repository, input, candidate.tree, signal),
-    )
+    JSON.stringify(await describeChanges(repository, input, candidate.tree, signal))
   )
     throw new Error("Development candidate tree changed");
 }

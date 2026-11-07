@@ -25,8 +25,7 @@ export function RuntimeSkillPanel({ run }: { run: RunDetails }) {
         return (
           <details className="event-details" key={step.sequence}>
             <summary>
-              {step.sequence}.{" "}
-              {skill ? roles[skill.role] : (step.purpose ?? "AI 호출")} ·{" "}
+              {step.sequence}. {skill ? roles[skill.role] : (step.purpose ?? "AI 호출")} ·{" "}
               {skill?.loadedAt
                 ? "지침 읽기 확인"
                 : skill
@@ -36,13 +35,12 @@ export function RuntimeSkillPanel({ run }: { run: RunDetails }) {
             {skill ? (
               <>
                 <p className="subtle-note">
-                  gstack의 역할별 지침을 실행 환경에 맞게 적용했습니다. 전체
-                  gstack 도구 실행을 의미하지 않습니다.
+                  gstack의 역할별 지침을 실행 환경에 맞게 적용했습니다. 전체 gstack 도구 실행을
+                  의미하지 않습니다.
                 </p>
                 {!skill.loadedAt ? (
                   <p className="notice">
-                    선택 기록만 있습니다. 실행기가 실제로 읽었는지는 확인되지
-                    않았습니다.
+                    선택 기록만 있습니다. 실행기가 실제로 읽었는지는 확인되지 않았습니다.
                   </p>
                 ) : null}
                 <dl className="notice-facts">
@@ -62,9 +60,7 @@ export function RuntimeSkillPanel({ run }: { run: RunDetails }) {
                   </div>
                   <div>
                     <dt>읽기 확인 시각</dt>
-                    <dd>
-                      {skill.loadedAt ? dateTime(skill.loadedAt) : "미확인"}
-                    </dd>
+                    <dd>{skill.loadedAt ? dateTime(skill.loadedAt) : "미확인"}</dd>
                   </div>
                 </dl>
                 <details className="event-details">
@@ -101,8 +97,7 @@ export function RuntimeSkillPanel({ run }: { run: RunDetails }) {
               </>
             ) : (
               <p className="subtle-note">
-                저장된 선택·읽기 기록이 없어 지침 적용 여부를 확인할 수
-                없습니다.
+                저장된 선택·읽기 기록이 없어 지침 적용 여부를 확인할 수 없습니다.
               </p>
             )}
           </details>

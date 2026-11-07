@@ -5,17 +5,29 @@ import { createDrizzleProjectStore } from "./modules/projects/drizzle-project-st
 import { createDrizzleTaskStore } from "./modules/tasks/drizzle-task-store.js";
 import { createDrizzleRunStore } from "./modules/execution/drizzle-run-store.js";
 import { createConfiguredExecutor } from "./modules/execution/execution-process.js";
-import { loadExecutionConfig, validateExecutionEnvironment } from "./modules/execution/execution-config.js";
+import {
+  loadExecutionConfig,
+  validateExecutionEnvironment,
+} from "./modules/execution/execution-config.js";
 import { acquireExecutionOwner } from "./modules/execution/execution-owner.js";
 import { runTask } from "./modules/execution/run-task.js";
-import { cleanupConfirmedInputs, createPreparedExecutor } from "./modules/goals/prepared-executor.js";
+import {
+  cleanupConfirmedInputs,
+  createPreparedExecutor,
+} from "./modules/goals/prepared-executor.js";
 import { preparedInputRoot } from "./modules/goals/prepared-workspace.js";
-import { configuredDevelopmentWorkspaces, createDevelopmentExecutor } from "./modules/goals/development-executor.js";
+import {
+  configuredDevelopmentWorkspaces,
+  createDevelopmentExecutor,
+} from "./modules/goals/development-executor.js";
 import { developmentRoot } from "./modules/goals/development-workspace.js";
 
 async function main() {
-  const { values } = parseArgs({ options: { task: { type: "string" }, config: { type: "string" } } });
-  if (!values.task || !values.config) throw new Error("Usage: pnpm task:run --task TASK_ID --config /path/to/execution.json");
+  const { values } = parseArgs({
+    options: { task: { type: "string" }, config: { type: "string" } },
+  });
+  if (!values.task || !values.config)
+    throw new Error("Usage: pnpm task:run --task TASK_ID --config /path/to/execution.json");
   const config = loadExecutionConfig(values.config);
   const { databasePath, authConfigPath, serviceConfigPath } = loadConfig(process.env);
   const database = openDatabase(databasePath);
@@ -26,7 +38,11 @@ async function main() {
   process.once("SIGTERM", shutdown);
   let owner: ReturnType<typeof acquireExecutionOwner> | undefined;
   try {
-    validateExecutionEnvironment(config, databasePath, [authConfigPath, serviceConfigPath].filter((path): path is string => path !== undefined));
+    validateExecutionEnvironment(
+      config,
+      databasePath,
+      [authConfigPath, serviceConfigPath].filter((path): path is string => path !== undefined),
+    );
     owner = acquireExecutionOwner(database.db);
     const task = createDrizzleTaskStore(database.db).findById(values.task);
     if (!task) throw new Error("Task not found");
@@ -36,14 +52,40 @@ async function main() {
     const inputRoot = preparedInputRoot(databasePath);
     cleanupConfirmedInputs(database.db, inputRoot);
     const baseExecutor = createConfiguredExecutor(config);
-    const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot, database.db, config), development: baseExecutor, config, inputRoot, repositoryRoot: developmentRoot(databasePath), ownerToken: owner.token });
-    if (config.automaticRecovery && !executor.confirmTermination) throw new Error("Automatic recovery requires execution termination tracking");
-    const store = createDrizzleRunStore(database.db, owner.token, config, { developmentWorkspaceKeys: configuredDevelopmentWorkspaces(config, baseExecutor) });
-    const outcome = await runTask({
-      taskId: task.id, workspace, model: config.model, timeoutMs: config.timeoutMs, signal: controller.signal,
-    }, store, executor);
+    const executor = createDevelopmentExecutor({
+      db: database.db,
+      analysis: createPreparedExecutor(baseExecutor, inputRoot, database.db, config),
+      development: baseExecutor,
+      config,
+      inputRoot,
+      repositoryRoot: developmentRoot(databasePath),
+      ownerToken: owner.token,
+    });
+    if (config.automaticRecovery && !executor.confirmTermination)
+      throw new Error("Automatic recovery requires execution termination tracking");
+    const store = createDrizzleRunStore(database.db, owner.token, config, {
+      developmentWorkspaceKeys: configuredDevelopmentWorkspaces(config, baseExecutor),
+    });
+    const outcome = await runTask(
+      {
+        taskId: task.id,
+        workspace,
+        model: config.model,
+        timeoutMs: config.timeoutMs,
+        signal: controller.signal,
+      },
+      store,
+      executor,
+    );
     // 분석 원문은 DB에만 저장하고 CLI에는 조회용 ID와 상태를 표시합니다.
-    console.log(JSON.stringify({ runId: outcome.runId, taskId: task.id, status: outcome.status, errorCode: outcome.errorCode }));
+    console.log(
+      JSON.stringify({
+        runId: outcome.runId,
+        taskId: task.id,
+        status: outcome.status,
+        errorCode: outcome.errorCode,
+      }),
+    );
     if (outcome.status !== "succeeded") process.exitCode = 1;
   } finally {
     // 결과 저장 실패로 빠져나온 경우에도 SDK가 CLI를 무기한 붙잡지 못하게 합니다.
@@ -54,7 +96,11 @@ async function main() {
     }, 10000).unref();
     process.removeListener("SIGINT", cancel);
     process.removeListener("SIGTERM", shutdown);
-    try { owner?.release(); } finally { database.close(); }
+    try {
+      owner?.release();
+    } finally {
+      database.close();
+    }
   }
 }
 

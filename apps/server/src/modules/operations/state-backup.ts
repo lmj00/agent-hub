@@ -9,15 +9,9 @@ import { migrationsDirectory } from "../../db/connection.js";
 import { preparePrivateDatabase } from "../../db/private-storage.js";
 import * as schema from "../../db/schema.js";
 import { readPrivateJson } from "../../private-config.js";
-import {
-  acquireExecutionOwner,
-  assertExecutionOwner,
-} from "../execution/execution-owner.js";
+import { acquireExecutionOwner, assertExecutionOwner } from "../execution/execution-owner.js";
 import { isWithin } from "../execution/execution-config.js";
-import {
-  developmentDirectoryName,
-  developmentRef,
-} from "../goals/development-workspace.js";
+import { developmentDirectoryName, developmentRef } from "../goals/development-workspace.js";
 import { preparedDirectoryName } from "../goals/prepared-workspace.js";
 import { git } from "../goals/workspace-git.js";
 import {
@@ -38,8 +32,7 @@ type Manifest = {
   schemaDigest: string;
   entries: BackupEntry[];
 };
-const hash = (value: unknown) =>
-  createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const oid = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -58,9 +51,7 @@ function schemaDigest(client: Database.Database) {
       )
       .all(),
     migrations: client
-      .prepare(
-        'SELECT hash, created_at FROM "__drizzle_migrations" ORDER BY created_at, id',
-      )
+      .prepare('SELECT hash, created_at FROM "__drizzle_migrations" ORDER BY created_at, id')
       .all(),
   });
 }
@@ -91,15 +82,9 @@ function validateDatabase(client: Database.Database, expected: string) {
       )
       .get() ||
     client
-      .prepare(
-        "SELECT 1 FROM run_executions WHERE termination_confirmed_at IS NULL LIMIT 1",
-      )
+      .prepare("SELECT 1 FROM run_executions WHERE termination_confirmed_at IS NULL LIMIT 1")
       .get() ||
-    client
-      .prepare(
-        "SELECT 1 FROM change_applications WHERE status = 'pending' LIMIT 1",
-      )
-      .get()
+    client.prepare("SELECT 1 FROM change_applications WHERE status = 'pending' LIMIT 1").get()
   )
     throw new BackupError(
       "Stop and reconcile all executions and pending changes before backup or restore",
@@ -114,9 +99,7 @@ function openExisting(path: string, readonly = true) {
     stat.uid !== process.getuid?.() ||
     (stat.mode & 0o077) !== 0
   )
-    throw new BackupError(
-      "Backup database must be a private owned regular file",
-    );
+    throw new BackupError("Backup database must be a private owned regular file");
   return new Database(readonly ? path : preparePrivateDatabase(path), {
     readonly,
     fileMustExist: true,
@@ -130,9 +113,7 @@ function requireAbsent(path: string) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
-  throw new BackupError(
-    "Backup and restore destinations must not already exist",
-  );
+  throw new BackupError("Backup and restore destinations must not already exist");
 }
 
 async function validateGitState(
@@ -149,10 +130,7 @@ async function validateGitState(
     .all();
   if (repositories.length > maxBackupEntries)
     throw new BackupError("Too many development repositories for one backup");
-  const originalRoot = join(
-    dirname(databasePath),
-    developmentDirectoryName(databasePath),
-  );
+  const originalRoot = join(dirname(databasePath), developmentDirectoryName(databasePath));
   for (const stored of repositories) {
     signal.throwIfAborted();
     if (
@@ -160,9 +138,7 @@ async function validateGitState(
       stored.intent.id !== stored.id ||
       stored.intent.directory !== join(originalRoot, stored.id)
     )
-      throw new BackupError(
-        "Stored development repository path does not match this database",
-      );
+      throw new BackupError("Stored development repository path does not match this database");
     const repository = stored.prepared;
     // A failed preparation remains unfinished in the restored DB; never promote it to accepted state.
     if (!repository) continue;
@@ -177,16 +153,9 @@ async function validateGitState(
       !oid.test(repository.sourceRevision)
     )
       throw new BackupError("Invalid stored development repository identity");
-    const directory = join(
-      state,
-      developmentDirectoryName(databasePath),
-      stored.id,
-    );
-    const marker = readPrivateJson(
-      join(directory, "repository.json"),
-      "Repository identity",
-      16384,
-    ).value as Record<string, unknown>;
+    const directory = join(state, developmentDirectoryName(databasePath), stored.id);
+    const marker = readPrivateJson(join(directory, "repository.json"), "Repository identity", 16384)
+      .value as Record<string, unknown>;
     if (
       !marker ||
       marker.id !== stored.id ||
@@ -195,9 +164,7 @@ async function validateGitState(
       marker.source !== repository.source ||
       marker.sourceRevision !== repository.sourceRevision
     )
-      throw new BackupError(
-        "Backup Git identity disagrees with database history",
-      );
+      throw new BackupError("Backup Git identity disagrees with database history");
     const storage = join(directory, "git");
     for (const name of [
       "commondir",
@@ -207,46 +174,31 @@ async function validateGitState(
     ])
       if (existsSync(join(storage, name)))
         throw new BackupError("Backup Git objects must be self-contained");
-    const head = (
-      await git(storage, ["rev-parse", "--verify", developmentRef], signal)
-    )
+    const head = (await git(storage, ["rev-parse", "--verify", developmentRef], signal))
       .toString()
       .trim();
-    const tree = (await git(storage, ["rev-parse", `${head}^{tree}`], signal))
-      .toString()
-      .trim();
+    const tree = (await git(storage, ["rev-parse", `${head}^{tree}`], signal)).toString().trim();
     if (head !== repository.head || tree !== repository.headTree)
-      throw new BackupError(
-        "Backup Git head disagrees with accepted database state",
-      );
+      throw new BackupError("Backup Git head disagrees with accepted database state");
     await git(storage, ["fsck", "--full", "--no-reflogs"], signal, undefined, {
       timeout: 15000,
     });
     const applications = client
-      .prepare<
-        [string],
-        { resultCommit: string; tree: string }
-      >("SELECT result_commit AS resultCommit, tree FROM change_applications WHERE repository_id = ?")
+      .prepare<[string], { resultCommit: string; tree: string }>(
+        "SELECT result_commit AS resultCommit, tree FROM change_applications WHERE repository_id = ?",
+      )
       .iterate(stored.id);
     for (const application of applications) {
       if (!oid.test(application.resultCommit) || !oid.test(application.tree))
         throw new BackupError("Invalid applied Git revision");
       const appliedTree = (
-        await git(
-          storage,
-          ["rev-parse", `${application.resultCommit}^{tree}`],
-          signal,
-        )
+        await git(storage, ["rev-parse", `${application.resultCommit}^{tree}`], signal)
       )
         .toString()
         .trim();
       if (appliedTree !== application.tree)
         throw new BackupError("Applied change tree is missing from the backup");
-      await git(
-        storage,
-        ["merge-base", "--is-ancestor", application.resultCommit, head],
-        signal,
-      );
+      await git(storage, ["merge-base", "--is-ancestor", application.resultCommit, head], signal);
     }
   }
 }
@@ -283,16 +235,11 @@ function readManifest(backupPath: string): Manifest {
     new Set(names).size !== 3 ||
     record.entries.some((entry) => !names.includes(entry.path.split("/")[0]!))
   )
-    throw new BackupError(
-      "Backup contains data outside its declared state paths",
-    );
+    throw new BackupError("Backup contains data outside its declared state paths");
   return record as Manifest;
 }
 
-export async function inspectStateBackup(
-  backupPath: string,
-  signal: AbortSignal,
-) {
+export async function inspectStateBackup(backupPath: string, signal: AbortSignal) {
   const directory = resolve(backupPath);
   await privateBackupDirectory(directory);
   if ((await readdir(directory)).sort().join("\n") !== "manifest.json\nstate")
@@ -300,9 +247,7 @@ export async function inspectStateBackup(
   const manifest = readManifest(directory);
   const expected = expectedSchemaDigest();
   if (manifest.schemaDigest !== expected)
-    throw new BackupError(
-      "Backup is incompatible with this application's schema",
-    );
+    throw new BackupError("Backup is incompatible with this application's schema");
   const state = join(directory, "state");
   const actual = await inventoryBackupTree(state, signal);
   if (hash(actual) !== hash(manifest.entries))
@@ -331,9 +276,7 @@ export async function createStateBackup(
     isWithin(dirname(source), target) ||
     isWithin(target, source)
   )
-    throw new BackupError(
-      "Use a canonical database path and a backup outside its state directory",
-    );
+    throw new BackupError("Use a canonical database path and a backup outside its state directory");
   await privateBackupDirectory(dirname(source));
   await privateBackupDirectory(dirname(target));
   requireAbsent(target);
@@ -358,10 +301,7 @@ export async function createStateBackup(
         return 100;
       },
     });
-    const snapshotHandle = await open(
-      snapshot,
-      constants.O_RDWR | constants.O_NOFOLLOW,
-    );
+    const snapshotHandle = await open(snapshot, constants.O_RDWR | constants.O_NOFOLLOW);
     try {
       await snapshotHandle.chmod(0o600);
     } finally {
@@ -369,9 +309,7 @@ export async function createStateBackup(
     }
     const copy = openExisting(snapshot, false);
     try {
-      copy
-        .prepare("DELETE FROM execution_owner WHERE token = ?")
-        .run(owner.token);
+      copy.prepare("DELETE FROM execution_owner WHERE token = ?").run(owner.token);
       copy.pragma("journal_mode = DELETE");
       validateDatabase(copy, expected);
     } finally {
@@ -387,12 +325,7 @@ export async function createStateBackup(
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         present = false;
       }
-      if (present)
-        await inventoryBackupTree(
-          join(dirname(source), name),
-          signal,
-          destinationRoot,
-        );
+      if (present) await inventoryBackupTree(join(dirname(source), name), signal, destinationRoot);
     }
     assertExecutionOwner(db, owner.token);
     const entries = await inventoryBackupTree(state, signal);
@@ -414,10 +347,7 @@ export async function createStateBackup(
       await file.close();
     }
     await inspectStateBackup(temporary, signal);
-    const snapshotFile = await open(
-      snapshot,
-      constants.O_RDONLY | constants.O_NOFOLLOW,
-    );
+    const snapshotFile = await open(snapshot, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       await snapshotFile.sync();
     } finally {
@@ -454,9 +384,7 @@ export async function previewStateRestore(
     target = dirname(targetDatabase);
   const manifest = await inspectStateBackup(backup, signal);
   if (targetDatabase !== manifest.databasePath)
-    throw new BackupError(
-      "Restore requires the original absolute database path",
-    );
+    throw new BackupError("Restore requires the original absolute database path");
   await privateBackupDirectory(dirname(target));
   if (isWithin(target, backup) || isWithin(backup, target))
     throw new BackupError("Restore target and backup must be separate");
@@ -473,15 +401,9 @@ export async function restoreStateBackup(
     targetDatabase = resolve(databasePath),
     target = dirname(targetDatabase);
   const manifest = await previewStateRestore(backup, targetDatabase, signal);
-  let temporary: string | undefined = await mkdtemp(
-    join(dirname(target), ".agent-hub-restore-"),
-  );
+  let temporary: string | undefined = await mkdtemp(join(dirname(target), ".agent-hub-restore-"));
   try {
-    const entries = await inventoryBackupTree(
-      join(backup, "state"),
-      signal,
-      temporary,
-    );
+    const entries = await inventoryBackupTree(join(backup, "state"), signal, temporary);
     if (hash(entries) !== hash(manifest.entries))
       throw new BackupError("Backup changed during restore");
     const client = openExisting(join(temporary, basename(targetDatabase)));

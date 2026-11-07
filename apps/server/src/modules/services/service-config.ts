@@ -26,21 +26,12 @@ function record(value: unknown): Record<string, unknown> {
 }
 function integer(value: unknown, fallback: number, min: number, max: number) {
   const result = value ?? fallback;
-  if (
-    typeof result !== "number" ||
-    !Number.isInteger(result) ||
-    result < min ||
-    result > max
-  )
+  if (typeof result !== "number" || !Number.isInteger(result) || result < min || result > max)
     throw new Error("Invalid service observation interval or limit");
   return result;
 }
 export function loadServiceConfig(path: string): ServiceConfig {
-  const { value, sourcePath } = readPrivateJson(
-    path,
-    "Service observation config",
-    65536,
-  );
+  const { value, sourcePath } = readPrivateJson(path, "Service observation config", 65536);
   const config = record(value);
   if (
     config.version !== 1 ||
@@ -48,9 +39,7 @@ export function loadServiceConfig(path: string): ServiceConfig {
     !Array.isArray(config.targets) ||
     config.targets.length > 10
   )
-    throw new Error(
-      "Service observation config requires version 1 and at most 10 targets",
-    );
+    throw new Error("Service observation config requires version 1 and at most 10 targets");
   const keys = new Set<string>();
   const targets = config.targets.map((raw) => {
     const target = record(raw);
@@ -77,23 +66,14 @@ export function loadServiceConfig(path: string): ServiceConfig {
     keys.add(target.key);
     if (
       typeof target.projectId !== "string" ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        target.projectId,
-      )
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(target.projectId)
     )
       throw new Error("Service target projectId must be a project UUID");
-    if (
-      typeof target.name !== "string" ||
-      !target.name.trim() ||
-      target.name.length > 100
-    )
-      throw new Error(
-        "Service target name is required (at most 100 characters)",
-      );
+    if (typeof target.name !== "string" || !target.name.trim() || target.name.length > 100)
+      throw new Error("Service target name is required (at most 100 characters)");
     let url: URL;
     try {
-      if (typeof target.url !== "string" || target.url.length > 2048)
-        throw new Error();
+      if (typeof target.url !== "string" || target.url.length > 2048) throw new Error();
       url = new URL(target.url);
     } catch {
       throw new Error("Invalid service observation URL");
@@ -108,13 +88,8 @@ export function loadServiceConfig(path: string): ServiceConfig {
       throw new Error(
         "Service observation requires an HTTP(S) URL without credentials, query or fragment",
       );
-    if (
-      url.protocol === "http:" &&
-      !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
-    )
-      throw new Error(
-        "Unencrypted service observation is allowed only on loopback hosts",
-      );
+    if (url.protocol === "http:" && !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))
+      throw new Error("Unencrypted service observation is allowed only on loopback hosts");
     if (
       target.bearerToken !== undefined &&
       (typeof target.bearerToken !== "string" ||
@@ -129,14 +104,10 @@ export function loadServiceConfig(path: string): ServiceConfig {
       intervalMs * 2,
       86400000,
     );
-    if (
-      target.allowWaiting !== undefined &&
-      typeof target.allowWaiting !== "boolean"
-    )
+    if (target.allowWaiting !== undefined && typeof target.allowWaiting !== "boolean")
       throw new Error("Service allowWaiting must be a boolean");
     const activityTimeoutMs =
-      target.activityTimeoutMs === undefined ||
-      target.activityTimeoutMs === null
+      target.activityTimeoutMs === undefined || target.activityTimeoutMs === null
         ? null
         : integer(target.activityTimeoutMs, 0, 1000, 604800000);
     const normalized = {
@@ -162,9 +133,7 @@ export function loadServiceConfig(path: string): ServiceConfig {
     return {
       ...normalized,
       fingerprint,
-      ...(typeof target.bearerToken === "string"
-        ? { bearerToken: target.bearerToken }
-        : {}),
+      ...(typeof target.bearerToken === "string" ? { bearerToken: target.bearerToken } : {}),
     };
   });
   return { sourcePath, targets };

@@ -1,10 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { goals, tasks } from "../../db/schema.js";
-import {
-  goalExecutionBlock,
-  type TaskGoalReference,
-} from "./goal-execution-policy.js";
+import { goalExecutionBlock, type TaskGoalReference } from "./goal-execution-policy.js";
 
 // Keep paused/stale goals out of queue selection so they cannot starve other work.
 export const assignableGoal = sql`(

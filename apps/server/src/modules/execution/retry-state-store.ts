@@ -1,20 +1,12 @@
 import { asc, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { runs, tasks, taskReleases } from "../../db/schema.js";
-import {
-  initialRetryState,
-  type RetryPolicy,
-  type RetryState,
-} from "./retry-policy.js";
+import { initialRetryState, type RetryPolicy, type RetryState } from "./retry-policy.js";
 
 type RetryDb = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update">;
 
 export function readRetryBaseline(db: Pick<RetryDb, "select">, taskId: string) {
-  return db
-    .select()
-    .from(taskReleases)
-    .where(eq(taskReleases.newTaskId, taskId))
-    .get();
+  return db.select().from(taskReleases).where(eq(taskReleases.newTaskId, taskId)).get();
 }
 
 function errorStreak(
@@ -56,26 +48,15 @@ export function refreshRetryErrorStreak(db: RetryDb, taskId: string) {
 }
 
 // 같은 완료를 여러 번 대조해도 이미 합산한 Run 시간을 다시 더하지 않습니다.
-export function accountRunDuration(
-  db: RetryDb,
-  runId: string,
-  end: Date | null,
-) {
+export function accountRunDuration(db: RetryDb, runId: string, end: Date | null) {
   if (!end) return;
   const run = db.select().from(runs).where(eq(runs.id, runId)).get()!;
   const task = db.select().from(tasks).where(eq(tasks.id, run.taskId)).get()!;
   if (!task.retryState) return;
-  const duration = Math.max(
-    run.accountedDurationMs,
-    end.getTime() - run.startedAt.getTime(),
-    0,
-  );
+  const duration = Math.max(run.accountedDurationMs, end.getTime() - run.startedAt.getTime(), 0);
   const delta = duration - run.accountedDurationMs;
   if (!delta) return;
-  db.update(runs)
-    .set({ accountedDurationMs: duration })
-    .where(eq(runs.id, runId))
-    .run();
+  db.update(runs).set({ accountedDurationMs: duration }).where(eq(runs.id, runId)).run();
   db.update(tasks)
     .set({
       retryState: {
@@ -102,16 +83,12 @@ export function ensureRetryState(
     .where(eq(runs.taskId, taskId))
     .orderBy(asc(runs.attempt))
     .all();
-  const state = baseline
-    ? structuredClone(baseline.priorRetryState)
-    : initialRetryState(policy!);
+  const state = baseline ? structuredClone(baseline.priorRetryState) : initialRetryState(policy!);
   if (baseline) {
     state.reason = null;
     state.decisionRunId = null;
   }
-  state.retries += baseline?.priorAttempts
-    ? history.length
-    : Math.max(0, history.length - 1);
+  state.retries += baseline?.priorAttempts ? history.length : Math.max(0, history.length - 1);
   Object.assign(state, errorStreak(history, baseline?.priorRetryState));
   for (const run of history) {
     const end = run.terminationConfirmedAt ?? run.finishedAt;
@@ -121,10 +98,7 @@ export function ensureRetryState(
       0,
     );
     state.totalRunMs += duration;
-    db.update(runs)
-      .set({ accountedDurationMs: duration })
-      .where(eq(runs.id, run.id))
-      .run();
+    db.update(runs).set({ accountedDurationMs: duration }).where(eq(runs.id, run.id)).run();
   }
   db.update(tasks).set({ retryState: state }).where(eq(tasks.id, taskId)).run();
   return state;

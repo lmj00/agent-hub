@@ -1,11 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  cpSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -26,8 +20,7 @@ import { parseAnalysisWorkflow } from "../src/modules/execution/analysis-workflo
 import { createProjectBudgetStore } from "../src/modules/budgets/project-budget-store.js";
 
 let directory: string, path: string, taskId: string, projectId: string;
-let database: ReturnType<typeof openDatabase>,
-  store: ReturnType<typeof createDrizzleRunStore>;
+let database: ReturnType<typeof openDatabase>, store: ReturnType<typeof createDrizzleRunStore>;
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "hub-skill-store-"));
   path = join(directory, "hub.sqlite");
@@ -59,18 +52,11 @@ afterEach(() => {
   database.close();
   rmSync(directory, { recursive: true, force: true });
 });
-const context = (
-  role: RuntimeSkillRole = "analyst",
-  sequence = 1,
-): RuntimeSkillContext => ({
+const context = (role: RuntimeSkillRole = "analyst", sequence = 1): RuntimeSkillContext => ({
   sequence,
   selection: loadRuntimeSkill(role).selection,
 });
-function record(
-  runId: string,
-  type: "selected" | "loaded",
-  selected = context(),
-) {
+function record(runId: string, type: "selected" | "loaded", selected = context()) {
   store.record(runId, {
     kind: `skill.${type}`,
     runtimeSkill: { type, ...selected },
@@ -157,8 +143,7 @@ test("queue claims pin the new policy; legacy claims retain null metadata", () =
   const legacy = store.claim(next, "fixture");
   expect(legacy.runtimeSkillVersion).toBeUndefined();
   expect(
-    database.db.select().from(runs).where(eq(runs.id, legacy.id)).get()
-      ?.runtimeSkillVersion,
+    database.db.select().from(runs).where(eq(runs.id, legacy.id)).get()?.runtimeSkillVersion,
   ).toBeNull();
   expect(() => record(legacy.id, "selected")).toThrow("unsupported_settings");
 });
@@ -175,9 +160,7 @@ test.each(["unselected", "digest", "sequence", "role", "bytes", "duplicate"])(
     if (mode === "bytes") selected.selection.bytes++;
     if (mode === "duplicate") record(run.id, "loaded");
     const before = database.db.select().from(steps).get();
-    expect(() => record(run.id, "loaded", selected)).toThrow(
-      "unsupported_settings",
-    );
+    expect(() => record(run.id, "loaded", selected)).toThrow("unsupported_settings");
     expect(database.db.select().from(steps).get()).toEqual(before);
   },
 );
@@ -195,12 +178,8 @@ test.each(["cancel", "stopped", "other-run", "other-owner"])(
         .run();
     if (mode === "stopped") store.requestStop(run.id, "server_shutdown");
     if (mode === "other-owner") acquireExecutionOwner(database.db);
-    expect(() =>
-      record(mode === "other-run" ? randomUUID() : run.id, "loaded"),
-    ).toThrow();
-    expect(
-      database.db.select().from(steps).get()?.runtimeSkillLoadedAt,
-    ).toBeNull();
+    expect(() => record(mode === "other-run" ? randomUUID() : run.id, "loaded")).toThrow();
+    expect(database.db.select().from(steps).get()?.runtimeSkillLoadedAt).toBeNull();
   },
 );
 
@@ -213,9 +192,7 @@ test("plain skill log lines cannot satisfy the success requirement", () => {
     result: null,
     errorCode: "unsupported_settings",
   });
-  expect(
-    database.db.select().from(steps).get()?.runtimeSkillLoadedAt,
-  ).toBeNull();
+  expect(database.db.select().from(steps).get()?.runtimeSkillLoadedAt).toBeNull();
 });
 
 test("each next Step requires a new load and its budget reservation before selection", () => {
@@ -248,9 +225,9 @@ test("each next Step requires a new load and its budget reservation before selec
     },
     usage: null,
   };
-  expect(() =>
-    store.record(run.id, { kind: "step.completed", step: complete }),
-  ).toThrow("invalid_plan");
+  expect(() => store.record(run.id, { kind: "step.completed", step: complete })).toThrow(
+    "invalid_plan",
+  );
   record(run.id, "selected");
   record(run.id, "loaded");
   store.record(run.id, { kind: "step.completed", step: complete });
@@ -260,9 +237,7 @@ test("each next Step requires a new load and its budget reservation before selec
       step: { type: "start", sequence: 2 },
     }),
   ).toThrow("budget_limit");
-  expect(() => record(run.id, "selected", context("analyst", 2))).toThrow(
-    "unsupported_settings",
-  );
+  expect(() => record(run.id, "selected", context("analyst", 2))).toThrow("unsupported_settings");
   expect(database.db.select().from(steps).all()).toHaveLength(1);
 });
 
@@ -310,9 +285,7 @@ test("migration preserves populated Run/Step/event history with unknown legacy s
   cpSync(migrationsDirectory, folder, { recursive: true });
   const journalPath = join(folder, "meta/_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8"));
-  journal.entries = journal.entries.filter(
-    (entry: { idx: number }) => entry.idx < 27,
-  );
+  journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 27);
   writeFileSync(journalPath, JSON.stringify(journal));
   const legacyPath = join(directory, "legacy.sqlite");
   const legacy = openDatabase(legacyPath, folder);
@@ -331,13 +304,9 @@ test("migration preserves populated Run/Step/event history with unknown legacy s
     runtimeSkillSelectedAt: null,
     runtimeSkillLoadedAt: null,
   });
-  expect(database.client.prepare("SELECT id FROM events").all()).toEqual([
-    { id: "e" },
-  ]);
+  expect(database.client.prepare("SELECT id FROM events").all()).toEqual([{ id: "e" }]);
   expect(database.client.pragma("foreign_key_check")).toEqual([]);
-  expect(() =>
-    database.client.exec("UPDATE runs SET runtime_skill_version=2"),
-  ).toThrow();
+  expect(() => database.client.exec("UPDATE runs SET runtime_skill_version=2")).toThrow();
 });
 
 test("recovery rechecks a no-call observation before committing termination proof", () => {
@@ -355,16 +324,12 @@ test("recovery rechecks a no-call observation before committing termination proo
     null,
     true,
   );
-  expect(
-    recovery.candidate(accepted.request.id)?.run?.runtimeSkillNotStarted,
-  ).toBe(true);
+  expect(recovery.candidate(accepted.request.id)?.run?.runtimeSkillNotStarted).toBe(true);
   record(run.id, "loaded");
   recovery.complete(accepted.request.id, new Date(), false, []);
   expect(recovery.findById(accepted.request.id)).toMatchObject({
     status: "rejected",
     errorCode: "TERMINATION_UNCONFIRMED",
   });
-  expect(
-    database.db.select().from(runs).get()?.terminationConfirmedAt,
-  ).toBeNull();
+  expect(database.db.select().from(runs).get()?.terminationConfirmedAt).toBeNull();
 });

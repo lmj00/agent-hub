@@ -1,28 +1,13 @@
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import type { PeriodBudgetPolicy, ProjectBudget } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  budgetReservations,
-  goals,
-  projectBudgets,
-  projects,
-} from "../../db/schema.js";
-import {
-  BudgetError,
-  defaultProjectBudget,
-  validateBudget,
-} from "./budget-policy.js";
+import { budgetReservations, goals, projectBudgets, projects } from "../../db/schema.js";
+import { BudgetError, defaultProjectBudget, validateBudget } from "./budget-policy.js";
 import { latestPeriod } from "./budget-store.js";
 
-export function createProjectBudgetStore(
-  db: ReturnType<typeof openDatabase>["db"],
-) {
+export function createProjectBudgetStore(db: ReturnType<typeof openDatabase>["db"]) {
   function view(projectId: string): ProjectBudget {
-    const project = db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .get();
+    const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
     if (!project) throw new BudgetError("PROJECT_NOT_FOUND");
     const configured = db
       .select()
@@ -79,17 +64,11 @@ export function createProjectBudgetStore(
   }
   return {
     view,
-    change(
-      projectId: string,
-      expectedVersion: number,
-      input: PeriodBudgetPolicy,
-    ) {
+    change(projectId: string, expectedVersion: number, input: PeriodBudgetPolicy) {
       const policy = validateBudget(input);
       return db.transaction(
         (tx) => {
-          if (
-            !tx.select().from(projects).where(eq(projects.id, projectId)).get()
-          )
+          if (!tx.select().from(projects).where(eq(projects.id, projectId)).get())
             throw new BudgetError("PROJECT_NOT_FOUND");
           const previous = tx
             .select()

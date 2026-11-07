@@ -35,48 +35,47 @@ const stopReasons = {
   unknown: "중단 이유 미확인",
 };
 const retryReasons: Record<string, string> = {
-  capacity_waiting:
-    "사용량 제한 회복을 확인할 시각까지 기다립니다. 계정 전체의 차단은 유지됩니다.",
+  capacity_waiting: "사용량 제한 회복을 확인할 시각까지 기다립니다. 계정 전체의 차단은 유지됩니다.",
   capacity_check_ready: "사용량 제한을 확인할 실행 하나를 예약했습니다.",
-  capacity_check_limit:
-    "계정 확인 횟수 상한에 도달했습니다. 정책을 검토해 주세요.",
-  capacity_termination_unconfirmed:
-    "이전 실행의 종료를 확인하지 못해 한도 확인도 보류했습니다.",
+  capacity_check_limit: "계정 확인 횟수 상한에 도달했습니다. 정책을 검토해 주세요.",
+  capacity_termination_unconfirmed: "이전 실행의 종료를 확인하지 못해 한도 확인도 보류했습니다.",
   retry_scheduled: "일시적 오류로 기다린 뒤 자동으로 다시 시도합니다.",
   retry_ready: "재시도 시각이 됐습니다. 배정 조건을 확인하고 있습니다.",
-  retry_limit:
-    "재시도 횟수 상한에 도달했습니다. 정책과 실패 원인을 검토해 주세요.",
+  retry_limit: "재시도 횟수 상한에 도달했습니다. 정책과 실패 원인을 검토해 주세요.",
   repeated_error_limit: "같은 오류가 반복되어 자동 실행을 보류했습니다.",
   task_time_limit: "작업의 누적 실행 시간 상한에 도달했습니다.",
-  termination_unconfirmed:
-    "이전 실행의 종료 근거가 부족합니다. 종료 확인이 필요합니다.",
-  change_application_unconfirmed: "코드 반영 결과를 대조하지 못했습니다. 원본과 개발 저장소 상태를 확인한 뒤 상태 확인을 요청해 주세요.",
+  termination_unconfirmed: "이전 실행의 종료 근거가 부족합니다. 종료 확인이 필요합니다.",
+  change_application_unconfirmed:
+    "코드 반영 결과를 대조하지 못했습니다. 원본과 개발 저장소 상태를 확인한 뒤 상태 확인을 요청해 주세요.",
   capacity_manual_check:
     "사용량 제한으로 보류했습니다. 현재 단계에서는 수동 확인 실행이 필요합니다.",
   authentication_required: "AI 계정 로그인을 복구한 뒤 재개해 주세요.",
   configuration_required: "AI 실행 설정을 확인해 주세요.",
-  not_retryable:
-    "자동 재시도 대상이 아닌 오류입니다. 실행 결과를 확인해 주세요.",
+  not_retryable: "자동 재시도 대상이 아닌 오류입니다. 실행 결과를 확인해 주세요.",
   user_cancelled: "사용자가 취소하여 다시 실행하지 않습니다.",
 };
 const runErrors: Record<string, string> = {
-  scope_changed: "목표에서 허용한 경로가 줄어 실행 중단을 요청했습니다. 종료 확인 후 범위 변경에 따른 취소로 기록합니다.",
-  verification_required: "목표 완료 제안은 받았지만 실제 코드와 테스트의 검증 근거가 없어 완료로 반영하지 않았습니다.",
-  work_unresolved: "진행·종료 확인·복구 중인 작업이 있거나 기존 작업의 범위를 확인할 수 없어 새 계획을 보류했습니다.",
-  planning_no_progress: "중복·재생성이 차단된 작업 또는 미완료인 목표의 완료 제안이 세 번 이어져 계획을 보류했습니다.",
-  input_unavailable: "분석 자료를 준비하지 못했습니다. 원본 저장소의 미커밋 변경, 허용 경로와 파일·목표 입력의 크기 제한을 확인해 주세요.",
-  input_changed: "분석 중 원본 코드가 바뀌어 결과를 반영하지 않았습니다. 최신 코드를 기준으로 다시 확인해야 합니다.",
+  scope_changed:
+    "목표에서 허용한 경로가 줄어 실행 중단을 요청했습니다. 종료 확인 후 범위 변경에 따른 취소로 기록합니다.",
+  verification_required:
+    "목표 완료 제안은 받았지만 실제 코드와 테스트의 검증 근거가 없어 완료로 반영하지 않았습니다.",
+  work_unresolved:
+    "진행·종료 확인·복구 중인 작업이 있거나 기존 작업의 범위를 확인할 수 없어 새 계획을 보류했습니다.",
+  planning_no_progress:
+    "중복·재생성이 차단된 작업 또는 미완료인 목표의 완료 제안이 세 번 이어져 계획을 보류했습니다.",
+  input_unavailable:
+    "분석 자료를 준비하지 못했습니다. 원본 저장소의 미커밋 변경, 허용 경로와 파일·목표 입력의 크기 제한을 확인해 주세요.",
+  input_changed:
+    "분석 중 원본 코드가 바뀌어 결과를 반영하지 않았습니다. 최신 코드를 기준으로 다시 확인해야 합니다.",
   goal_changed: "목표의 상태나 버전이 바뀌어 이전 기준의 실행을 보류했습니다.",
-  budget_limit: "프로젝트 또는 목표의 기간 예산을 다 썼습니다. 기존 결과를 보존하고 다음 기간에 실행 조건을 다시 확인합니다.",
-  termination_unconfirmed:
-    "결과가 있어도 전체 실행 종료를 확인하기 전까지 새 실행은 보류합니다.",
-  owner_lost:
-    "실행을 관리하던 서버가 중단됐습니다. 이전 실행의 종료를 확인해 주세요.",
+  budget_limit:
+    "프로젝트 또는 목표의 기간 예산을 다 썼습니다. 기존 결과를 보존하고 다음 기간에 실행 조건을 다시 확인합니다.",
+  termination_unconfirmed: "결과가 있어도 전체 실행 종료를 확인하기 전까지 새 실행은 보류합니다.",
+  owner_lost: "실행을 관리하던 서버가 중단됐습니다. 이전 실행의 종료를 확인해 주세요.",
   timeout: "정해진 실행 시간을 초과했습니다.",
   transient: "AI 서비스와의 연결에 일시적인 오류가 발생했습니다.",
   server_shutdown: "서버 종료로 멈췄습니다. 종료 확인 후 재개할 수 있습니다.",
-  cancel_requested:
-    "취소 요청을 기록했습니다. 종료가 확인되면 취소가 완료됩니다.",
+  cancel_requested: "취소 요청을 기록했습니다. 종료가 확인되면 취소가 완료됩니다.",
   capacity: "AI 계정의 사용량 제한으로 실행을 보류했습니다.",
   authentication: "AI 계정 로그인을 확인해 주세요.",
   configuration: "AI 실행 설정을 확인해 주세요.",
@@ -116,9 +115,7 @@ export function TaskDetail({
         signal,
       });
       const id = selectedRunId ?? runs[0]?.id;
-      const detail = id
-        ? await api.request(`/runs/${id}`, runDetailsSchema, { signal })
-        : null;
+      const detail = id ? await api.request(`/runs/${id}`, runDetailsSchema, { signal }) : null;
       return { runs, detail };
     },
     [task.id, selectedRunId],
@@ -166,21 +163,17 @@ export function TaskDetail({
           expectedGoalVersion: goal.version,
         };
       }
-      const accepted = await api.request(
-        `/tasks/${task.id}/release`,
-        taskReleaseSchema,
-        { method: "POST", body: releaseCommand.current },
-      );
+      const accepted = await api.request(`/tasks/${task.id}/release`, taskReleaseSchema, {
+        method: "POST",
+        body: releaseCommand.current,
+      });
       releaseCommand.current = null;
       refresh();
       onSelectTask(accepted.newTaskId);
     } catch (failure) {
       // Uncertain delivery retains both the key and the expected Goal version.
-      if (
-        failure instanceof ApiError &&
-        failure.status >= 400 &&
-        failure.status < 500
-      ) releaseCommand.current = null;
+      if (failure instanceof ApiError && failure.status >= 400 && failure.status < 500)
+        releaseCommand.current = null;
       if (failure instanceof ApiError && failure.status === 401) onExpired();
       else setError(failure);
       refresh();
@@ -194,8 +187,7 @@ export function TaskDetail({
     setBusy(true);
     setError(null);
     const runId = latest?.id ?? null;
-    const providerGateVersion =
-      action === "resume" && gate?.blocked ? gate.version : null;
+    const providerGateVersion = action === "resume" && gate?.blocked ? gate.version : null;
     const signature = JSON.stringify({ action, runId, providerGateVersion });
     let requestKey = identities.current.get(signature);
     if (!requestKey) {
@@ -203,24 +195,16 @@ export function TaskDetail({
       identities.current.set(signature, requestKey);
     }
     try {
-      const accepted = await api.request(
-        `/tasks/${task.id}/recovery-requests`,
-        recoverySchema,
-        {
-          method: "POST",
-          body: { action, runId, providerGateVersion, requestKey },
-        },
-      );
+      const accepted = await api.request(`/tasks/${task.id}/recovery-requests`, recoverySchema, {
+        method: "POST",
+        body: { action, runId, providerGateVersion, requestKey },
+      });
       setReceipt(accepted);
       identities.current.delete(signature);
       refresh();
     } catch (failure) {
       // 명확한 거부는 다음 요청에서 다시 판단합니다. 통신 단절·5xx는 같은 접수 키를 유지합니다.
-      if (
-        failure instanceof ApiError &&
-        failure.status >= 400 &&
-        failure.status < 500
-      )
+      if (failure instanceof ApiError && failure.status >= 400 && failure.status < 500)
         identities.current.delete(signature);
       if (failure instanceof ApiError && failure.status === 401) onExpired();
       else setError(failure);
@@ -229,8 +213,7 @@ export function TaskDetail({
       setBusy(false);
     }
   }
-  const active =
-    !!latest && queue?.state === "running" && queue.runId === latest.id;
+  const active = !!latest && queue?.state === "running" && queue.runId === latest.id;
   const terminal = task.status === "succeeded" || task.status === "cancelled";
   const pending = receipt?.status === "pending";
   const enabled =
@@ -248,11 +231,9 @@ export function TaskDetail({
   const retryLimited =
     !!task.retryState &&
     (task.retryState.retries >= task.retryState.policy.maxRetries ||
-      task.retryState.consecutiveErrors >=
-        task.retryState.policy.maxConsecutiveErrors ||
+      task.retryState.consecutiveErrors >= task.retryState.policy.maxConsecutiveErrors ||
       task.retryState.totalRunMs >= task.retryState.policy.maxTotalRunMs ||
-      (!!task.retryState.nextAttemptAt &&
-        Date.parse(task.retryState.nextAttemptAt) > Date.now()));
+      (!!task.retryState.nextAttemptAt && Date.parse(task.retryState.nextAttemptAt) > Date.now()));
   return (
     <section className="task-detail" aria-labelledby="detail-heading">
       <div className="detail-top">
@@ -281,60 +262,77 @@ export function TaskDetail({
       {task.status === "cancelled" && task.planningTaskId && !task.nextTaskId ? (
         <div className="notice" aria-label="취소 작업 다시 허용">
           <p>
-            현재 목표에서 허용하는 작업이면 새 작업으로 이어갑니다.
-            기존 취소 기록과 재시도·누적 시간 한도는 유지합니다.
+            현재 목표에서 허용하는 작업이면 새 작업으로 이어갑니다. 기존 취소 기록과 재시도·누적
+            시간 한도는 유지합니다.
           </p>
-          <button className="secondary" disabled={busy || pending} onClick={() => void releaseWork()}>
+          <button
+            className="secondary"
+            disabled={busy || pending}
+            onClick={() => void releaseWork()}
+          >
             취소한 작업 다시 허용
           </button>
         </div>
       ) : null}
       {task.goalReview ? (
         <div className="notice" aria-label="목표 범위 재검사">
-          <strong>{task.goalReview.decision === "retained" ? "변경된 목표에서도 허용된 작업입니다." : "목표의 허용 범위를 벗어나 제외한 작업입니다."}</strong>
-          <p>목표 버전 {task.goalReview.fromVersion} → {task.goalReview.toVersion} · 확인 {dateTime(task.goalReview.checkedAt)}</p>
-          <small>{task.goalReview.decision === "retained" ? "기존 실행 이력과 재시도·시간 제한은 유지합니다." : "사용자 취소와 구분해 기록하며 이 작업을 자동 재개하지 않습니다."}</small>
+          <strong>
+            {task.goalReview.decision === "retained"
+              ? "변경된 목표에서도 허용된 작업입니다."
+              : "목표의 허용 범위를 벗어나 제외한 작업입니다."}
+          </strong>
+          <p>
+            목표 버전 {task.goalReview.fromVersion} → {task.goalReview.toVersion} · 확인{" "}
+            {dateTime(task.goalReview.checkedAt)}
+          </p>
+          <small>
+            {task.goalReview.decision === "retained"
+              ? "기존 실행 이력과 재시도·시간 제한은 유지합니다."
+              : "사용자 취소와 구분해 기록하며 이 작업을 자동 재개하지 않습니다."}
+          </small>
         </div>
       ) : null}
       {task.budgetWait ? (
         <div className="notice attention" aria-label="기간 예산 대기">
           <strong>{task.budgetWait.scope === "goal" ? "목표" : "프로젝트"} 실행 예산 대기</strong>
-          <p>{task.budgetWait.reason === "call_limit" ? "호출 횟수 한도" : task.budgetWait.reason === "time_limit" ? "실행 시간 한도" : "예산 기간 종료"} · 다음 확인 {dateTime(task.budgetWait.retryAt)}</p>
-          <small>예산 기간이 바뀌면 자동으로 실행 조건을 다시 확인합니다. 계정 차단·목표 일시정지·작업 취소와 재시도 한도는 유지됩니다.</small>
+          <p>
+            {task.budgetWait.reason === "call_limit"
+              ? "호출 횟수 한도"
+              : task.budgetWait.reason === "time_limit"
+                ? "실행 시간 한도"
+                : "예산 기간 종료"}{" "}
+            · 다음 확인 {dateTime(task.budgetWait.retryAt)}
+          </p>
+          <small>
+            예산 기간이 바뀌면 자동으로 실행 조건을 다시 확인합니다. 계정 차단·목표 일시정지·작업
+            취소와 재시도 한도는 유지됩니다.
+          </small>
         </div>
       ) : null}
       {task.retryState ? (
         <div className="notice retry-status" aria-label="자동 복구 정책">
           <strong>
-            재시도 {task.retryState.retries} /{" "}
-            {task.retryState.policy.maxRetries}회 · 같은 오류{" "}
-            {task.retryState.consecutiveErrors} /{" "}
-            {task.retryState.policy.maxConsecutiveErrors}회
+            재시도 {task.retryState.retries} / {task.retryState.policy.maxRetries}회 · 같은 오류{" "}
+            {task.retryState.consecutiveErrors} / {task.retryState.policy.maxConsecutiveErrors}회
           </strong>
           <span>
             누적 실행 {Math.ceil(task.retryState.totalRunMs / 1000)}초 /{" "}
             {Math.ceil(task.retryState.policy.maxTotalRunMs / 1000)}초
           </span>
           {task.retryState.nextAttemptAt ? (
-            <span>
-              다음 시도 가능 시각 {dateTime(task.retryState.nextAttemptAt)}
-            </span>
+            <span>다음 시도 가능 시각 {dateTime(task.retryState.nextAttemptAt)}</span>
           ) : null}
           {task.retryState.reason ? (
             <span>
-              {retryReasons[task.retryState.reason] ??
-                "저장된 복구 조건을 확인하고 있습니다."}
+              {retryReasons[task.retryState.reason] ?? "저장된 복구 조건을 확인하고 있습니다."}
             </span>
           ) : null}
           {gate?.blocked && task.retryState.nextAttemptAt ? (
-            <small>
-              계정 차단 중에는 허용된 확인 실행 하나만 시작할 수 있습니다.
-            </small>
+            <small>계정 차단 중에는 허용된 확인 실행 하나만 시작할 수 있습니다.</small>
           ) : null}
           {!queue?.automaticRecoveryEnabled ? (
             <small>
-              현재 자동 복구가 꺼져 있습니다. 저장된 예약은 자동 복구를 켠
-              서버에서 확인합니다.
+              현재 자동 복구가 꺼져 있습니다. 저장된 예약은 자동 복구를 켠 서버에서 확인합니다.
             </small>
           ) : null}
         </div>
@@ -374,7 +372,9 @@ export function TaskDetail({
             active ||
             !latest ||
             task.status === "succeeded" ||
-            (!!run?.terminationConfirmedAt && viewingLatest && !run.developmentEvidence?.application)
+            (!!run?.terminationConfirmedAt &&
+              viewingLatest &&
+              !run.developmentEvidence?.application)
           }
           onClick={() => void requestAction("reconcile")}
         >
@@ -413,10 +413,7 @@ export function TaskDetail({
         </div>
       ) : null}
       {receipt ? (
-        <div
-          className={`notice ${receipt.status === "rejected" ? "error" : ""}`}
-          role="status"
-        >
+        <div className={`notice ${receipt.status === "rejected" ? "error" : ""}`} role="status">
           <strong>
             {actions[receipt.action]}{" "}
             {receipt.status === "pending"
@@ -465,7 +462,11 @@ export function TaskDetail({
       ) : (
         <p className="empty-list">
           {records.data
-            ? task.status === "cancelled" ? "실행 전에 취소된 작업입니다. 자동으로 시작하지 않습니다." : task.budgetWait ? "예산 대기 중이며 아직 실행을 시작하지 않았습니다." : "아직 실행 기록이 없습니다. 대기 작업은 실행기가 순서대로 가져갑니다."
+            ? task.status === "cancelled"
+              ? "실행 전에 취소된 작업입니다. 자동으로 시작하지 않습니다."
+              : task.budgetWait
+                ? "예산 대기 중이며 아직 실행을 시작하지 않았습니다."
+                : "아직 실행 기록이 없습니다. 대기 작업은 실행기가 순서대로 가져갑니다."
             : "실행 기록을 불러오는 중…"}
         </p>
       )}
@@ -496,8 +497,7 @@ function RunRecord({
     <div className="run-record">
       {!viewingLatest ? (
         <p className="notice">
-          이전 실행 기록입니다. 위 작업 제어는 현재 작업의 최신 실행에
-          적용됩니다.
+          이전 실행 기록입니다. 위 작업 제어는 현재 작업의 최신 실행에 적용됩니다.
         </p>
       ) : null}
       <dl className="run-facts">
@@ -513,18 +513,24 @@ function RunRecord({
             {elapsed(
               run.startedAt,
               run.finishedAt ??
-                (disconnected
-                  ? (checkedAt?.toISOString() ?? run.lastActivityAt)
-                  : null),
+                (disconnected ? (checkedAt?.toISOString() ?? run.lastActivityAt) : null),
             )}
           </dd>
         </div>
         <div>
-          <dt>{(run.developmentEvidence || run.goalVerification) && run.finishedAt ? "마지막 단계" : "현재 단계"}</dt>
+          <dt>
+            {(run.developmentEvidence || run.goalVerification) && run.finishedAt
+              ? "마지막 단계"
+              : "현재 단계"}
+          </dt>
           <dd>
-            {run.goalVerification ? goalVerificationPhaseLabels[run.goalVerification.phase] : run.developmentEvidence ? developmentPhaseLabels[run.developmentEvidence.phase] : run.steps.length
-              ? `분석 · 단계 ${run.steps.at(-1)!.sequence}`
-              : "실행 준비"}
+            {run.goalVerification
+              ? goalVerificationPhaseLabels[run.goalVerification.phase]
+              : run.developmentEvidence
+                ? developmentPhaseLabels[run.developmentEvidence.phase]
+                : run.steps.length
+                  ? `분석 · 단계 ${run.steps.at(-1)!.sequence}`
+                  : "실행 준비"}
           </dd>
         </div>
         <div>
@@ -547,14 +553,12 @@ function RunRecord({
         </div>
       </dl>
       <p className="subtle-note">
-        최근 활동은 마지막으로 기록한 이벤트 시각입니다. 현재 프로세스의
-        생존이나 작업 진척을 보장하지 않습니다.
+        최근 활동은 마지막으로 기록한 이벤트 시각입니다. 현재 프로세스의 생존이나 작업 진척을
+        보장하지 않습니다.
       </p>
       {run.stopReason || run.errorCode ? (
         <div className="notice attention">
-          <strong>
-            {run.stopReason ? stopReasons[run.stopReason] : "실행 확인 필요"}
-          </strong>
+          <strong>{run.stopReason ? stopReasons[run.stopReason] : "실행 확인 필요"}</strong>
           {run.errorCode ? (
             <p>
               {runErrors[run.errorCode] ??
@@ -567,7 +571,8 @@ function RunRecord({
               <dt>종료 확인</dt>
               <dd>{dateTime(run.terminationConfirmedAt)}</dd>
             </div>
-            {run.retryAt || (run.status === "waiting_capacity" && run.errorCode !== "budget_limit") ? (
+            {run.retryAt ||
+            (run.status === "waiting_capacity" && run.errorCode !== "budget_limit") ? (
               <div>
                 <dt>재시도 시각</dt>
                 <dd>{dateTime(run.retryAt)}</dd>
@@ -577,24 +582,41 @@ function RunRecord({
         </div>
       ) : null}
       <div className="section-heading report-heading">
-        <h3>{run.goalVerification ? "목표 검토 결과" : run.developmentEvidence ? "개발 결과" : "분석 결과"}</h3>
+        <h3>
+          {run.goalVerification
+            ? "목표 검토 결과"
+            : run.developmentEvidence
+              ? "개발 결과"
+              : "분석 결과"}
+        </h3>
         {run.finishedAt ? <small>{dateTime(run.finishedAt)}</small> : null}
       </div>
       {run.planningEvidence ? <PlanningEvidencePanel evidence={run.planningEvidence} /> : null}
-      {run.developmentEvidence ? <DevelopmentEvidencePanel evidence={run.developmentEvidence} /> : null}
+      {run.developmentEvidence ? (
+        <DevelopmentEvidencePanel evidence={run.developmentEvidence} />
+      ) : null}
       {run.goalVerification ? <GoalVerificationPanel evidence={run.goalVerification} /> : null}
       {run.result ? (
         <pre className="analysis-result">{run.result}</pre>
       ) : (
         <p className="empty-list">
-          {run.developmentEvidence ? (run.developmentEvidence.phase === "verified" ? "검증을 통과했습니다. 변경 반영은 아직 확인되지 않았습니다." : run.status === "running" ? "개발·검증이 진행 중입니다. 저장된 단계별 기록을 확인할 수 있습니다." : "저장된 개발 완료 결과가 없습니다.") : run.status === "running"
-            ? "분석이 진행 중입니다. 결과가 저장되면 여기에 표시됩니다."
-            : "저장된 분석 결과가 없습니다."}
+          {run.developmentEvidence
+            ? run.developmentEvidence.phase === "verified"
+              ? "검증을 통과했습니다. 변경 반영은 아직 확인되지 않았습니다."
+              : run.status === "running"
+                ? "개발·검증이 진행 중입니다. 저장된 단계별 기록을 확인할 수 있습니다."
+                : "저장된 개발 완료 결과가 없습니다."
+            : run.status === "running"
+              ? "분석이 진행 중입니다. 결과가 저장되면 여기에 표시됩니다."
+              : "저장된 분석 결과가 없습니다."}
         </p>
       )}
       <RuntimeSkillPanel run={run} />
       {run.steps.some((step) => step.purpose) ? (
-        <section className="step-history" aria-label={run.developmentEvidence ? "AI 호출 기록" : "단계별 분석 기록"}>
+        <section
+          className="step-history"
+          aria-label={run.developmentEvidence ? "AI 호출 기록" : "단계별 분석 기록"}
+        >
           <div className="section-heading">
             <h3>{run.developmentEvidence ? "AI 호출 기록" : "단계별 분석 기록"}</h3>
             <span className="count">{run.steps.length}</span>
@@ -602,49 +624,40 @@ function RunRecord({
           {run.steps.map((step) => (
             <details key={step.sequence} className="event-details">
               <summary>
-                {step.sequence}. {step.purpose ?? "분석"} ·{" "}
-                {step.effort ?? run.effort} · {statusLabels[step.status]}
+                {step.sequence}. {step.purpose ?? "분석"} · {step.effort ?? run.effort} ·{" "}
+                {statusLabels[step.status]}
               </summary>
               <p className="subtle-note">
-                {step.effortReason} · {elapsed(step.startedAt, step.finishedAt)}{" "}
-                · {step.model ?? run.model}
+                {step.effortReason} · {elapsed(step.startedAt, step.finishedAt)} ·{" "}
+                {step.model ?? run.model}
               </p>
               {step.assessment ? (
                 <>
-                  <pre className="analysis-result">
-                    {step.assessment.report}
-                  </pre>
+                  <pre className="analysis-result">{step.assessment.report}</pre>
                   {step.assessment.evidence.length ? (
                     <p>
-                      <strong>근거</strong>{" "}
-                      {step.assessment.evidence.join(" · ")}
+                      <strong>근거</strong> {step.assessment.evidence.join(" · ")}
                     </p>
                   ) : null}
                   {step.assessment.unresolved.length ? (
                     <p>
-                      <strong>남은 질문</strong>{" "}
-                      {step.assessment.unresolved.join(" · ")}
+                      <strong>남은 질문</strong> {step.assessment.unresolved.join(" · ")}
                     </p>
                   ) : null}
                   {step.assessment.next ? (
                     <p>
-                      <strong>다음 단계 제안</strong>{" "}
-                      {step.assessment.next.purpose} ·{" "}
-                      {step.assessment.next.effort}:{" "}
-                      {step.assessment.next.reason}
+                      <strong>다음 단계 제안</strong> {step.assessment.next.purpose} ·{" "}
+                      {step.assessment.next.effort}: {step.assessment.next.reason}
                     </p>
                   ) : null}
                 </>
               ) : (
-                <p className="empty-list">
-                  이 호출의 결과가 아직 저장되지 않았습니다.
-                </p>
+                <p className="empty-list">이 호출의 결과가 아직 저장되지 않았습니다.</p>
               )}
               {step.usage ? (
                 <p className="subtle-note">
-                  제공된 토큰: 입력 {step.usage.inputTokens} · 캐시{" "}
-                  {step.usage.cachedInputTokens} · 출력{" "}
-                  {step.usage.outputTokens}
+                  제공된 토큰: 입력 {step.usage.inputTokens} · 캐시 {step.usage.cachedInputTokens} ·
+                  출력 {step.usage.outputTokens}
                 </p>
               ) : null}
             </details>
@@ -660,15 +673,11 @@ function RunRecord({
             <li key={event.sequence}>
               <span className="event-index">{event.sequence}</span>
               <code>{event.kind}</code>
-              <time dateTime={event.createdAt}>
-                {dateTime(event.createdAt)}
-              </time>
+              <time dateTime={event.createdAt}>{dateTime(event.createdAt)}</time>
             </li>
           ))}
         </ol>
-        {!run.events.length ? (
-          <p className="muted">기록된 이벤트가 없습니다.</p>
-        ) : null}
+        {!run.events.length ? <p className="muted">기록된 이벤트가 없습니다.</p> : null}
       </details>
     </div>
   );

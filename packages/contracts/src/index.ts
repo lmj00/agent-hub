@@ -1,9 +1,4 @@
-import {
-  Type,
-  FormatRegistry,
-  type Static,
-  type TSchema,
-} from "@sinclair/typebox";
+import { Type, FormatRegistry, type Static, type TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 export { goalPlanSchema, type GoalPlan } from "./goal-plan.js";
 
@@ -13,28 +8,21 @@ FormatRegistry.Set("uuid", (value) =>
 );
 FormatRegistry.Set("date-time", (value) => {
   if (
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
-      value,
-    ) ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
     !Number.isFinite(Date.parse(value))
   )
     return false;
   const day = value.slice(0, 10);
   return new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) === day;
 });
-export function parseResponse<T extends TSchema>(
-  schema: T,
-  value: unknown,
-): Static<T> {
-  if (!Value.Check(schema, value))
-    throw new Error("API response does not match its contract");
+export function parseResponse<T extends TSchema>(schema: T, value: unknown): Static<T> {
+  if (!Value.Check(schema, value)) throw new Error("API response does not match its contract");
   return value;
 }
 export type { Static, TSchema };
 const object = <T extends Record<string, TSchema>>(properties: T) =>
   Type.Object(properties, { additionalProperties: false });
-const nullable = <T extends TSchema>(schema: T) =>
-  Type.Union([schema, Type.Null()]);
+const nullable = <T extends TSchema>(schema: T) => Type.Union([schema, Type.Null()]);
 const enumeration = <T extends readonly string[]>(values: T) =>
   Type.Union(values.map((value) => Type.Literal(value as T[number])));
 const text = Type.String();
@@ -106,12 +94,14 @@ export const budgetPeriodSchema = object({
 export const projectBudgetSchema = object({
   version: Type.Integer({ minimum: 0 }),
   policy: periodBudgetPolicySchema,
-  accounts: Type.Array(object({
-    scope: enumeration(["project", "goal"] as const),
-    id,
-    label: text,
-    period: nullable(budgetPeriodSchema),
-  })),
+  accounts: Type.Array(
+    object({
+      scope: enumeration(["project", "goal"] as const),
+      id,
+      label: text,
+      period: nullable(budgetPeriodSchema),
+    }),
+  ),
 });
 export const updateProjectBudgetSchema = object({
   expectedVersion: Type.Integer({ minimum: 0 }),
@@ -228,10 +218,17 @@ export const taskGoalReviewSchema = object({
   checkedAt: date,
 });
 export type TaskGoalReview = Static<typeof taskGoalReviewSchema>;
-export const releaseTaskSchema = object({ requestKey, expectedGoalVersion: Type.Integer({ minimum: 1 }) });
+export const releaseTaskSchema = object({
+  requestKey,
+  expectedGoalVersion: Type.Integer({ minimum: 1 }),
+});
 export type ReleaseTask = Static<typeof releaseTaskSchema>;
 export const taskReleaseSchema = object({
-  sourceTaskId: id, newTaskId: id, goalId: id, goalVersion: Type.Integer({ minimum: 2 }), createdAt: date,
+  sourceTaskId: id,
+  newTaskId: id,
+  goalId: id,
+  goalVersion: Type.Integer({ minimum: 2 }),
+  createdAt: date,
 });
 export type TaskRelease = Static<typeof taskReleaseSchema>;
 export const taskSchema = object({
@@ -270,12 +267,7 @@ export const runsSchema = object({ runs: Type.Array(runSchema) });
 export const serviceSnapshotSchema = object({
   observedAt: date,
   processState: enumeration(["running", "stopped", "unknown"] as const),
-  activityState: enumeration([
-    "working",
-    "waiting",
-    "degraded",
-    "unknown",
-  ] as const),
+  activityState: enumeration(["working", "waiting", "degraded", "unknown"] as const),
   lastSuccessAt: nullable(date),
   nextExpectedAt: nullable(date),
   errorCount: Type.Integer({ minimum: 0, maximum: 2147483647 }),
@@ -310,45 +302,72 @@ export const planningServiceSchema = object({
   lastSuccessful: nullable(serviceObservationSchema),
 });
 export type PlanningService = Static<typeof planningServiceSchema>;
-const inputCountSchema = object({ total: Type.Integer({ minimum: 0 }), included: Type.Integer({ minimum: 0 }) });
+const inputCountSchema = object({
+  total: Type.Integer({ minimum: 0 }),
+  included: Type.Integer({ minimum: 0 }),
+});
 export const planningEvidenceSchema = object({
   capturedAt: date,
   services: Type.Array(planningServiceSchema, { maxItems: 10 }),
-  counts: object({ files: inputCountSchema, history: inputCountSchema, suppressedWork: inputCountSchema, services: inputCountSchema }),
+  counts: object({
+    files: inputCountSchema,
+    history: inputCountSchema,
+    suppressedWork: inputCountSchema,
+    services: inputCountSchema,
+  }),
 });
 export type PlanningEvidence = Static<typeof planningEvidenceSchema>;
-export const developmentPhases = ["preparing", "developing", "preparing_test", "testing", "reviewing", "needs_changes", "verified"] as const;
+export const developmentPhases = [
+  "preparing",
+  "developing",
+  "preparing_test",
+  "testing",
+  "reviewing",
+  "needs_changes",
+  "verified",
+] as const;
 const developmentRoundSchema = object({
   sequence: Type.Integer({ minimum: 1, maximum: 3 }),
   phase: enumeration(developmentPhases),
   createdAt: date,
   capturedAt: nullable(date),
   candidateDigest: nullable(text),
-  changes: Type.Array(object({ path: text, action: enumeration(["add", "modify", "delete"] as const), bytes: Type.Integer({ minimum: 0 }) }), { maxItems: 500 }),
-  test: nullable(object({
-    status: enumeration(["passed", "failed", "timed_out", "output_limit"] as const),
-    exitCode: Type.Integer({ minimum: 0, maximum: 255 }),
-    oomKilled: Type.Boolean(),
-    elapsedMs: Type.Integer({ minimum: 0 }),
-    output: text,
-    recordedAt: date,
-  })),
+  changes: Type.Array(
+    object({
+      path: text,
+      action: enumeration(["add", "modify", "delete"] as const),
+      bytes: Type.Integer({ minimum: 0 }),
+    }),
+    { maxItems: 500 },
+  ),
+  test: nullable(
+    object({
+      status: enumeration(["passed", "failed", "timed_out", "output_limit"] as const),
+      exitCode: Type.Integer({ minimum: 0, maximum: 255 }),
+      oomKilled: Type.Boolean(),
+      elapsedMs: Type.Integer({ minimum: 0 }),
+      output: text,
+      recordedAt: date,
+    }),
+  ),
   review: nullable(object({ assessment: analysisAssessmentSchema, recordedAt: date })),
 });
 export const developmentEvidenceSchema = object({
   phase: enumeration([...developmentPhases, "applying", "applied"] as const),
   maxRounds: Type.Literal(3),
   rounds: Type.Array(developmentRoundSchema, { maxItems: 3 }),
-  application: nullable(object({
-    id,
-    status: enumeration(["pending", "applied"] as const),
-    roundSequence: Type.Integer({ minimum: 1, maximum: 3 }),
-    baseRevision: text,
-    resultCommit: text,
-    candidateDigest: text,
-    createdAt: date,
-    appliedAt: nullable(date),
-  })),
+  application: nullable(
+    object({
+      id,
+      status: enumeration(["pending", "applied"] as const),
+      roundSequence: Type.Integer({ minimum: 1, maximum: 3 }),
+      baseRevision: text,
+      resultCommit: text,
+      candidateDigest: text,
+      createdAt: date,
+      appliedAt: nullable(date),
+    }),
+  ),
 });
 export type DevelopmentEvidence = Static<typeof developmentEvidenceSchema>;
 export const goalVerificationEvidenceSchema = object({
@@ -419,9 +438,7 @@ export const runDetailsSchema = object({
       finishedAt: nullable(date),
     }),
   ),
-  events: Type.Array(
-    object({ sequence: Type.Integer(), kind: text, createdAt: date }),
-  ),
+  events: Type.Array(object({ sequence: Type.Integer(), kind: text, createdAt: date })),
 });
 export type Run = Static<typeof runSchema>;
 export type RunDetails = Static<typeof runDetailsSchema>;
@@ -461,9 +478,7 @@ export type CapacityState = Static<typeof capacityStateSchema>;
 export const providerGateSchema = object({
   version: Type.Integer({ minimum: 0 }),
   blocked: Type.Boolean(),
-  reason: nullable(
-    enumeration(["authentication", "capacity", "configuration"] as const),
-  ),
+  reason: nullable(enumeration(["authentication", "capacity", "configuration"] as const)),
   blockedAt: nullable(date),
   retryAt: nullable(date),
   sourceRunId: nullable(text),

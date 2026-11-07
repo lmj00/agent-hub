@@ -1,32 +1,16 @@
 import { runExecutions } from "../src/db/schema.js";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import type { GoalDefinition, GoalPlan } from "@agent-hub/contracts";
 import { openDatabase } from "../src/db/connection.js";
-import {
-  goals,
-  planningCycles,
-  projects,
-  runs,
-  tasks,
-} from "../src/db/schema.js";
+import { goals, planningCycles, projects, runs, tasks } from "../src/db/schema.js";
 import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
-import {
-  createPlanningStore,
-  readPlanningContext,
-} from "../src/modules/goals/planning-store.js";
+import { createPlanningStore, readPlanningContext } from "../src/modules/goals/planning-store.js";
 import {
   createPreparedExecutor,
   cleanupPreparedRun,
@@ -40,14 +24,8 @@ import { runTask } from "../src/modules/execution/run-task.js";
 import { parseAnalysisWorkflow } from "../src/modules/execution/analysis-workflow.js";
 import { createProjectBudgetStore } from "../src/modules/budgets/project-budget-store.js";
 import { readPlanningWork } from "../src/modules/goals/planning-work-state.js";
-import {
-  initialRetryState,
-  defaultRetryPolicy,
-} from "../src/modules/execution/retry-policy.js";
-import type {
-  AnalysisExecutor,
-  AnalysisRequest,
-} from "../src/modules/execution/analysis.js";
+import { initialRetryState, defaultRetryPolicy } from "../src/modules/execution/retry-policy.js";
+import type { AnalysisExecutor, AnalysisRequest } from "../src/modules/execution/analysis.js";
 
 const definition: GoalDefinition = {
   description: "Complete an example app",
@@ -59,11 +37,7 @@ const definition: GoalDefinition = {
   checkIntervalMs: 60000,
   budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
 };
-let directory: string,
-  source: string,
-  root: string,
-  projectId: string,
-  goalId: string;
+let directory: string, source: string, root: string, projectId: string, goalId: string;
 let database: ReturnType<typeof openDatabase>,
   store: ReturnType<typeof createDrizzleRunStore>,
   planner: ReturnType<typeof createPlanningStore>,
@@ -135,10 +109,7 @@ const workRows = () =>
     .from(tasks)
     .where(and(eq(tasks.goalId, goalId), eq(tasks.kind, "work")))
     .all();
-function proposal(
-  request: AnalysisRequest,
-  overrides: Partial<GoalPlan> = {},
-): GoalPlan {
+function proposal(request: AnalysisRequest, overrides: Partial<GoalPlan> = {}): GoalPlan {
   const context = JSON.parse(request.instruction.split("\n").at(-1)!);
   return {
     version: 1,
@@ -191,26 +162,67 @@ async function execute(
   );
 }
 
-test.each([false, true])("new-policy planning cannot create work without load evidence, recovery=%s", async recover => {
-  const plan = reserve();
-  const executor: AnalysisExecutor = {
-    runtimeSkillVersion: 1,
-    async analyze(request) { return { output: JSON.stringify(proposal(request)), usage: null }; },
-    confirmTermination: async () => new Date(),
-  };
-  const selected = recover ? { ...store, finish() { throw new Error("Simulated completion crash"); } } : store;
-  const pending = runTask({ taskId: plan.taskId, model: "fixture", workspace: source, timeoutMs: 5000, signal: new AbortController().signal }, selected, createPreparedExecutor(executor, root));
-  if (recover) {
-    await expect(pending).rejects.toThrow("Simulated completion crash");
-    const row = runRow(plan.taskId);
-    expect(row.planResult?.status).toBe("proposed");
-    const recovery = createDrizzleRecoveryStore(database.db);
-    const accepted = recovery.request({ taskId: plan.taskId, runId: row.id, action: "reconcile", requestKey: randomUUID(), providerGateVersion: null }, null, true);
-    await createRecoveryProcessor(recovery, { confirm: async () => new Date(), cleanup: async () => {} }, undefined, id => verifyPreparedResult(database.db, id)).process(accepted.request.id);
-  } else expect(await pending).toMatchObject({ status: "blocked", errorCode: "unsupported_settings" });
-  expect(runRow(plan.taskId)).toMatchObject({ status: "blocked", errorCode: "unsupported_settings" });
-  expect(workRows()).toHaveLength(0);
-});
+test.each([false, true])(
+  "new-policy planning cannot create work without load evidence, recovery=%s",
+  async (recover) => {
+    const plan = reserve();
+    const executor: AnalysisExecutor = {
+      runtimeSkillVersion: 1,
+      async analyze(request) {
+        return { output: JSON.stringify(proposal(request)), usage: null };
+      },
+      confirmTermination: async () => new Date(),
+    };
+    const selected = recover
+      ? {
+          ...store,
+          finish() {
+            throw new Error("Simulated completion crash");
+          },
+        }
+      : store;
+    const pending = runTask(
+      {
+        taskId: plan.taskId,
+        model: "fixture",
+        workspace: source,
+        timeoutMs: 5000,
+        signal: new AbortController().signal,
+      },
+      selected,
+      createPreparedExecutor(executor, root),
+    );
+    if (recover) {
+      await expect(pending).rejects.toThrow("Simulated completion crash");
+      const row = runRow(plan.taskId);
+      expect(row.planResult?.status).toBe("proposed");
+      const recovery = createDrizzleRecoveryStore(database.db);
+      const accepted = recovery.request(
+        {
+          taskId: plan.taskId,
+          runId: row.id,
+          action: "reconcile",
+          requestKey: randomUUID(),
+          providerGateVersion: null,
+        },
+        null,
+        true,
+      );
+      await createRecoveryProcessor(
+        recovery,
+        { confirm: async () => new Date(), cleanup: async () => {} },
+        undefined,
+        (id) => verifyPreparedResult(database.db, id),
+      ).process(accepted.request.id);
+    } else
+      expect(await pending).toMatchObject({ status: "blocked", errorCode: "unsupported_settings" });
+    expect(runRow(plan.taskId)).toMatchObject({
+      status: "blocked",
+      errorCode: "unsupported_settings",
+    });
+    expect(workRows()).toHaveLength(0);
+  },
+);
 
 test("independent SQLite connections reserve one plan and no AI Run", () => {
   const second = openDatabase(join(directory, "hub.sqlite"));
@@ -292,22 +304,12 @@ test("a plan creates distinct development tasks once and cannot execute them as 
     kind: "idle",
     reason: "development_pending",
   });
-  expect(() => store.claim(work[0]!.id, "fixture")).toThrow(
-    "DEVELOPMENT_EXECUTOR_UNAVAILABLE",
-  );
+  expect(() => store.claim(work[0]!.id, "fixture")).toThrow("DEVELOPMENT_EXECUTOR_UNAVAILABLE");
   expect(database.db.select().from(runs).all()).toHaveLength(1);
   expect(reserve()).toBeNull();
 });
 
-test.each([
-  "outside",
-  "private",
-  "overlap",
-  "duplicate",
-  "version",
-  "digest",
-  "contradiction",
-])(
+test.each(["outside", "private", "overlap", "duplicate", "version", "digest", "contradiction"])(
   "rejects a %s plan and retains the proposal for inspection",
   async (kind) => {
     const plan = reserve();
@@ -353,22 +355,19 @@ test.each([
 
 test("a model completion claim cannot close a finite goal without independent verification", async () => {
   const plan = reserve();
-  expect(
-    await execute(plan.taskId, { outcome: "complete", tasks: [] }),
-  ).toMatchObject({ status: "blocked", errorCode: "verification_required" });
+  expect(await execute(plan.taskId, { outcome: "complete", tasks: [] })).toMatchObject({
+    status: "blocked",
+    errorCode: "verification_required",
+  });
   expect(goalStore.findById(goalId).status).toBe("active");
   expect(workRows()).toEqual([]);
 });
 
 test("a wait decision reserves the next check and does not trigger an immediate planning loop", async () => {
   const plan = reserve();
-  expect(
-    (await execute(plan.taskId, { outcome: "wait", tasks: [] })).status,
-  ).toBe("succeeded");
+  expect((await execute(plan.taskId, { outcome: "wait", tasks: [] })).status).toBe("succeeded");
   const due = new Date(goalStore.findById(goalId).nextCheckAt!);
-  expect(
-    planner.reserveNext(["example"], new Date(due.getTime() - 1)),
-  ).toBeNull();
+  expect(planner.reserveNext(["example"], new Date(due.getTime() - 1))).toBeNull();
   expect(planner.reserveNext(["example"], due)?.taskId).not.toBe(plan.taskId);
   expect(database.db.select().from(planningCycles).all()).toHaveLength(2);
 });
@@ -378,8 +377,7 @@ test.each(["goal", "source"])(
   async (kind) => {
     const plan = reserve();
     const result = await execute(plan.taskId, {}, () => {
-      if (kind === "goal")
-        goalStore.change(goalId, "pause", 1, { action: "pause" });
+      if (kind === "goal") goalStore.change(goalId, "pause", 1, { action: "pause" });
       else writeFileSync(join(source, "src/main.ts"), "user change");
     });
     expect(result).toMatchObject({
@@ -477,8 +475,7 @@ test.each(["cancel", "goal-edit", "new-work"])(
     });
     expect(workRows().filter((task) => task.plannedWork)).toEqual([]);
     expect(runRow(plan.taskId).planResult?.status).toBe("rejected");
-    if (change === "cancel")
-      expect(goalStore.findById(goalId).status).toBe("paused");
+    if (change === "cancel") expect(goalStore.findById(goalId).status).toBe("paused");
   },
 );
 
@@ -518,7 +515,17 @@ test.each([false, true])(
       containerId: "a".repeat(64),
       token: "fixture",
     };
-    database.db.insert(runExecutions).values({ runId: run.id, sequence: 1, containerId: identity.containerId, token: identity.token, engineId: identity.engineId, createdAt: new Date() }).run();
+    database.db
+      .insert(runExecutions)
+      .values({
+        runId: run.id,
+        sequence: 1,
+        containerId: identity.containerId,
+        token: identity.token,
+        engineId: identity.engineId,
+        createdAt: new Date(),
+      })
+      .run();
     if (changed) writeFileSync(join(source, "src/main.ts"), "user change");
     const recovery = createDrizzleRecoveryStore(database.db);
     const request = recovery.request(
@@ -619,12 +626,12 @@ test("explicit retry of a rejected proposal retains the earlier Run's evidence a
   const result = await execute(plan.taskId);
   expect(result.status).toBe("succeeded");
   expect(
-    database.db.select().from(runs).where(eq(runs.id, invalid.runId)).get()
-      ?.planResult?.status,
+    database.db.select().from(runs).where(eq(runs.id, invalid.runId)).get()?.planResult?.status,
   ).toBe("rejected");
-  expect(
-    database.db.select().from(runs).where(eq(runs.id, result.runId)).get(),
-  ).toMatchObject({ attempt: 2, planResult: { status: "applied" } });
+  expect(database.db.select().from(runs).where(eq(runs.id, result.runId)).get()).toMatchObject({
+    attempt: 2,
+    planResult: { status: "applied" },
+  });
   expect(database.db.select().from(planningCycles).all()).toHaveLength(1);
   expect(workRows()).toHaveLength(1);
 });
@@ -758,12 +765,10 @@ test.each(["cancelled", "failed", "blocked"] as const)(
     expect(result.status).toBe("succeeded");
     expect(result.result?.match(/기존 문제로 생성 제외/g)).toHaveLength(1);
     expect(workRows()).toHaveLength(2);
-    expect(
-      workRows().find((task) => task.id !== original.id)?.plannedWork?.paths,
-    ).toEqual(["tests/main.test.ts"]);
-    expect(workRows().find((task) => task.id === original.id)).toEqual(
-      original,
-    );
+    expect(workRows().find((task) => task.id !== original.id)?.plannedWork?.paths).toEqual([
+      "tests/main.test.ts",
+    ]);
+    expect(workRows().find((task) => task.id === original.id)).toEqual(original);
     expect(runRow(plan.taskId).planResult).toMatchObject({
       reason: "work_with_suppression",
       createdTaskIds: [expect.any(String)],
@@ -786,37 +791,31 @@ test.each(
     ["src/MAIN.ts"],
     ["src/main.ts", "tests/new.ts"],
   ].map((paths) => ({ paths })),
-)(
-  "changing title or target shape cannot bypass a cancelled problem: %j",
-  async ({ paths }) => {
-    const original = await terminalWork();
-    const plan = reserve(),
-      result = await execute(plan.taskId, { tasks: [proposedWork(paths)] });
-    expect(result.status).toBe("succeeded");
-    expect(workRows()).toEqual([original]);
-    expect(runRow(plan.taskId).planResult).toMatchObject({
-      reason: "suppressed_work",
-      createdTaskIds: [],
-      suppressed: [{ blockedByTaskIds: [original.id] }],
-    });
-    expect(goalStore.findById(goalId).nextCheckAt).not.toBeNull();
-    expect(reserve()).toBeNull();
-  },
-);
+)("changing title or target shape cannot bypass a cancelled problem: %j", async ({ paths }) => {
+  const original = await terminalWork();
+  const plan = reserve(),
+    result = await execute(plan.taskId, { tasks: [proposedWork(paths)] });
+  expect(result.status).toBe("succeeded");
+  expect(workRows()).toEqual([original]);
+  expect(runRow(plan.taskId).planResult).toMatchObject({
+    reason: "suppressed_work",
+    createdTaskIds: [],
+    suppressed: [{ blockedByTaskIds: [original.id] }],
+  });
+  expect(goalStore.findById(goalId).nextCheckAt).not.toBeNull();
+  expect(reserve()).toBeNull();
+});
 
 test("Unicode-equivalent paths are suppressed but similar sibling names are allowed", async () => {
   const original = await terminalWork("cancelled", ["src/café"]);
   const plan = reserve();
   await execute(plan.taskId, {
-    tasks: [
-      proposedWork(["src/cafe\u0301/new.ts"]),
-      proposedWork(["src/café-other/new.ts"]),
-    ],
+    tasks: [proposedWork(["src/cafe\u0301/new.ts"]), proposedWork(["src/café-other/new.ts"])],
   });
   expect(workRows()).toHaveLength(2);
-  expect(
-    workRows().find((task) => task.id !== original.id)?.plannedWork?.paths,
-  ).toEqual(["src/café-other/new.ts"]);
+  expect(workRows().find((task) => task.id !== original.id)?.plannedWork?.paths).toEqual([
+    "src/café-other/new.ts",
+  ]);
 });
 
 test("source changes and goal edits do not release a cancelled problem", async () => {
@@ -852,14 +851,10 @@ test("server suppression includes cancelled work older than the prompt's recent 
   const plan = reserve(),
     context = readPlanningContext(database.db, plan.taskId)!;
   expect(context.history.some((task) => task.id === original.id)).toBe(false);
-  expect(context.suppressedWork).toEqual([
-    expect.objectContaining({ taskId: original.id }),
-  ]);
+  expect(context.suppressedWork).toEqual([expect.objectContaining({ taskId: original.id })]);
   await execute(plan.taskId);
   expect(runRow(plan.taskId).planResult?.createdTaskIds).toEqual([]);
-  expect(workRows().filter((task) => task.status === "cancelled")).toHaveLength(
-    1,
-  );
+  expect(workRows().filter((task) => task.status === "cancelled")).toHaveLength(1);
 });
 
 test("the prompt may omit held problems but the server still enforces every one", async () => {
@@ -884,9 +879,7 @@ test("the prompt may omit held problems but the server still enforces every one"
     context = readPlanningContext(database.db, plan.taskId)!;
   expect(context.suppressedWork).toHaveLength(20);
   expect(context.suppressedWorkCount).toBe(21);
-  expect(
-    context.suppressedWork.some((item) => item.taskId === original.id),
-  ).toBe(false);
+  expect(context.suppressedWork.some((item) => item.taskId === original.id)).toBe(false);
   await execute(plan.taskId);
   expect(runRow(plan.taskId).planResult).toMatchObject({
     createdTaskIds: [],
@@ -920,11 +913,7 @@ test("a recovery accepted after planning began prevents creating otherwise unrel
 test("three consecutive suppressed proposals stop a pointless planning loop", async () => {
   await terminalWork();
   for (let index = 0; index < 3; index++) {
-    database.db
-      .update(goals)
-      .set({ nextCheckAt: null })
-      .where(eq(goals.id, goalId))
-      .run();
+    database.db.update(goals).set({ nextCheckAt: null }).where(eq(goals.id, goalId)).run();
     const plan = reserve(),
       outcome = await execute(plan.taskId);
     expect(outcome.status).toBe(index === 2 ? "blocked" : "succeeded");
@@ -959,9 +948,7 @@ test("a pending recovery keeps planning held until the recovery is resolved", as
     )
     .run(original.id, prior.id, Date.now());
   expect(reserve()).toBeNull();
-  database.client.exec(
-    "UPDATE recovery_requests SET status = 'completed' WHERE id = 'pending'",
-  );
+  database.client.exec("UPDATE recovery_requests SET status = 'completed' WHERE id = 'pending'");
   expect(reserve().goalId).toBe(goalId);
 });
 
@@ -1017,10 +1004,7 @@ test("suppressed and unrelated proposals commit together, or leave the saved pro
   );
   await expect(
     execute(plan.taskId, {
-      tasks: [
-        proposedWork(["src/main.ts"]),
-        proposedWork(["tests/main.test.ts"]),
-      ],
+      tasks: [proposedWork(["src/main.ts"]), proposedWork(["tests/main.test.ts"])],
     }),
   ).rejects.toThrow("injected");
   expect(workRows()).toEqual([original]);
@@ -1038,9 +1022,7 @@ test("suppressed and unrelated proposals commit together, or leave the saved pro
     null,
     true,
   ).request;
-  expect(await verifyPreparedResult(database.db, runRow(plan.taskId).id)).toBe(
-    true,
-  );
+  expect(await verifyPreparedResult(database.db, runRow(plan.taskId).id)).toBe(true);
   recovery.complete(request.id, new Date(), true);
   recovery.complete(request.id, new Date(), true);
   expect(workRows()).toHaveLength(2);
@@ -1059,9 +1041,7 @@ test("planning respects project budgets without allocating a Run or resetting a 
   });
   const plan = reserve();
   await execute(plan.taskId, { outcome: "wait", tasks: [] });
-  expect(
-    planner.reserveNext(["example"], new Date(Date.now() + 60001)),
-  ).toBeNull();
+  expect(planner.reserveNext(["example"], new Date(Date.now() + 60001))).toBeNull();
   expect(database.db.select().from(runs).all()).toHaveLength(1);
 });
 
@@ -1075,11 +1055,7 @@ test("renamed proposals against the same unchanged code are suppressed and repea
     .where(eq(tasks.id, workRows()[0]!.id))
     .run();
   for (let n = 0; n < 3; n++) {
-    database.db
-      .update(goals)
-      .set({ nextCheckAt: null })
-      .where(eq(goals.id, goalId))
-      .run();
+    database.db.update(goals).set({ nextCheckAt: null }).where(eq(goals.id, goalId)).run();
     const next = reserve();
     const outcome = await execute(next.taskId, {
       tasks: [

@@ -34,9 +34,7 @@ export function dateTime(value: string | Date | null | undefined) {
 export function elapsed(start: string, end: string | null) {
   const seconds = Math.max(
     0,
-    Math.floor(
-      ((end ? Date.parse(end) : Date.now()) - Date.parse(start)) / 1000,
-    ),
+    Math.floor(((end ? Date.parse(end) : Date.now()) - Date.parse(start)) / 1000),
   );
   if (seconds < 60) return `${seconds}초`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;

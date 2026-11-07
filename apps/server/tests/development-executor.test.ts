@@ -17,14 +17,7 @@ import { promisify } from "node:util";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { openDatabase } from "../src/db/connection.js";
-import {
-  budgetPeriods,
-  goals,
-  projects,
-  runs,
-  steps,
-  tasks,
-} from "../src/db/schema.js";
+import { budgetPeriods, goals, projects, runs, steps, tasks } from "../src/db/schema.js";
 import type { AnalysisAssessment } from "@agent-hub/contracts";
 import type {
   AnalysisExecutor,
@@ -32,10 +25,7 @@ import type {
   ExecutionIdentity,
 } from "../src/modules/execution/analysis.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
-import {
-  runClaimedTask,
-  type ClaimedRun,
-} from "../src/modules/execution/run-task.js";
+import { runClaimedTask, type ClaimedRun } from "../src/modules/execution/run-task.js";
 import { readExecutions } from "../src/modules/execution/execution-record-store.js";
 import {
   verificationConfigDigest,
@@ -113,9 +103,7 @@ const git = (...args: string[]) =>
     },
   ).trim();
 beforeEach(() => {
-  directory = realpathSync(
-    mkdtempSync(join(tmpdir(), "hub-development-loop-")),
-  );
+  directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-development-loop-")));
   source = join(directory, "source");
   mkdirSync(join(source, "src"), { recursive: true });
   mkdirSync(join(source, "tests"));
@@ -173,9 +161,14 @@ beforeEach(() => {
   };
   inputRoot = preparedInputRoot(join(directory, "hub.sqlite"));
   repositoryRoot = developmentRoot(join(directory, "hub.sqlite"));
-  store = createDrizzleRunStore(database.db, undefined, {
-    effortPolicy: { version: 1, mode: "adaptive", maxEffort: "xhigh" },
-  }, { developmentWorkspaceKeys: ["fixture"] });
+  store = createDrizzleRunStore(
+    database.db,
+    undefined,
+    {
+      effortPolicy: { version: 1, mode: "adaptive", maxEffort: "xhigh" },
+    },
+    { developmentWorkspaceKeys: ["fixture"] },
+  );
   calls = [];
 });
 afterEach(() => {
@@ -183,11 +176,7 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true });
 });
 function claim() {
-  database.db
-    .update(tasks)
-    .set({ plannedWork: work })
-    .where(eq(tasks.id, taskId))
-    .run();
+  database.db.update(tasks).set({ plannedWork: work }).where(eq(tasks.id, taskId)).run();
   run = store.claim(taskId, "fixture");
 }
 function wrap(base: AnalysisExecutor, verification = true) {
@@ -198,9 +187,7 @@ function wrap(base: AnalysisExecutor, verification = true) {
     config: {
       containerImage: "fixture",
       workspaces: new Map([["fixture", source]]),
-      ...(verification
-        ? { verification: new Map([["fixture", configuration]]) }
-        : {}),
+      ...(verification ? { verification: new Map([["fixture", configuration]]) } : {}),
     },
     inputRoot,
     repositoryRoot,
@@ -229,11 +216,9 @@ function fake(
       options.onCall?.(request);
       if (options.waitAt === calls.length)
         await new Promise((_, reject) =>
-          request.signal.addEventListener(
-            "abort",
-            () => reject(request.signal.reason),
-            { once: true },
-          ),
+          request.signal.addEventListener("abort", () => reject(request.signal.reason), {
+            once: true,
+          }),
         );
       request.signal.throwIfAborted();
       await onEvent({ kind: "thread.started", sessionId: randomUUID() });
@@ -242,18 +227,14 @@ function fake(
         executionTermination: { identity: execution, confirmedAt: new Date() },
       });
       if (request.verification) {
-        const passed =
-          readFileSync(join(request.workspace, "src/main.mjs"), "utf8") ===
-          correct;
+        const passed = readFileSync(join(request.workspace, "src/main.mjs"), "utf8") === correct;
         return {
           output: "actual fixture result",
           usage: null,
           verification: {
             candidateDigest: request.verification.candidateDigest,
             inputDigest: request.development!.inputDigest,
-            configurationDigest: verificationConfigDigest(
-              request.verification.config,
-            ),
+            configurationDigest: verificationConfigDigest(request.verification.config),
             configuration: request.verification.config,
             execution,
             imageId: `sha256:${"b".repeat(64)}`,
@@ -261,22 +242,15 @@ function fake(
             exitCode: passed ? 0 : 1,
             oomKilled: false,
             elapsedMs: 10,
-            output: passed
-              ? "fixed assertions passed"
-              : "AssertionError: 102 !== 200",
+            output: passed ? "fixed assertions passed" : "AssertionError: 102 !== 200",
           },
         };
       }
       expect(request.workflow).toBeUndefined();
       expect(request.responseMode).toBe("assessment");
       if (request.development) {
-        const count = calls.filter(
-          (value) => value.development && !value.verification,
-        ).length;
-        const content =
-          !options.alwaysFail && (options.firstPass || count > 1)
-            ? correct
-            : wrong;
+        const count = calls.filter((value) => value.development && !value.verification).length;
+        const content = !options.alwaysFail && (options.firstPass || count > 1) ? correct : wrong;
         return {
           output: JSON.stringify(developerReport()),
           usage,
@@ -324,10 +298,7 @@ function fake(
     async cleanup() {},
   };
 }
-const runWith = (
-  executor: AnalysisExecutor,
-  signal = new AbortController().signal,
-) =>
+const runWith = (executor: AnalysisExecutor, signal = new AbortController().signal) =>
   runClaimedTask(
     run,
     { model: "fixture", workspace: source, timeoutMs: 120000, signal },
@@ -350,9 +321,7 @@ test("runs developer/test/reviewer and feeds the real failure into bounded rewor
               .find((row) => row.projectId === projectId && !row.goalId)!.calls,
           );
           const latest = store.findById(run.id)!.steps.at(-1)!;
-          expect(latest.status).toBe(
-            request.verification ? "succeeded" : "running",
-          );
+          expect(latest.status).toBe(request.verification ? "succeeded" : "running");
         },
       }),
     ),
@@ -364,31 +333,26 @@ test("runs developer/test/reviewer and feeds the real failure into bounded rewor
   });
   expect(
     calls.map((request) =>
-      request.verification
-        ? "test"
-        : request.development
-          ? "developer"
-          : "reviewer",
+      request.verification ? "test" : request.development ? "developer" : "reviewer",
     ),
   ).toEqual(["developer", "test", "reviewer", "developer", "test", "reviewer"]);
   expect(callBudgets).toEqual([1, 1, 2, 3, 3, 4]);
   expect(calls[3]!.instruction).toContain("102 !== 200");
   expect(calls[3]!.instruction).toContain("실제 테스트 실패");
   expect(calls[2]!.development).toBeUndefined();
-  expect(
-    calls.filter((value) => !value.verification).map((value) => value.effort),
-  ).toEqual(["medium", "xhigh", "xhigh", "xhigh"]);
+  expect(calls.filter((value) => !value.verification).map((value) => value.effort)).toEqual([
+    "medium",
+    "xhigh",
+    "xhigh",
+    "xhigh",
+  ]);
   const rounds = readDevelopmentRounds(database.db, run.id);
   expect(rounds).toHaveLength(2);
   expect(rounds[0]!.review!.assessment.complete).toBe(false);
   expect(rounds[1]!.review!.assessment.complete).toBe(true);
-  expect(rounds[1]!.intent.previousCandidate).toBe(
-    rounds[0]!.candidate!.digest,
-  );
+  expect(rounds[1]!.intent.previousCandidate).toBe(rounds[0]!.candidate!.digest);
   expect(store.findById(run.id)!.steps).toHaveLength(4);
-  expect(
-    store.findById(run.id)!.steps.every((step) => step.status === "succeeded"),
-  ).toBe(true);
+  expect(store.findById(run.id)!.steps.every((step) => step.status === "succeeded")).toBe(true);
   expect(database.db.select().from(tasks).all()).toHaveLength(1);
   expect(readExecutions(database.db, run.id)).toHaveLength(6);
   expect(readFileSync(join(source, "src/main.mjs"), "utf8")).toBe(wrong);
@@ -396,8 +360,7 @@ test("runs developer/test/reviewer and feeds the real failure into bounded rewor
   expect(
     rounds.every(
       (round) =>
-        !existsSync(round.input!.directory) &&
-        !existsSync(round.verificationInput!.directory),
+        !existsSync(round.input!.directory) && !existsSync(round.verificationInput!.directory),
     ),
   ).toBe(true);
 }, 20000);
@@ -423,9 +386,7 @@ test("stops after three failed rounds and six AI calls without resetting Task or
 
 test("a reviewer with no actionable next step holds the Task instead of inventing another attempt", async () => {
   claim();
-  const result = await runWith(
-    wrap(fake({ firstPass: true, missingInput: true })),
-  );
+  const result = await runWith(wrap(fake({ firstPass: true, missingInput: true })));
   expect(result).toMatchObject({
     status: "blocked",
     errorCode: "analysis_incomplete",
@@ -448,9 +409,7 @@ test("a period call limit prevents review from starting after a completed develo
   });
   expect(calls).toHaveLength(2);
   expect(store.findById(run.id)!.steps).toHaveLength(1);
-  expect(
-    readDevelopmentRounds(database.db, run.id)[0]!.verificationResult,
-  ).not.toBeNull();
+  expect(readDevelopmentRounds(database.db, run.id)[0]!.verificationResult).not.toBeNull();
   expect(store.getProviderGate().blocked).toBe(false);
 });
 
@@ -482,8 +441,7 @@ test.each([1, 2, 3, 4])(
       fake({
         waitAt: phase,
         onCall: () => {
-          if (calls.length === phase)
-            setTimeout(() => controller.abort("user_cancel"), 1);
+          if (calls.length === phase) setTimeout(() => controller.abort("user_cancel"), 1);
         },
       }),
     );
@@ -494,14 +452,10 @@ test.each([1, 2, 3, 4])(
       terminationConfirmedAt: expect.any(Date),
     });
     expect(calls).toHaveLength(phase);
-    expect(
-      database.db.select().from(tasks).get()!.retryState?.nextAttemptAt ?? null,
-    ).toBeNull();
-    expect(
-      readExecutions(database.db, run.id).every(
-        (value) => value.terminationConfirmedAt,
-      ),
-    ).toBe(true);
+    expect(database.db.select().from(tasks).get()!.retryState?.nextAttemptAt ?? null).toBeNull();
+    expect(readExecutions(database.db, run.id).every((value) => value.terminationConfirmedAt)).toBe(
+      true,
+    );
   },
 );
 
@@ -544,15 +498,9 @@ test("managed no-start recovery is versioned and cannot be inferred for legacy u
     true,
   ).request;
   await processor.process(first.id);
-  expect(recovery.findById(first.id)!.errorCode).toBe(
-    "TERMINATION_UNCONFIRMED",
-  );
+  expect(recovery.findById(first.id)!.errorCode).toBe("TERMINATION_UNCONFIRMED");
   // Simulate the new owner reading the durable protocol marker saved before I/O.
-  database.db
-    .update(runs)
-    .set({ developmentVersion: 1 })
-    .where(eq(runs.id, run.id))
-    .run();
+  database.db.update(runs).set({ developmentVersion: 1 }).where(eq(runs.id, run.id)).run();
   const second = recovery.request(
     {
       taskId,
@@ -566,9 +514,7 @@ test("managed no-start recovery is versioned and cannot be inferred for legacy u
   ).request;
   await processor.process(second.id);
   expect(recovery.findById(second.id)!.status).toBe("completed");
-  expect(
-    database.db.select().from(runs).get()!.terminationConfirmedAt,
-  ).toBeInstanceOf(Date);
+  expect(database.db.select().from(runs).get()!.terminationConfirmedAt).toBeInstanceOf(Date);
   expect(observed).toBe(0);
 });
 
@@ -594,10 +540,7 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
     for (const [dockerfile, image] of [
       ["docker/analysis-runner.Dockerfile", "agent-hub-sandbox-test:local"],
       ["docker/verification-node.Dockerfile", configuration.image],
-      [
-        "apps/server/tests/fixtures/workflow-runner.Dockerfile",
-        "agent-hub-workflow-test:local",
-      ],
+      ["apps/server/tests/fixtures/workflow-runner.Dockerfile", "agent-hub-workflow-test:local"],
     ]) {
       await exec("docker", ["build", "-f", dockerfile!, "-t", image!, "."], {
         cwd,
@@ -618,18 +561,20 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
       terminationConfirmedAt: expect.any(Date),
     });
     const rounds = readDevelopmentRounds(database.db, run.id);
-    expect(rounds.map((round) => round.verificationResult!.status)).toEqual([
-      "failed",
-      "passed",
-    ]);
+    expect(rounds.map((round) => round.verificationResult!.status)).toEqual(["failed", "passed"]);
     expect(rounds[1]!.review!.assessment.complete).toBe(true);
     expect(readExecutions(database.db, run.id)).toHaveLength(6);
     const skillHistory = database.db.select().from(steps).where(eq(steps.runId, run.id)).all();
-    expect(skillHistory.map(step => step.runtimeSkill?.role)).toEqual(["developer", "reviewer", "developer", "reviewer"]);
-    expect(skillHistory.every(step => step.runtimeSkillSelectedAt && step.runtimeSkillLoadedAt)).toBe(true);
+    expect(skillHistory.map((step) => step.runtimeSkill?.role)).toEqual([
+      "developer",
+      "reviewer",
+      "developer",
+      "reviewer",
+    ]);
     expect(
-      new Set(store.findById(run.id)!.steps.map((step) => step.sessionId)).size,
-    ).toBe(4);
+      skillHistory.every((step) => step.runtimeSkillSelectedAt && step.runtimeSkillLoadedAt),
+    ).toBe(true);
+    expect(new Set(store.findById(run.id)!.steps.map((step) => step.sessionId)).size).toBe(4);
     expect(readFileSync(join(source, "src/main.mjs"), "utf8")).toBe(wrong);
   },
   150000,
@@ -739,9 +684,9 @@ test("managed execution allocation checks the persisted AI Step before even ackn
             token: "fixture",
             engineId: "fixture",
           };
-          expect(() =>
-            store.record(run.id, { kind: "execution.prepared", execution }),
-          ).toThrow("input_unavailable");
+          expect(() => store.record(run.id, { kind: "execution.prepared", execution })).toThrow(
+            "input_unavailable",
+          );
           throw new Error("fixture stop before Step");
         }
       },
@@ -793,12 +738,9 @@ test("snapshots operator verification settings before the first developer call",
   const base = fake({
     firstPass: true,
     onCall: (request) => {
-      if (calls.length === 1)
-        snapshot.command = ["node", "-e", "process.exit(0)"];
+      if (calls.length === 1) snapshot.command = ["node", "-e", "process.exit(0)"];
       if (request.verification)
-        expect(request.verification.config.command).toEqual(
-          configuration.command,
-        );
+        expect(request.verification.config.command).toEqual(configuration.command);
     },
   });
   const executor = createDevelopmentExecutor({
@@ -815,8 +757,7 @@ test("snapshots operator verification settings before the first developer call",
   });
   await runWith(executor);
   expect(
-    readDevelopmentRounds(database.db, run.id)[0]!.verificationResult!
-      .configuration.command,
+    readDevelopmentRounds(database.db, run.id)[0]!.verificationResult!.configuration.command,
   ).toEqual(configuration.command);
 });
 
@@ -843,7 +784,5 @@ test("a rejected termination observation after allocation remains unconfirmed", 
   expect(result.status).toBe("interrupted");
   expect(result.terminationConfirmedAt).toBeNull();
   expect(readExecutions(database.db, run.id)).toHaveLength(3);
-  expect(
-    existsSync(readDevelopmentRounds(database.db, run.id)[0]!.input!.directory),
-  ).toBe(true);
+  expect(existsSync(readDevelopmentRounds(database.db, run.id)[0]!.input!.directory)).toBe(true);
 });

@@ -12,10 +12,7 @@ import {
 import { git } from "./workspace-git.js";
 
 type Application = typeof changeApplications.$inferSelect;
-type CommitInput = Pick<
-  Application,
-  "id" | "baseRevision" | "tree" | "createdAt"
->;
+type CommitInput = Pick<Application, "id" | "baseRevision" | "tree" | "createdAt">;
 
 // Fixed identity, message and timestamp make retries produce the SAME object.
 // Computing the object ID performs no Git write; it precedes the durable intent.
@@ -43,9 +40,7 @@ export function applicationCommit(input: CommitInput) {
       "",
     ].join("\n"),
   );
-  const oidValue = createHash(
-    input.baseRevision.length === 40 ? "sha1" : "sha256",
-  )
+  const oidValue = createHash(input.baseRevision.length === 40 ? "sha1" : "sha256")
     .update(`commit ${body.length}\0`)
     .update(body)
     .digest("hex");
@@ -77,11 +72,7 @@ export async function applyGitChange(
   const refs = (
     await git(
       storage,
-      [
-        "for-each-ref",
-        "--format=%(refname)%00%(objectname)%00%(symref)",
-        developmentRef,
-      ],
+      ["for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)", developmentRef],
       signal,
     )
   )
@@ -95,18 +86,11 @@ export async function applyGitChange(
     ref[2] !== "" ||
     (ref[1] !== application.baseRevision && ref[1] !== application.resultCommit)
   )
-    throw new Error(
-      "Development branch changed outside the recorded application",
-    );
+    throw new Error("Development branch changed outside the recorded application");
   if (ref[1] === application.baseRevision) {
     await verifyDevelopmentCandidate(repository, input, candidate, signal);
     const written = (
-      await git(
-        storage,
-        ["hash-object", "-t", "commit", "-w", "--stdin"],
-        signal,
-        commit.body,
-      )
+      await git(storage, ["hash-object", "-t", "commit", "-w", "--stdin"], signal, commit.body)
     )
       .toString()
       .trim();
@@ -132,12 +116,7 @@ export async function applyGitChange(
     headTree: application.tree,
   };
   await assertDevelopmentBase(updated, signal);
-  const actual = await git(
-    storage,
-    ["cat-file", "commit", application.resultCommit],
-    signal,
-  );
-  if (!actual.equals(commit.body))
-    throw new Error("Applied commit does not match verified change");
+  const actual = await git(storage, ["cat-file", "commit", application.resultCommit], signal);
+  if (!actual.equals(commit.body)) throw new Error("Applied commit does not match verified change");
   return updated;
 }

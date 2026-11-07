@@ -36,10 +36,7 @@ import {
   type QueueStatus,
 } from "../src/modules/execution/execution-queue.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
-import {
-  initialRetryState,
-  defaultRetryPolicy,
-} from "../src/modules/execution/retry-policy.js";
+import { initialRetryState, defaultRetryPolicy } from "../src/modules/execution/retry-policy.js";
 import { loadExecutionConfig } from "../src/modules/execution/execution-config.js";
 import { providerScope } from "../src/modules/execution/provider-gate.js";
 import { defaultCapacityPolicy } from "../src/modules/execution/capacity-policy.js";
@@ -118,11 +115,7 @@ function store(c = config) {
 }
 function receipt(sourceKey?: string) {
   return sourceKey
-    ? database.db
-        .select()
-        .from(notifications)
-        .where(eq(notifications.sourceKey, sourceKey))
-        .get()!
+    ? database.db.select().from(notifications).where(eq(notifications.sourceKey, sourceKey)).get()!
     : database.db.select().from(notifications).get()!;
 }
 function task(
@@ -171,8 +164,7 @@ async function receiver(handler: RequestListener) {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
-  if (!address || typeof address === "string")
-    throw new Error("Expected TCP fixture");
+  if (!address || typeof address === "string") throw new Error("Expected TCP fixture");
   return configFile({
     url: `http://127.0.0.1:${address.port}/receiver`,
     timeoutMs: 200,
@@ -202,9 +194,7 @@ test("preserves existing state when the notification migration is applied, inclu
       createdAt: time(),
     })
     .run();
-  expect(() =>
-    legacy.client.prepare("SELECT * FROM notifications").all(),
-  ).toThrow();
+  expect(() => legacy.client.prepare("SELECT * FROM notifications").all()).toThrow();
   legacy.close();
   database = openDatabase(legacyPath);
   owner = acquireExecutionOwner(database.db);
@@ -312,9 +302,7 @@ test("rotating the explicitly configured destination creates a new delivery only
   s.scan(time());
   const first = s.claim(time(1000))!;
   s.finish(first.id, first.attempt, "delivered");
-  const rotated = store(
-    configFile({ url: "https://example.invalid/new-receiver" }),
-  );
+  const rotated = store(configFile({ url: "https://example.invalid/new-receiver" }));
   rotated.scan(time(2000));
   expect(receipt().id).not.toBe(first.id);
   expect(receipt().attempts).toBe(0);
@@ -371,11 +359,7 @@ test("budget waits, pending automatic retries and requested cancellations do not
     })
     .where(eq(tasks.id, two.id))
     .run();
-  database.db
-    .update(tasks)
-    .set({ cancelRequestedAt: time() })
-    .where(eq(tasks.id, three.id))
-    .run();
+  database.db.update(tasks).set({ cancelRequestedAt: time() }).where(eq(tasks.id, three.id)).run();
   store().scan(time());
   expect(listNotifications(database.db)).toEqual([]);
 });
@@ -400,11 +384,7 @@ test.each(["retry_limit", "repeated_error_limit", "task_time_limit"])(
 
 test("unconfirmed termination takes priority even when a stop was requested", () => {
   const { id } = task("interrupted", "server_shutdown", false);
-  database.db
-    .update(tasks)
-    .set({ cancelRequestedAt: time() })
-    .where(eq(tasks.id, id))
-    .run();
+  database.db.update(tasks).set({ cancelRequestedAt: time() }).where(eq(tasks.id, id)).run();
   const s = store();
   s.scan(time());
   expect(receipt().reason).toBe("termination_unconfirmed");
@@ -433,17 +413,11 @@ test("account authentication/configuration holds are deduplicated across affecte
   s.scan(time());
   expect(listNotifications(database.db)).toHaveLength(1);
   expect(receipt().reason).toBe("authentication_required");
-  database.db
-    .update(providerGates)
-    .set({ version: 2, reason: "configuration" })
-    .run();
+  database.db.update(providerGates).set({ version: 2, reason: "configuration" }).run();
   database.db.update(runs).set({ errorCode: "unsupported_settings" }).run();
   s.scan(time(1));
   expect(receipt().reason).toBe("configuration_required");
-  database.db
-    .update(providerGates)
-    .set({ version: 3, reason: "capacity" })
-    .run();
+  database.db.update(providerGates).set({ version: 3, reason: "capacity" }).run();
   database.db.update(runs).set({ errorCode: "capacity" }).run();
   s.scan(time(2));
   expect(receipt().status).toBe("resolved");
@@ -507,11 +481,7 @@ test("bounded pages eventually discover all issues and never resolve a receipt m
   s.scan(time(3000));
   expect(database.db.select().from(notifications).all()).toHaveLength(70);
   expect(
-    database.db
-      .select()
-      .from(notifications)
-      .where(eq(notifications.id, first.id))
-      .get()?.status,
+    database.db.select().from(notifications).where(eq(notifications.id, first.id)).get()?.status,
   ).toBe("delivered");
   expect(listNotifications(database.db)).toHaveLength(50);
 });
@@ -525,9 +495,7 @@ test("ownership loss prevents reservation and acknowledgement without changing r
   database.db.update(executionOwner).set({ token: "another-owner" }).run();
   expect(() => s.scan(time(2000))).toThrow();
   expect(() => s.claim(time(2000))).toThrow();
-  expect(() =>
-    s.finish(claim.id, claim.attempt, "delivered", time(2000)),
-  ).toThrow();
+  expect(() => s.finish(claim.id, claim.attempt, "delivered", time(2000))).toThrow();
   expect(receipt()).toEqual(before);
 });
 
@@ -593,9 +561,7 @@ test("does not follow receiver redirects or forward credentials to the redirect 
   const s = store(c);
   s.scan(time());
   const claim = s.claim(time(1000))!;
-  expect(await deliverNotification(c, claim.payload, signal())).toBe(
-    "redirect_refused",
-  );
+  expect(await deliverNotification(c, claim.payload, signal())).toBe("redirect_refused");
   expect(redirected).toBe(0);
 });
 
@@ -608,15 +574,11 @@ test("bounds a stalled receiver, honors cancellation and returns fixed error cod
   expect(await deliverNotification(c, claim.payload, signal())).toBe("timeout");
   const stopped = new AbortController();
   stopped.abort();
-  expect(await deliverNotification(c, claim.payload, stopped.signal)).toBe(
-    "stopped",
-  );
+  expect(await deliverNotification(c, claim.payload, stopped.signal)).toBe("stopped");
   const server = servers.pop()!;
   server.closeAllConnections();
   await new Promise<void>((resolve) => server.close(() => resolve()));
-  expect(await deliverNotification(c, claim.payload, signal())).toBe(
-    "request_failed",
-  );
+  expect(await deliverNotification(c, claim.payload, signal())).toBe("request_failed");
 });
 
 test("worker catches storage failure, reports recovery and stops permanently without unhandled rejections", async () => {
@@ -656,10 +618,7 @@ test("stalled notification delivery does not block actual queue work or API resp
   owner.release();
   mkdirSync(join(directory, "auth"));
   mkdirSync(join(directory, "workspace"));
-  writeFileSync(
-    join(directory, "auth/auth.json"),
-    JSON.stringify({ auth_mode: "chatgpt" }),
-  );
+  writeFileSync(join(directory, "auth/auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
   const file = join(directory, "execution.json");
   writeFileSync(
     file,
@@ -697,17 +656,16 @@ test("stalled notification delivery does not block actual queue work or API resp
     })
     .run();
   await vi.waitFor(() =>
-    expect(
-      database.db.select().from(tasks).where(eq(tasks.id, id)).get()?.status,
-    ).toBe("succeeded"),
+    expect(database.db.select().from(tasks).where(eq(tasks.id, id)).get()?.status).toBe(
+      "succeeded",
+    ),
   );
   const status = await app.inject("/operations/notifications");
   expect(status.statusCode).toBe(200);
   expect(status.json().worker.delivering).toBe(true);
-  expect(
-    database.db.select().from(tasks).where(eq(tasks.id, blocked.id)).get()
-      ?.status,
-  ).toBe("failed");
+  expect(database.db.select().from(tasks).where(eq(tasks.id, blocked.id)).get()?.status).toBe(
+    "failed",
+  );
   await app.close();
   expect(database.db.select().from(executionOwner).get()).toBeUndefined();
   expect(receipt().lastResult).toBe("stopped");
@@ -739,20 +697,15 @@ test("notification config has private permissions, fixed safe errors, validated 
   const c = configFile();
   expect(c.url).toBe("https://example.invalid/receiver");
   expect(
-    loadConfig({ NOTIFICATION_CONFIG: "private/notifications.json" })
-      .notificationConfigPath,
+    loadConfig({ NOTIFICATION_CONFIG: "private/notifications.json" }).notificationConfigPath,
   ).toBe(fileURLToPath(new URL("../../../private/notifications.json", import.meta.url)));
   expect(() => loadConfig({ NOTIFICATION_CONFIG: " " })).toThrow();
   chmodSync(c.sourcePath, 0o644);
-  expect(() => loadNotificationConfig(c.sourcePath)).toThrow(
-    "Invalid notification config",
-  );
+  expect(() => loadNotificationConfig(c.sourcePath)).toThrow("Invalid notification config");
   chmodSync(c.sourcePath, 0o600);
   const link = join(directory, "linked.json");
   symlinkSync(c.sourcePath, link);
-  expect(() => loadNotificationConfig(link)).toThrow(
-    "Invalid notification config",
-  );
+  expect(() => loadNotificationConfig(link)).toThrow("Invalid notification config");
   try {
     loadNotificationConfig(join(directory, "private-missing-file"));
   } catch (e) {
@@ -773,12 +726,9 @@ test.each([
   { graceMs: 0 },
   { maxAttempts: 21 },
   { initialDelayMs: 2000, maxDelayMs: 1000 },
-])(
-  "rejects invalid notification settings without copying sensitive input: %j",
-  (input) => {
-    expect(() => configFile(input)).toThrow("Invalid notification config");
-  },
-);
+])("rejects invalid notification settings without copying sensitive input: %j", (input) => {
+  expect(() => configFile(input)).toThrow("Invalid notification config");
+});
 
 test("a notification-only process owns delivery exclusively and releases it on close", async () => {
   owner.release();
@@ -793,19 +743,14 @@ test("a notification-only process owns delivery exclusively and releases it on c
   const third = buildApp({ databasePath: path, notifications: c });
   cleanup.push(() => third.close());
   await third.listen({ host: "127.0.0.1", port: 0 });
-  expect(
-    (await third.inject("/operations/notifications")).json().worker.enabled,
-  ).toBe(true);
+  expect((await third.inject("/operations/notifications")).json().worker.enabled).toBe(true);
 });
 
 test("the notification credential file cannot be exposed through an agent workspace", async () => {
   owner.release();
   mkdirSync(join(directory, "auth"));
   mkdirSync(join(directory, "workspace"));
-  writeFileSync(
-    join(directory, "auth/auth.json"),
-    JSON.stringify({ auth_mode: "chatgpt" }),
-  );
+  writeFileSync(join(directory, "auth/auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
   const file = join(directory, "execution.json");
   writeFileSync(
     file,
@@ -846,9 +791,9 @@ test("configured bearer authentication is sent only in the request header", asyn
   const s = store(c);
   s.scan(time());
   const claim = s.claim(time(1000))!;
-  expect(
-    await deliverNotification({ ...c, bearerToken }, claim.payload, signal()),
-  ).toBe("delivered");
+  expect(await deliverNotification({ ...c, bearerToken }, claim.payload, signal())).toBe(
+    "delivered",
+  );
   expect(header).toBe(`Bearer ${bearerToken}`);
   expect(body).not.toContain(bearerToken);
 });
@@ -857,10 +802,7 @@ test("regression: a surviving running record held by the restarted queue require
   const surviving = task("running", "owner_lost", false);
   mkdirSync(join(directory, "auth"));
   mkdirSync(join(directory, "workspace"));
-  writeFileSync(
-    join(directory, "auth/auth.json"),
-    JSON.stringify({ auth_mode: "chatgpt" }),
-  );
+  writeFileSync(join(directory, "auth/auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
   const file = join(directory, "execution.json");
   writeFileSync(
     file,

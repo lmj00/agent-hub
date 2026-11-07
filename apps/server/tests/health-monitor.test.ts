@@ -20,10 +20,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { buildApp } from "../src/app.js";
 import { openDatabase } from "../src/db/connection.js";
 import { authSessions } from "../src/db/schema.js";
-import {
-  loadAuthConfig,
-  type AuthConfig,
-} from "../src/modules/auth/auth-config.js";
+import { loadAuthConfig, type AuthConfig } from "../src/modules/auth/auth-config.js";
 import { readinessToken } from "../src/modules/auth/readiness-token.js";
 import {
   checkHealth,
@@ -59,16 +56,13 @@ function appWithAuth(auth = authConfig()) {
   apps.push(app);
   return { app, auth, databasePath };
 }
-async function receiver(
-  handler: RequestListener,
-): Promise<HealthMonitorConfig> {
+async function receiver(handler: RequestListener): Promise<HealthMonitorConfig> {
   const server = createServer(handler);
   servers.push(server);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
-  if (!address || typeof address === "string")
-    throw new Error("Expected TCP address");
+  if (!address || typeof address === "string") throw new Error("Expected TCP address");
   return {
     origin: `http://127.0.0.1:${address.port}`,
     bearerToken: readinessToken(authConfig()),
@@ -81,25 +75,18 @@ const ready = () => ({
   database: "ok",
   checkedAt: new Date().toISOString(),
 });
-function writeConfig(
-  config: HealthMonitorConfig,
-  path = join(directory, "monitor.json"),
-) {
+function writeConfig(config: HealthMonitorConfig, path = join(directory, "monitor.json")) {
   writeFileSync(path, JSON.stringify({ version: 1, ...config }), {
     mode: 0o600,
   });
   return path;
 }
 const runCli = (args: string[]) =>
-  promisify(execFile)(
-    process.execPath,
-    ["--import", "tsx", "src/monitor-cli.ts", ...args],
-    {
-      cwd: fileURLToPath(new URL("../", import.meta.url)),
-      timeout: 8000,
-      maxBuffer: 65536,
-    },
-  );
+  promisify(execFile)(process.execPath, ["--import", "tsx", "src/monitor-cli.ts", ...args], {
+    cwd: fileURLToPath(new URL("../", import.meta.url)),
+    timeout: 8000,
+    maxBuffer: 65536,
+  });
 
 test("a scoped token reads readiness without a browser session or persistent session rows", async () => {
   const { app, auth, databasePath } = appWithAuth();
@@ -135,8 +122,7 @@ test("the monitor token grants no private read, write, HEAD or session authentic
   ])
     expect((await app.inject({ ...request, headers })).statusCode).toBe(401);
   expect(
-    (await app.inject({ method: "GET", url: "/auth/session", headers })).json()
-      .authenticated,
+    (await app.inject({ method: "GET", url: "/auth/session", headers })).json().authenticated,
   ).toBe(false);
 });
 
@@ -223,9 +209,7 @@ test("a valid token observes a real database failure as unavailable", async () =
 });
 
 test("external HTTP check targets only readiness and returns no remote data or credential", async () => {
-  let observed:
-    | { url: string | undefined; authorization: string | undefined }
-    | undefined;
+  let observed: { url: string | undefined; authorization: string | undefined } | undefined;
   const config = await receiver((req, res) => {
     observed = { url: req.url, authorization: req.headers.authorization };
     res.setHeader("content-type", "application/json");
@@ -296,10 +280,7 @@ test.each([
   "large-declared",
 ])("refuses %s replies without returning their contents", async (mode) => {
   const config = await receiver((_req, res) => {
-    res.setHeader(
-      "content-type",
-      mode === "wrong-type" ? "text/html" : "application/json",
-    );
+    res.setHeader("content-type", mode === "wrong-type" ? "text/html" : "application/json");
     if (mode === "large-declared") res.setHeader("content-length", "5000");
     const body =
       mode === "extra-fields"
@@ -312,35 +293,28 @@ test.each([
     if (mode.startsWith("large")) {
       res.write("x".repeat(4097));
       res.end();
-    } else
-      res.end(
-        mode === "invalid-json" ? "private-response" : JSON.stringify(body),
-      );
+    } else res.end(mode === "invalid-json" ? "private-response" : JSON.stringify(body));
   });
   const result = await checkHealth(config, signal());
   expect(result).toMatchObject({
     status: "unavailable",
-    reason: mode.startsWith("large")
-      ? "response_too_large"
-      : "invalid_response",
+    reason: mode.startsWith("large") ? "response_too_large" : "invalid_response",
   });
   expect(JSON.stringify(result)).not.toContain("private-response");
 });
 
-test.each(["headers", "body"])(
-  "a stalled %s response has a bounded deadline",
-  async (mode) => {
-    const config = await receiver((_req, res) => {
-      if (mode === "body") {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.write("{");
-      }
-    });
-    expect(
-      await checkHealth({ ...config, timeoutMs: 100 }, signal()),
-    ).toMatchObject({ status: "unavailable", reason: "timeout" });
-  },
-);
+test.each(["headers", "body"])("a stalled %s response has a bounded deadline", async (mode) => {
+  const config = await receiver((_req, res) => {
+    if (mode === "body") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.write("{");
+    }
+  });
+  expect(await checkHealth({ ...config, timeoutMs: 100 }, signal())).toMatchObject({
+    status: "unavailable",
+    reason: "timeout",
+  });
+});
 
 test("an unreachable service and a cancelled monitor have distinct safe results", async () => {
   const config = await receiver((_req, res) => res.end());
@@ -379,10 +353,7 @@ test("monitor settings require a private regular file and accept HTTPS or local 
     { timeoutMs: 10001 },
     { unknown: true },
   ]) {
-    writeFileSync(
-      path,
-      JSON.stringify({ version: 1, ...config, ...overrides }),
-    );
+    writeFileSync(path, JSON.stringify({ version: 1, ...config, ...overrides }));
     expect(() => loadHealthMonitorConfig(path)).toThrow();
   }
 });
@@ -405,37 +376,23 @@ test("actual setup CLI exports only a scoped credential into a private file", as
     destination,
   ]);
   const config = loadHealthMonitorConfig(destination);
-  expect(config.bearerToken).toBe(
-    readinessToken(loadAuthConfig(auth.sourcePath)),
-  );
+  expect(config.bearerToken).toBe(readinessToken(loadAuthConfig(auth.sourcePath)));
   expect(statSync(destination).mode & 0o777).toBe(0o600);
   expect(readFileSync(auth.sourcePath, "utf8")).toBe(source);
-  for (const secret of [
-    auth.sessionSecret,
-    auth.password.hash,
-    config.bearerToken,
-  ])
+  for (const secret of [auth.sessionSecret, auth.password.hash, config.bearerToken])
     expect(result.stdout + result.stderr).not.toContain(secret);
   expect(readFileSync(destination, "utf8")).not.toContain(auth.sessionSecret);
 });
 
 test("actual setup CLI refuses to replace an existing destination", async () => {
   const auth = authConfig();
-  writeFileSync(
-    auth.sourcePath,
-    JSON.stringify({ version: 1, ...auth, sourcePath: undefined }),
-    { mode: 0o600 },
-  );
+  writeFileSync(auth.sourcePath, JSON.stringify({ version: 1, ...auth, sourcePath: undefined }), {
+    mode: 0o600,
+  });
   const destination = join(directory, "existing.json");
   writeFileSync(destination, "original", { mode: 0o600 });
   await expect(
-    runCli([
-      "setup",
-      "--auth-config",
-      auth.sourcePath,
-      "--destination",
-      destination,
-    ]),
+    runCli(["setup", "--auth-config", auth.sourcePath, "--destination", destination]),
   ).rejects.toMatchObject({ code: 2 });
   expect(readFileSync(destination, "utf8")).toBe("original");
 });

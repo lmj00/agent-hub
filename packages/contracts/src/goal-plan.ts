@@ -6,11 +6,7 @@ export const goalPlanSchema = Type.Object(
     version: Type.Literal(1),
     goalVersion: Type.Integer({ minimum: 1 }),
     inputDigest: Type.String({ pattern: "^[a-f0-9]{64}$" }),
-    outcome: Type.Union([
-      Type.Literal("work"),
-      Type.Literal("wait"),
-      Type.Literal("complete"),
-    ]),
+    outcome: Type.Union([Type.Literal("work"), Type.Literal("wait"), Type.Literal("complete")]),
     summary: text(2000),
     evidence: Type.Array(text(500), { maxItems: 12 }),
     tasks: Type.Array(

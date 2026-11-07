@@ -2,16 +2,9 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Service, ServiceObservation } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  projects,
-  serviceObservations,
-  serviceTargets,
-} from "../../db/schema.js";
+import { projects, serviceObservations, serviceTargets } from "../../db/schema.js";
 import { assertExecutionOwner } from "../execution/execution-owner.js";
-import {
-  interpretObservation,
-  type ObservationResult,
-} from "./observe-service.js";
+import { interpretObservation, type ObservationResult } from "./observe-service.js";
 import type { ServiceTargetConfig } from "./service-config.js";
 
 function observation(
@@ -88,9 +81,7 @@ export function readServiceViews(
         allowWaiting: target.allowWaiting,
         activityTimeoutMs: target.activityTimeoutMs,
         ...verdict,
-        nextCheckAt: enabled
-          ? (observer.nextChecks.get(target.key)?.toISOString() ?? null)
-          : null,
+        nextCheckAt: enabled ? (observer.nextChecks.get(target.key)?.toISOString() ?? null) : null,
         latest,
         lastSuccessful,
       };
@@ -150,10 +141,7 @@ export function createDrizzleServiceStore(
             .from(serviceTargets)
             .where(eq(serviceTargets.key, target.key))
             .get();
-          if (
-            !configured?.configured ||
-            configured.fingerprint !== target.fingerprint
-          )
+          if (!configured?.configured || configured.fingerprint !== target.fingerprint)
             throw new Error("Service observation target configuration changed");
           tx.insert(serviceObservations)
             .values({
@@ -171,11 +159,7 @@ export function createDrizzleServiceStore(
         { behavior: "immediate" },
       );
     },
-    list(
-      projectId: string,
-      observer: ObserverStatus,
-      now = new Date(),
-    ): Service[] {
+    list(projectId: string, observer: ObserverStatus, now = new Date()): Service[] {
       return readServiceViews(db, projectId, observer, now);
     },
   };

@@ -1,13 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import type { Effort } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  developmentRounds,
-  projects,
-  runs,
-  steps,
-  tasks,
-} from "../../db/schema.js";
+import { developmentRounds, projects, runs, steps, tasks } from "../../db/schema.js";
 import {
   AnalysisError,
   type AnalysisEvent,
@@ -64,7 +58,7 @@ export function configuredDevelopmentWorkspaces(
   executor: AnalysisExecutor,
 ) {
   return config.containerImage && executor.confirmTermination
-    ? [...(config.verification?.keys() ?? [])].filter(key => config.workspaces.has(key))
+    ? [...(config.verification?.keys() ?? [])].filter((key) => config.workspaces.has(key))
     : [];
 }
 
@@ -72,23 +66,22 @@ export function createDevelopmentExecutor(options: {
   db: Db;
   analysis: AnalysisExecutor;
   development: AnalysisExecutor;
-  config: Pick<
-    ExecutionConfig,
-    "workspaces" | "verification" | "containerImage"
-  >;
+  config: Pick<ExecutionConfig, "workspaces" | "verification" | "containerImage">;
   inputRoot: string;
   repositoryRoot: string;
   ownerToken?: string;
 }): AnalysisExecutor {
-  const { db, analysis, development, config, inputRoot, repositoryRoot } =
-    options;
+  const { db, analysis, development, config, inputRoot, repositoryRoot } = options;
   const active = new Map<
     string,
     { started: boolean; controller: AbortController; settled: Promise<void> }
   >();
   return {
-    ...(development.runtimeSkillVersion !== undefined ? { runtimeSkillVersion: development.runtimeSkillVersion }
-      : analysis.runtimeSkillVersion !== undefined ? { runtimeSkillVersion: analysis.runtimeSkillVersion } : {}),
+    ...(development.runtimeSkillVersion !== undefined
+      ? { runtimeSkillVersion: development.runtimeSkillVersion }
+      : analysis.runtimeSkillVersion !== undefined
+        ? { runtimeSkillVersion: analysis.runtimeSkillVersion }
+        : {}),
     async analyze(request, onEvent) {
       const selected = request.runId
         ? db
@@ -99,8 +92,7 @@ export function createDevelopmentExecutor(options: {
             .where(eq(runs.id, request.runId))
             .get()
         : undefined;
-      if (!selected?.task.plannedWork)
-        return analysis.analyze(request, onEvent);
+      if (!selected?.task.plannedWork) return analysis.analyze(request, onEvent);
       const { run, task, project } = selected;
       if (active.has(run.id)) throw new AnalysisError("input_unavailable");
       const settled = Promise.withResolvers<void>();
@@ -110,10 +102,7 @@ export function createDevelopmentExecutor(options: {
         settled: settled.promise,
       };
       active.set(run.id, current);
-      const signal = AbortSignal.any([
-        request.signal,
-        current.controller.signal,
-      ]);
+      const signal = AbortSignal.any([request.signal, current.controller.signal]);
       const emit = async (event: AnalysisEvent) => {
         signal.throwIfAborted();
         await onEvent(event);
@@ -138,16 +127,10 @@ export function createDevelopmentExecutor(options: {
       try {
         signal.throwIfAborted();
         const configured = config.verification?.get(project.workspaceKey);
-        const configuration = configured
-          ? parseVerificationConfig(configured)
-          : undefined;
+        const configuration = configured ? parseVerificationConfig(configured) : undefined;
         const source = config.workspaces.get(project.workspaceKey);
         const scope = readGoalScope(db, task.goalId);
-        if (
-          !config.containerImage ||
-          !development.confirmTermination ||
-          !configuration
-        )
+        if (!config.containerImage || !development.confirmTermination || !configuration)
           throw new AnalysisError("unsupported_settings");
         if (
           !source ||
@@ -161,10 +144,7 @@ export function createDevelopmentExecutor(options: {
           kind: "development.workflow.started",
           development: { type: "workflow.started" },
         });
-        if (
-          db.select().from(runs).where(eq(runs.id, run.id)).get()
-            ?.developmentVersion !== 1
-        )
+        if (db.select().from(runs).where(eq(runs.id, run.id)).get()?.developmentVersion !== 1)
           throw new AnalysisError("input_unavailable");
         const prior = db
           .select({ round: developmentRounds, run: runs })
@@ -204,7 +184,9 @@ export function createDevelopmentExecutor(options: {
           );
           const effort = await startStep(sequence * 2 - 1);
           const changed = await execute({
-            ...(run.runtimeSkillVersion !== null ? { runtimeSkillVersion: run.runtimeSkillVersion, stepSequence: sequence * 2 - 1 } : {}),
+            ...(run.runtimeSkillVersion !== null
+              ? { runtimeSkillVersion: run.runtimeSkillVersion, stepSequence: sequence * 2 - 1 }
+              : {}),
             runId: run.id,
             model: run.model,
             effort,
@@ -261,8 +243,7 @@ export function createDevelopmentExecutor(options: {
               config: testing.configuration,
             },
           });
-          if (!tested.verification)
-            throw new AnalysisError("input_unavailable");
+          if (!tested.verification) throw new AnalysisError("input_unavailable");
           await emit({
             kind: "development.verification.complete",
             development: {
@@ -271,13 +252,13 @@ export function createDevelopmentExecutor(options: {
               result: tested.verification,
             },
           });
-          verification =
-            readDevelopmentRounds(db, run.id).at(-1)?.verificationResult ??
-            undefined;
+          verification = readDevelopmentRounds(db, run.id).at(-1)?.verificationResult ?? undefined;
           if (!verification) throw new AnalysisError("input_unavailable");
           const reviewEffort = await startStep(sequence * 2);
           const reviewed = await execute({
-            ...(run.runtimeSkillVersion !== null ? { runtimeSkillVersion: run.runtimeSkillVersion, stepSequence: sequence * 2 } : {}),
+            ...(run.runtimeSkillVersion !== null
+              ? { runtimeSkillVersion: run.runtimeSkillVersion, stepSequence: sequence * 2 }
+              : {}),
             runId: run.id,
             model: run.model,
             effort: reviewEffort,
@@ -309,8 +290,7 @@ export function createDevelopmentExecutor(options: {
           });
           usage = addUsage(usage, reviewed.usage);
           const execution = readExecutions(db, run.id).at(-1);
-          if (!execution?.terminationConfirmedAt)
-            throw new AnalysisError("input_unavailable");
+          if (!execution?.terminationConfirmedAt) throw new AnalysisError("input_unavailable");
           await emit({
             kind: "development.review.complete",
             development: {
@@ -356,8 +336,8 @@ export function createDevelopmentExecutor(options: {
             if (confirmedAt) return confirmedAt;
             // A container preflight may fail before the executor creates its
             // in-memory entry. The durable version-1 no-start rule still applies.
-            return db.select().from(runs).where(eq(runs.id, runId)).get()
-              ?.developmentVersion === 1 && !readExecutions(db, runId).length
+            return db.select().from(runs).where(eq(runs.id, runId)).get()?.developmentVersion ===
+              1 && !readExecutions(db, runId).length
               ? new Date()
               : null;
           },
@@ -365,11 +345,7 @@ export function createDevelopmentExecutor(options: {
       : {}),
     async cleanup(runId) {
       if (!active.has(runId)) return analysis.cleanup?.(runId);
-      if (
-        !db.select().from(runs).where(eq(runs.id, runId)).get()
-          ?.terminationConfirmedAt
-      )
-        return;
+      if (!db.select().from(runs).where(eq(runs.id, runId)).get()?.terminationConfirmedAt) return;
       await development.cleanup?.(runId);
       cleanupRecordedDevelopment(db, inputRoot, runId);
       active.delete(runId);

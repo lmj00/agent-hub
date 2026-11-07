@@ -13,20 +13,13 @@ export function parseCapacityPolicy(value: unknown): CapacityPolicy {
   const input = value as Record<string, unknown>;
   if (
     Object.keys(input).some(
-      (key) =>
-        !["initialDelayMs", "maxDelayMs", "jitterRatio", "maxChecks"].includes(
-          key,
-        ),
+      (key) => !["initialDelayMs", "maxDelayMs", "jitterRatio", "maxChecks"].includes(key),
     )
   )
     throw new Error("Unknown capacity recovery option");
   const policy = { ...defaultCapacityPolicy, ...input } as CapacityPolicy;
   for (const field of ["initialDelayMs", "maxDelayMs"] as const) {
-    if (
-      !Number.isInteger(policy[field]) ||
-      policy[field] < 1000 ||
-      policy[field] > 86400000
-    )
+    if (!Number.isInteger(policy[field]) || policy[field] < 1000 || policy[field] > 86400000)
       throw new Error("Invalid capacity check interval");
   }
   if (
@@ -49,17 +42,10 @@ export function capacityCheckAt(
   retryAt: Date | null,
   random: number,
 ) {
-  const base = Math.min(
-    policy.maxDelayMs,
-    policy.initialDelayMs * 2 ** Math.min(checks, 20),
-  );
+  const base = Math.min(policy.maxDelayMs, policy.initialDelayMs * 2 ** Math.min(checks, 20));
   const delay = Math.min(
     policy.maxDelayMs,
-    Math.ceil(
-      base * (1 + Math.max(0, Math.min(1, random)) * policy.jitterRatio),
-    ),
+    Math.ceil(base * (1 + Math.max(0, Math.min(1, random)) * policy.jitterRatio)),
   );
-  return new Date(
-    Math.max(now.getTime() + delay, retryAt?.getTime() ?? 0),
-  ).toISOString();
+  return new Date(Math.max(now.getTime() + delay, retryAt?.getTime() ?? 0)).toISOString();
 }

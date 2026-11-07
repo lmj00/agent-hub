@@ -58,8 +58,7 @@ export function Workspace({
   }, []);
   const overview = usePolling("overview", load, onExpired, 3000, revision);
   const projects = overview.data?.projects ?? [];
-  const project =
-    projects.find((value) => value.id === projectId) ?? projects[0] ?? null;
+  const project = projects.find((value) => value.id === projectId) ?? projects[0] ?? null;
   function selectProject(id: string) {
     setProjectId(id);
     setTaskId(null);
@@ -87,11 +86,7 @@ export function Workspace({
           agent-hub
         </a>
         <span className="topbar-label">프로젝트 작업 공간</span>
-        <button
-          className="quiet"
-          onClick={() => void logout()}
-          disabled={loggingOut}
-        >
+        <button className="quiet" onClick={() => void logout()} disabled={loggingOut}>
           로그아웃
         </button>
       </header>
@@ -148,8 +143,8 @@ export function Workspace({
             <span className="eyebrow">현재 지원 범위</span>
             <p>분석과 개발 작업</p>
             <small>
-              분석 결과를 기록하고, 실행·개발 설정이 준비된 목표는 스스로
-              계획합니다. 검증된 변경은 개발용 브랜치에 반영합니다.
+              분석 결과를 기록하고, 실행·개발 설정이 준비된 목표는 스스로 계획합니다. 검증된 변경은
+              개발용 브랜치에 반영합니다.
             </small>
           </div>
         </aside>
@@ -180,10 +175,7 @@ export function Workspace({
             </div>
           ) : null}
           {overview.data ? (
-            <ExecutionBar
-              queue={overview.data.queue}
-              gate={overview.data.gate}
-            />
+            <ExecutionBar queue={overview.data.queue} gate={overview.data.gate} />
           ) : null}
           {project ? (
             <ServicePanel
@@ -194,8 +186,12 @@ export function Workspace({
           ) : null}
           {project ? (
             <>
-            <GoalPanel key={`goals:${project.id}`} projectId={project.id} onExpired={onExpired} />
-            <BudgetPanel key={`budget:${project.id}`} projectId={project.id} onExpired={onExpired} />
+              <GoalPanel key={`goals:${project.id}`} projectId={project.id} onExpired={onExpired} />
+              <BudgetPanel
+                key={`budget:${project.id}`}
+                projectId={project.id}
+                onExpired={onExpired}
+              />
             </>
           ) : null}
           {project ? (
@@ -233,8 +229,7 @@ const capacityReasons: Record<string, string> = {
   ready: "확인 실행 하나를 예약했습니다.",
   checking: "확인 실행이 진행 중입니다.",
   check_limit: "계정 확인 횟수 상한에 도달했습니다. 제한 정책을 검토해 주세요.",
-  task_limit:
-    "원인 작업의 실행 상한에 도달했습니다. 작업 기록을 검토해 주세요.",
+  task_limit: "원인 작업의 실행 상한에 도달했습니다. 작업 기록을 검토해 주세요.",
   task_unavailable:
     "원인 작업을 자동으로 재개할 수 없습니다. 실행 가능한 작업을 선택해 수동으로 확인해 주세요.",
   termination_unconfirmed: "이전 실행의 종료를 먼저 확인해야 합니다.",
@@ -247,7 +242,13 @@ function ExecutionBar({ queue, gate }: { queue: Queue; gate: ProviderGate }) {
     >
       <div>
         <span className="eyebrow">실행기</span>
-        <strong>{queue.reason === "period_budget" ? "기간 예산 대기" : queue.reason === "development_pending" ? "개발 실행 연결 대기" : queueLabels[queue.state]}</strong>
+        <strong>
+          {queue.reason === "period_budget"
+            ? "기간 예산 대기"
+            : queue.reason === "development_pending"
+              ? "개발 실행 연결 대기"
+              : queueLabels[queue.state]}
+        </strong>
       </div>
       <p>
         {gate.blocked
@@ -256,41 +257,33 @@ function ExecutionBar({ queue, gate }: { queue: Queue; gate: ProviderGate }) {
             ? "서버에 실행 설정을 연결하면 대기 작업을 순서대로 처리합니다."
             : queue.reason === "period_budget"
               ? "실행 예산이 있는 작업을 기다립니다. 각 작업에서 대기 이유와 다음 확인 시각을 볼 수 있습니다."
-            : queue.reason === "development_pending"
-              ? "개발 작업을 시작하려면 해당 작업 공간의 컨테이너 실행과 테스트 설정이 필요합니다."
-            : queue.reason === "change_application_pending"
-              ? "이전 코드 반영 결과를 확인해야 합니다. 해당 작업에서 상태 확인을 요청해 주세요."
-            : queue.state === "held"
-              ? "종료가 확인되지 않은 실행을 먼저 확인해 주세요."
-              : queue.state === "error"
-                ? "실행기 상태 조회에 실패했습니다. 서버 기록을 확인해 주세요."
-                : "한 번에 하나의 작업을 처리합니다. 실행 기록에서 진행 상황을 확인하세요."}
+              : queue.reason === "development_pending"
+                ? "개발 작업을 시작하려면 해당 작업 공간의 컨테이너 실행과 테스트 설정이 필요합니다."
+                : queue.reason === "change_application_pending"
+                  ? "이전 코드 반영 결과를 확인해야 합니다. 해당 작업에서 상태 확인을 요청해 주세요."
+                  : queue.state === "held"
+                    ? "종료가 확인되지 않은 실행을 먼저 확인해 주세요."
+                    : queue.state === "error"
+                      ? "실행기 상태 조회에 실패했습니다. 서버 기록을 확인해 주세요."
+                      : "한 번에 하나의 작업을 처리합니다. 실행 기록에서 진행 상황을 확인하세요."}
       </p>
       {gate.blocked && gate.reason === "capacity" && gate.capacityState ? (
         <div className="capacity-summary" aria-label="계정 사용량 확인">
           <strong>
-            계정 확인 {gate.capacityState.checks} /{" "}
-            {gate.capacityState.policy.maxChecks}회
+            계정 확인 {gate.capacityState.checks} / {gate.capacityState.policy.maxChecks}회
           </strong>
           {gate.capacityState.nextCheckAt ? (
-            <span>
-              다음 확인 가능 시각 {dateTime(gate.capacityState.nextCheckAt)}
-            </span>
+            <span>다음 확인 가능 시각 {dateTime(gate.capacityState.nextCheckAt)}</span>
           ) : null}
           <span>
-            {capacityReasons[gate.capacityState.reason] ??
-              "계정 확인 조건을 검토하고 있습니다."}
+            {capacityReasons[gate.capacityState.reason] ?? "계정 확인 조건을 검토하고 있습니다."}
           </span>
           {!queue.capacityRecoveryEnabled ? (
-            <span>
-              현재 자동 한도 확인은 꺼져 있으며 저장된 제한은 유지됩니다.
-            </span>
+            <span>현재 자동 한도 확인은 꺼져 있으며 저장된 제한은 유지됩니다.</span>
           ) : null}
         </div>
       ) : null}
-      {queue.lastCheckedAt ? (
-        <small>실행기 확인 {dateTime(queue.lastCheckedAt)}</small>
-      ) : null}
+      {queue.lastCheckedAt ? <small>실행기 확인 {dateTime(queue.lastCheckedAt)}</small> : null}
     </section>
   );
 }
@@ -338,10 +331,7 @@ function ProjectForm({
         {open ? "등록 닫기 −" : "프로젝트 등록 +"}
       </button>
       {open ? (
-        <form
-          className="stack compact"
-          onSubmit={(event) => void submit(event)}
-        >
+        <form className="stack compact" onSubmit={(event) => void submit(event)}>
           <label htmlFor="project-name">프로젝트 이름</label>
           <input
             id="project-name"
@@ -362,19 +352,13 @@ function ProjectForm({
             placeholder="예: language-app"
             aria-describedby="workspace-help"
           />
-          <small id="workspace-help">
-            서버 실행 설정에 등록한 키를 입력하세요.
-          </small>
+          <small id="workspace-help">서버 실행 설정에 등록한 키를 입력하세요.</small>
           {error ? (
             <p className="error-text" role="alert">
-              {errorMessage(error)} 응답이 끊겼다면 중복 등록 전에 프로젝트
-              목록을 확인해 주세요.
+              {errorMessage(error)} 응답이 끊겼다면 중복 등록 전에 프로젝트 목록을 확인해 주세요.
             </p>
           ) : null}
-          <button
-            className="primary"
-            disabled={busy || !name.trim() || !workspaceKey.trim()}
-          >
+          <button className="primary" disabled={busy || !name.trim() || !workspaceKey.trim()}>
             {busy ? "등록 중…" : "프로젝트 등록"}
           </button>
         </form>
@@ -406,8 +390,7 @@ function ProjectTasks({
     refreshOverview();
   }, [refreshOverview]);
   const load = useCallback(
-    (signal: AbortSignal) =>
-      api.request(`/projects/${project.id}/tasks`, tasksSchema, { signal }),
+    (signal: AbortSignal) => api.request(`/projects/${project.id}/tasks`, tasksSchema, { signal }),
     [project.id],
   );
   const tasks = usePolling(project.id, load, onExpired, 3000, revision);
@@ -446,9 +429,7 @@ function ProjectTasks({
             >
               <div className="task-row-meta">
                 <Status value={task.status} />
-                <time dateTime={task.createdAt}>
-                  {dateTime(task.createdAt)}
-                </time>
+                <time dateTime={task.createdAt}>{dateTime(task.createdAt)}</time>
               </div>
               <p>{task.instruction}</p>
               <small>
@@ -478,10 +459,7 @@ function ProjectTasks({
         <section className="task-detail empty-detail">
           <span className="eyebrow">실행 기록</span>
           <h2>작업의 흐름이 여기에 쌓입니다.</h2>
-          <p>
-            목록에서 작업을 선택하면 실행 시도별 결과와 최근 활동을 확인할 수
-            있습니다.
-          </p>
+          <p>목록에서 작업을 선택하면 실행 시도별 결과와 최근 활동을 확인할 수 있습니다.</p>
         </section>
       )}
     </div>
@@ -500,9 +478,7 @@ function TaskForm({
   const [instruction, setInstruction] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const identity = useRef<{ instruction: string; requestKey: string } | null>(
-    null,
-  );
+  const identity = useRef<{ instruction: string; requestKey: string } | null>(null);
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy) return;
@@ -516,11 +492,10 @@ function TaskForm({
     setBusy(true);
     setError(null);
     try {
-      const task = await api.request(
-        `/projects/${project.id}/tasks`,
-        taskSchema,
-        { method: "POST", body: identity.current },
-      );
+      const task = await api.request(`/projects/${project.id}/tasks`, taskSchema, {
+        method: "POST",
+        body: identity.current,
+      });
       onCreated(task);
       setInstruction("");
       identity.current = null;
@@ -558,8 +533,7 @@ function TaskForm({
       </div>
       {error ? (
         <p className="error-text" role="alert">
-          {errorMessage(error)} 같은 내용으로 다시 요청하면 중복 등록을
-          방지합니다.
+          {errorMessage(error)} 같은 내용으로 다시 요청하면 중복 등록을 방지합니다.
         </p>
       ) : null}
     </form>

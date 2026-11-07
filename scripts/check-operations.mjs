@@ -2,14 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -113,9 +106,7 @@ function http(path, { method = "GET", headers = {}, body } = {}) {
       {
         method,
         headers,
-        ca: readFileSync(
-          join(env.XDG_DATA_HOME, "caddy/pki/authorities/local/root.crt"),
-        ),
+        ca: readFileSync(join(env.XDG_DATA_HOME, "caddy/pki/authorities/local/root.crt")),
         // The fixture CA is trusted explicitly; certificate and hostname validation remain on.
         timeout: 3000,
       },
@@ -135,9 +126,7 @@ function http(path, { method = "GET", headers = {}, body } = {}) {
       },
     );
     req.on("error", reject);
-    req.on("timeout", () =>
-      req.destroy(new Error("HTTPS fixture request timed out")),
-    );
+    req.on("timeout", () => req.destroy(new Error("HTTPS fixture request timed out")));
     req.end(body);
   });
 }
@@ -164,18 +153,8 @@ const processExec = process.execPath;
 
 try {
   const systemd = command("systemd-analyze", ["--version"]).split("\n")[0];
-  command("systemd-analyze", [
-    "verify",
-    "--man=no",
-    join(root, "ops/agent-hub.service"),
-  ]);
-  command("caddy", [
-    "validate",
-    "--config",
-    join(root, "ops/Caddyfile"),
-    "--adapter",
-    "caddyfile",
-  ]);
+  command("systemd-analyze", ["verify", "--man=no", join(root, "ops/agent-hub.service")]);
+  command("caddy", ["validate", "--config", join(root, "ops/Caddyfile"), "--adapter", "caddyfile"]);
 
   const setup = launch(
     processExec,
@@ -192,11 +171,9 @@ try {
   setup.child.stdin.end(password);
   assert.equal((await setup.ended).code, 0, "Authentication setup failed");
   mkdirSync(join(directory, "codex"), { mode: 0o700 });
-  writeFileSync(
-    join(directory, "codex/auth.json"),
-    JSON.stringify({ auth_mode: "chatgpt" }),
-    { mode: 0o600 },
-  );
+  writeFileSync(join(directory, "codex/auth.json"), JSON.stringify({ auth_mode: "chatgpt" }), {
+    mode: 0o600,
+  });
   writeFileSync(
     runtime.EXECUTION_CONFIG,
     JSON.stringify({
@@ -209,10 +186,7 @@ try {
   );
 
   // Exercise the actual unit's file preconditions with isolated paths. PID 1 supervision is separate.
-  const preconditions = readFileSync(
-    join(root, "ops/agent-hub.service"),
-    "utf8",
-  )
+  const preconditions = readFileSync(join(root, "ops/agent-hub.service"), "utf8")
     .split("\n")
     .filter((line) => line.startsWith("ExecStartPre="));
   function preflight(values, missingWeb = false) {
@@ -240,10 +214,7 @@ try {
       `Missing ${key} must fail before starting`,
     );
   }
-  assert.throws(
-    () => preflight(runtime, true),
-    "Missing web build must fail before starting",
-  );
+  assert.throws(() => preflight(runtime, true), "Missing web build must fail before starting");
   const absentAuth = launch(processExec, [main], {
     ...runtime,
     AUTH_CONFIG: join(directory, "absent-auth.json"),
@@ -274,20 +245,11 @@ try {
         "localhost:8443",
       ),
   );
-  const caddy = launch(
-    "caddy",
-    ["run", "--config", fixtureCaddy, "--adapter", "caddyfile"],
-    env,
-  );
+  const caddy = launch("caddy", ["run", "--config", fixtureCaddy, "--adapter", "caddyfile"], env);
   let app = await startApp();
   await waitUntil(async () => {
     assert.equal(caddy.child.exitCode, null, "Caddy exited before listening");
-    if (
-      !existsSync(
-        join(env.XDG_DATA_HOME, "caddy/pki/authorities/local/root.crt"),
-      )
-    )
-      return false;
+    if (!existsSync(join(env.XDG_DATA_HOME, "caddy/pki/authorities/local/root.crt"))) return false;
     try {
       return (await http("/health/live")).status === 200;
     } catch {
@@ -306,34 +268,18 @@ try {
     "--destination",
     monitorConfig,
   ]);
-  const monitorCredential = JSON.parse(
-    readFileSync(monitorConfig, "utf8"),
-  ).bearerToken;
+  const monitorCredential = JSON.parse(readFileSync(monitorConfig, "utf8")).bearerToken;
   const monitorHeaders = { authorization: `Bearer ${monitorCredential}` };
-  assert.equal(
-    (await http("/health/ready", { headers: monitorHeaders })).status,
-    200,
-  );
-  assert.equal(
-    (await http("/projects", { headers: monitorHeaders })).status,
-    401,
-  );
+  assert.equal((await http("/health/ready", { headers: monitorHeaders })).status, 200);
+  assert.equal((await http("/projects", { headers: monitorHeaders })).status, 401);
   const monitorEnvironment = {
     ...env,
-    NODE_EXTRA_CA_CERTS: join(
-      env.XDG_DATA_HOME,
-      "caddy/pki/authorities/local/root.crt",
-    ),
+    NODE_EXTRA_CA_CERTS: join(env.XDG_DATA_HOME, "caddy/pki/authorities/local/root.crt"),
   };
   async function monitor(expectedStatus, expectedReason, trusted = true) {
     const probe = launch(
       process.execPath,
-      [
-        join(root, "apps/server/dist/monitor-cli.js"),
-        "check",
-        "--config",
-        monitorConfig,
-      ],
+      [join(root, "apps/server/dist/monitor-cli.js"), "check", "--config", monitorConfig],
       trusted ? monitorEnvironment : env,
     );
     const result = await probe.ended;
@@ -341,10 +287,7 @@ try {
     const output = JSON.parse(probe.output());
     assert.equal(output.status, expectedStatus);
     assert.equal(output.reason, expectedReason);
-    assert.ok(
-      !probe.output().includes(monitorCredential),
-      "Monitor credential leaked to output",
-    );
+    assert.ok(!probe.output().includes(monitorCredential), "Monitor credential leaked to output");
   }
   await monitor("unavailable", "request_failed", false);
   await monitor("available", "ready");
@@ -396,11 +339,7 @@ try {
   await monitor("unavailable", "http_error");
   app = await startApp();
   const projects = await http("/projects", { headers });
-  assert.equal(
-    projects.status,
-    200,
-    "Session must persist across a clean restart",
-  );
+  assert.equal(projects.status, 200, "Session must persist across a clean restart");
   assert.equal(projects.json().projects.length, 1);
   assert.equal(projects.json().projects[0].id, created.json().id);
   assert.equal((await http("/health/ready", { headers })).status, 200);
@@ -409,10 +348,7 @@ try {
   assert.equal((await stop(caddy)).code, 0);
   await monitor("unavailable", "request_failed");
   for (const child of children)
-    assert.ok(
-      !child.output().includes(password),
-      "Password leaked to process output",
-    );
+    assert.ok(!child.output().includes(password), "Password leaked to process output");
   console.log(
     JSON.stringify({
       systemd,

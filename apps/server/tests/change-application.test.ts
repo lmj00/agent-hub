@@ -25,10 +25,7 @@ import {
   runs,
   tasks,
 } from "../src/db/schema.js";
-import type {
-  AnalysisExecutor,
-  ExecutionIdentity,
-} from "../src/modules/execution/analysis.js";
+import type { AnalysisExecutor, ExecutionIdentity } from "../src/modules/execution/analysis.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { verificationConfigDigest } from "../src/modules/execution/verification-config.js";
 import { createDevelopmentExecutor } from "../src/modules/goals/development-executor.js";
@@ -51,17 +48,15 @@ import { createRecoveryProcessor } from "../src/modules/execution/recover-task.j
 import { createAutomaticRecovery } from "../src/modules/execution/automatic-recovery.js";
 import { acquireExecutionOwner } from "../src/modules/execution/execution-owner.js";
 import { createPlanningStore, readPlanningContext } from "../src/modules/goals/planning-store.js";
-import { createPreparedExecutor, verifyPreparedResult } from "../src/modules/goals/prepared-executor.js";
+import {
+  createPreparedExecutor,
+  verifyPreparedResult,
+} from "../src/modules/goals/prepared-executor.js";
 import { runTask } from "../src/modules/execution/run-task.js";
 import { defaultRetryPolicy } from "../src/modules/execution/retry-policy.js";
 
-let directory: string,
-  source: string,
-  projectId: string,
-  taskId: string,
-  goalId: string;
-let database: ReturnType<typeof openDatabase>,
-  store: ReturnType<typeof createDrizzleRunStore>;
+let directory: string, source: string, projectId: string, taskId: string, goalId: string;
+let database: ReturnType<typeof openDatabase>, store: ReturnType<typeof createDrizzleRunStore>;
 let run: ReturnType<typeof store.claim>;
 const signal = () => new AbortController().signal;
 const configuration = {
@@ -94,14 +89,8 @@ function git(cwd: string, ...args: string[]) {
     },
   ).trim();
 }
-const repository = () =>
-  readDevelopmentRepository(database.db, projectId)!.prepared!;
-const head = () =>
-  git(
-    join(repository().directory, "git"),
-    "rev-parse",
-    "refs/heads/development",
-  );
+const repository = () => readDevelopmentRepository(database.db, projectId)!.prepared!;
+const head = () => git(join(repository().directory, "git"), "rev-parse", "refs/heads/development");
 const prepared = () => prepareChangeApplication(database.db, run.id, signal());
 const apply = () => applyChangeApplication(database.db, run.id, signal());
 function reopen() {
@@ -110,9 +99,7 @@ function reopen() {
 }
 
 beforeEach(() => {
-  directory = realpathSync(
-    mkdtempSync(join(tmpdir(), "hub-change-application-")),
-  );
+  directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-change-application-")));
   source = join(directory, "source");
   mkdirSync(join(source, "src"), { recursive: true });
   writeFileSync(join(source, "src/main.mjs"), "export const answer = 1;\n");
@@ -256,19 +243,21 @@ async function approvedRound() {
     inputRoot: preparedInputRoot(join(directory, "hub.sqlite")),
   });
   const reviewSaved = new Error("fixture interruption after durable review");
-  await expect(development.analyze(
-    {
-      runId: run.id,
-      instruction: "Fix calculation",
-      workspace: source,
-      model: "fixture",
-      signal: signal(),
-    },
-    (event) => {
-      store.record(run.id, event);
-      if (event.development?.type === "review.complete") throw reviewSaved;
-    },
-  )).rejects.toBe(reviewSaved);
+  await expect(
+    development.analyze(
+      {
+        runId: run.id,
+        instruction: "Fix calculation",
+        workspace: source,
+        model: "fixture",
+        signal: signal(),
+      },
+      (event) => {
+        store.record(run.id, event);
+        if (event.development?.type === "review.complete") throw reviewSaved;
+      },
+    ),
+  ).rejects.toBe(reviewSaved);
 }
 
 test("records the exact future commit before Git writes, then applies once across reopen without modifying the source", async () => {
@@ -282,12 +271,7 @@ test("records the exact future commit before Git writes, then applies once acros
   });
   expect(head()).toBe(original);
   expect(() =>
-    git(
-      join(repository().directory, "git"),
-      "cat-file",
-      "-e",
-      application.resultCommit,
-    ),
+    git(join(repository().directory, "git"), "cat-file", "-e", application.resultCommit),
   ).toThrow();
   expect(await prepared()).toEqual(application);
   const result = await apply();
@@ -302,35 +286,20 @@ test("records the exact future commit before Git writes, then applies once acros
     sourceRevision: original,
   });
   expect(
-    git(
-      join(repository().directory, "git"),
-      "show",
-      `${result.resultCommit}:src/main.mjs`,
-    ),
+    git(join(repository().directory, "git"), "show", `${result.resultCommit}:src/main.mjs`),
   ).toBe(content.trim());
-  expect(
-    git(
-      join(repository().directory, "git"),
-      "rev-parse",
-      `${result.resultCommit}^`,
-    ),
-  ).toBe(original);
+  expect(git(join(repository().directory, "git"), "rev-parse", `${result.resultCommit}^`)).toBe(
+    original,
+  );
   expect(git(source, "rev-parse", "HEAD")).toBe(original);
   expect(git(source, "status", "--porcelain")).toBe("");
-  expect(readFileSync(join(source, "src/main.mjs"), "utf8")).toContain(
-    "answer = 1",
-  );
+  expect(readFileSync(join(source, "src/main.mjs"), "utf8")).toContain("answer = 1");
   reopen();
   expect(await apply()).toEqual(result);
   expect(await prepared()).toEqual(result);
   expect(database.db.select().from(changeApplications).all()).toHaveLength(1);
   expect(
-    git(
-      join(repository().directory, "git"),
-      "rev-list",
-      "--count",
-      "refs/heads/development",
-    ),
+    git(join(repository().directory, "git"), "rev-list", "--count", "refs/heads/development"),
   ).toBe("2");
   expect(database.client.pragma("foreign_key_check")).toEqual([]);
 });
@@ -357,11 +326,7 @@ test("the next Task prepares from the applied development commit while the origi
     usage: null,
     terminationConfirmedAt: new Date(),
   });
-  const priorTask = database.db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.id, taskId))
-    .get()!;
+  const priorTask = database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
   const nextTask = randomUUID();
   database.db
     .insert(tasks)
@@ -402,12 +367,10 @@ test("the next Task prepares from the applied development commit while the origi
     (event) => store.record(nextRun.id, event),
   );
   expect(next.input.revision).toBe(application.resultCommit);
-  expect(readFileSync(join(next.input.directory, "src/main.mjs"), "utf8")).toBe(
-    content,
+  expect(readFileSync(join(next.input.directory, "src/main.mjs"), "utf8")).toBe(content);
+  expect(readDevelopmentRounds(database.db, nextRun.id)[0]?.planningRevision).toBe(
+    application.baseRevision,
   );
-  expect(
-    readDevelopmentRounds(database.db, nextRun.id)[0]?.planningRevision,
-  ).toBe(application.baseRevision);
   expect(git(source, "rev-parse", "HEAD")).toBe(application.baseRevision);
   expect(await apply()).toMatchObject({
     resultCommit: application.resultCommit,
@@ -425,20 +388,12 @@ test("database constraints reject duplicate Task applications and invalid applic
       .run(),
   ).toThrow();
   expect(() =>
-    database.db
-      .update(changeApplications)
-      .set({ status: "applied", appliedAt: null })
-      .run(),
+    database.db.update(changeApplications).set({ status: "applied", appliedAt: null }).run(),
   ).toThrow();
   expect(() =>
-    database.db
-      .update(changeApplications)
-      .set({ targetRef: "refs/heads/main" })
-      .run(),
+    database.db.update(changeApplications).set({ targetRef: "refs/heads/main" }).run(),
   ).toThrow();
-  expect(database.db.select().from(changeApplications).all()).toEqual([
-    application,
-  ]);
+  expect(database.db.select().from(changeApplications).all()).toEqual([application]);
 });
 
 test("recovers the same commit when Git advanced but DB finalization rolled back", async () => {
@@ -459,12 +414,7 @@ test("recovers the same commit when Git advanced but DB finalization rolled back
   });
   expect(repository().head).toBe(application.resultCommit);
   expect(
-    git(
-      join(repository().directory, "git"),
-      "rev-list",
-      "--count",
-      "refs/heads/development",
-    ),
+    git(join(repository().directory, "git"), "rev-list", "--count", "refs/heads/development"),
   ).toBe("2");
 });
 
@@ -476,17 +426,9 @@ function stop(kind: string) {
       .where(eq(tasks.id, taskId))
       .run();
   if (kind === "pause")
-    database.db
-      .update(goals)
-      .set({ status: "paused" })
-      .where(eq(goals.id, goalId))
-      .run();
+    database.db.update(goals).set({ status: "paused" }).where(eq(goals.id, goalId)).run();
   if (kind === "version")
-    database.db
-      .update(goals)
-      .set({ version: 2 })
-      .where(eq(goals.id, goalId))
-      .run();
+    database.db.update(goals).set({ version: 2 }).where(eq(goals.id, goalId)).run();
   if (kind === "stop") store.requestStop(run.id, "server_shutdown");
 }
 test.each(["cancel", "pause", "version", "stop"])(
@@ -511,10 +453,9 @@ test.each(["cancel", "pause", "version", "stop"])(
       status: "applied",
       resultCommit: application.resultCommit,
     });
-    expect(
-      database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()
-        ?.status,
-    ).toBe("running");
+    expect(database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()?.status).toBe(
+      "running",
+    );
   },
 );
 
@@ -550,11 +491,7 @@ test.each(["review", "verification", "termination", "skill"])(
         .where(eq(runExecutions.sequence, 3))
         .run();
     if (kind === "skill")
-      database.db
-        .update(runs)
-        .set({ runtimeSkillVersion: 1 })
-        .where(eq(runs.id, run.id))
-        .run();
+      database.db.update(runs).set({ runtimeSkillVersion: 1 }).where(eq(runs.id, run.id)).run();
     await expect(prepared()).rejects.toThrow("input_unavailable");
     expect(readChangeApplication(database.db, run.id)).toBeUndefined();
   },
@@ -600,17 +537,13 @@ test("does not follow a symbolic development ref or overwrite its target", async
   git(storage, "update-ref", "refs/heads/other", application.baseRevision);
   git(storage, "symbolic-ref", "refs/heads/development", "refs/heads/other");
   await expect(apply()).rejects.toThrow("outside the recorded application");
-  expect(git(storage, "rev-parse", "refs/heads/other")).toBe(
-    application.baseRevision,
-  );
+  expect(git(storage, "rev-parse", "refs/heads/other")).toBe(application.baseRevision);
 });
 
 test("source changes and aborted requests leave the reservation pending", async () => {
   await approvedRound();
   const application = await prepared();
-  await expect(
-    applyChangeApplication(database.db, run.id, AbortSignal.abort()),
-  ).rejects.toThrow();
+  await expect(applyChangeApplication(database.db, run.id, AbortSignal.abort())).rejects.toThrow();
   writeFileSync(join(source, "src/main.mjs"), "changed by owner\n");
   await expect(apply()).rejects.toThrow("committed changes");
   expect(head()).toBe(application.baseRevision);
@@ -638,12 +571,7 @@ test("concurrent attempts converge on one recorded commit using compare-and-swap
     resultCommit: application.resultCommit,
   });
   expect(
-    git(
-      join(repository().directory, "git"),
-      "rev-list",
-      "--count",
-      "refs/heads/development",
-    ),
+    git(join(repository().directory, "git"), "rev-list", "--count", "refs/heads/development"),
   ).toBe("2");
 });
 
@@ -653,9 +581,7 @@ test("a previous schema upgrades without inventing an application for existing R
   cpSync(migrationsDirectory, old, { recursive: true });
   const journalPath = join(old, "meta/_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8"));
-  journal.entries = journal.entries.filter(
-    (entry: { idx: number }) => entry.idx < 28,
-  );
+  journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 28);
   writeFileSync(journalPath, JSON.stringify(journal));
   const path = join(directory, "upgrade.sqlite");
   const before = openDatabase(path, old);
@@ -688,89 +614,200 @@ test("commit bytes encode the saved parent and tree without local identity or cl
     `tree ${application.tree}\nparent ${application.baseRevision}\n`,
   );
   expect(commit.body.toString()).toContain("agent-hub <agent-hub@localhost>");
-  expect(() =>
-    applicationCommit({ ...application, tree: "invalid\nparent forged" }),
-  ).toThrow();
+  expect(() => applicationCommit({ ...application, tree: "invalid\nparent forged" })).toThrow();
 });
 
-function recoveryHarness(ownerToken?: string, reconcile = (id: string, bounded: AbortSignal) =>
-  applyChangeApplication(database.db, id, bounded, ownerToken).then(() => undefined)) {
+function recoveryHarness(
+  ownerToken?: string,
+  reconcile = (id: string, bounded: AbortSignal) =>
+    applyChangeApplication(database.db, id, bounded, ownerToken).then(() => undefined),
+) {
   const recovery = createDrizzleRecoveryStore(database.db, ownerToken);
-  const processor = createRecoveryProcessor(recovery, {
-    confirm: async () => { throw new Error("saved container proof should be reused"); },
-    cleanup: async () => {},
-  }, undefined, undefined, reconcile);
-  const request = (key: string) => recovery.request({ taskId, runId: run.id, requestKey: key, action: "reconcile", providerGateVersion: null }, null, true).request;
+  const processor = createRecoveryProcessor(
+    recovery,
+    {
+      confirm: async () => {
+        throw new Error("saved container proof should be reused");
+      },
+      cleanup: async () => {},
+    },
+    undefined,
+    undefined,
+    reconcile,
+  );
+  const request = (key: string) =>
+    recovery.request(
+      { taskId, runId: run.id, requestKey: key, action: "reconcile", providerGateVersion: null },
+      null,
+      true,
+    ).request;
   return { recovery, processor, request };
 }
 
-test.each(["intent", "git", "database"])("restart after %s resumes the recorded application and finalizes one Task without another AI attempt", async (boundary) => {
-  await approvedRound();
-  const application = await prepared();
-  if (boundary === "git") {
-    database.client.exec("CREATE TRIGGER fail_finalize BEFORE UPDATE ON change_applications BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END");
-    await expect(apply()).rejects.toThrow("injected storage failure");
-  }
-  if (boundary === "database") await apply();
-  reopen();
-  if (boundary === "git") database.client.exec("DROP TRIGGER fail_finalize");
-  const { recovery, processor, request } = recoveryHarness();
-  const receipt = request("restart");
-  await processor.process(receipt.id);
-  expect(recovery.findById(receipt.id)).toMatchObject({ status: "completed", resultStatus: "succeeded", errorCode: null });
-  expect(database.db.select().from(runs).all()).toHaveLength(1);
-  expect(database.db.select().from(runs).get()).toMatchObject({ status: "succeeded", result: "Candidate inspected", terminationConfirmedAt: expect.any(Date) });
-  expect(database.db.select().from(tasks).get()?.status).toBe("succeeded");
-  expect(readChangeApplication(database.db, run.id)).toMatchObject({ status: "applied", resultCommit: application.resultCommit });
-  await processor.process(receipt.id);
-  expect(head()).toBe(application.resultCommit);
-  expect(git(join(repository().directory, "git"), "rev-list", "--count", "refs/heads/development")).toBe("2");
-  expect(readFileSync(join(source, "src/main.mjs"), "utf8")).toBe("export const answer = 1;\n");
-});
+test.each(["intent", "git", "database"])(
+  "restart after %s resumes the recorded application and finalizes one Task without another AI attempt",
+  async (boundary) => {
+    await approvedRound();
+    const application = await prepared();
+    if (boundary === "git") {
+      database.client.exec(
+        "CREATE TRIGGER fail_finalize BEFORE UPDATE ON change_applications BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END",
+      );
+      await expect(apply()).rejects.toThrow("injected storage failure");
+    }
+    if (boundary === "database") await apply();
+    reopen();
+    if (boundary === "git") database.client.exec("DROP TRIGGER fail_finalize");
+    const { recovery, processor, request } = recoveryHarness();
+    const receipt = request("restart");
+    await processor.process(receipt.id);
+    expect(recovery.findById(receipt.id)).toMatchObject({
+      status: "completed",
+      resultStatus: "succeeded",
+      errorCode: null,
+    });
+    expect(database.db.select().from(runs).all()).toHaveLength(1);
+    expect(database.db.select().from(runs).get()).toMatchObject({
+      status: "succeeded",
+      result: "Candidate inspected",
+      terminationConfirmedAt: expect.any(Date),
+    });
+    expect(database.db.select().from(tasks).get()?.status).toBe("succeeded");
+    expect(readChangeApplication(database.db, run.id)).toMatchObject({
+      status: "applied",
+      resultCommit: application.resultCommit,
+    });
+    await processor.process(receipt.id);
+    expect(head()).toBe(application.resultCommit);
+    expect(
+      git(join(repository().directory, "git"), "rev-list", "--count", "refs/heads/development"),
+    ).toBe("2");
+    expect(readFileSync(join(source, "src/main.mjs"), "utf8")).toBe("export const answer = 1;\n");
+  },
+);
 
 test("pending application blocks new work in the same project even after all containers terminated", async () => {
   await approvedRound();
   await prepared();
-  store.finish(run.id, { status: "interrupted", errorCode: "execution_error", result: null, usage: null, retryAt: null, terminationConfirmedAt: new Date() });
+  store.finish(run.id, {
+    status: "interrupted",
+    errorCode: "execution_error",
+    result: null,
+    usage: null,
+    retryAt: null,
+    terminationConfirmedAt: new Date(),
+  });
   const next = randomUUID();
-  database.db.insert(tasks).values({ id: next, projectId, instruction: "Next analysis", requestKey: next, createdAt: new Date() }).run();
-  expect(store.claimNext("fixture", ["fixture"])).toEqual({ kind: "held", runId: run.id, reason: "change_application_pending" });
+  database.db
+    .insert(tasks)
+    .values({
+      id: next,
+      projectId,
+      instruction: "Next analysis",
+      requestKey: next,
+      createdAt: new Date(),
+    })
+    .run();
+  expect(store.claimNext("fixture", ["fixture"])).toEqual({
+    kind: "held",
+    runId: run.id,
+    reason: "change_application_pending",
+  });
   expect(() => store.claim(next, "fixture")).toThrow("CHANGE_APPLICATION_EXISTS");
   const { recovery, processor, request } = recoveryHarness();
-  expect(() => recovery.request({ taskId, runId: run.id, requestKey: "resume", action: "resume", providerGateVersion: null }, null, true)).toThrow("CHANGE_APPLICATION_EXISTS");
+  expect(() =>
+    recovery.request(
+      { taskId, runId: run.id, requestKey: "resume", action: "resume", providerGateVersion: null },
+      null,
+      true,
+    ),
+  ).toThrow("CHANGE_APPLICATION_EXISTS");
   await processor.process(request("reconcile").id);
-  expect(store.claimNext("fixture", ["fixture"])).toMatchObject({ kind: "claimed", run: { taskId: next } });
+  expect(store.claimNext("fixture", ["fixture"])).toMatchObject({
+    kind: "claimed",
+    run: { taskId: next },
+  });
 });
 
-test.each(["cancel", "scope_changed", "timeout", "budget_limit", "server_shutdown"])("recovery preserves %s semantics while reconciling an already authorized change", async (reason) => {
-  await approvedRound();
-  const application = await prepared();
-  if (reason === "cancel") {
-    database.db.update(tasks).set({ status: "cancelled", cancelRequestedAt: new Date() }).where(eq(tasks.id, taskId)).run();
-  } else store.requestStop(run.id, reason as "scope_changed" | "timeout" | "budget_limit" | "server_shutdown");
-  const { recovery, processor, request } = recoveryHarness();
-  const receipt = request("stopped");
-  await processor.process(receipt.id);
-  const expected = { cancel: "cancelled", scope_changed: "cancelled", timeout: "failed", budget_limit: "waiting_capacity", server_shutdown: "succeeded" }[reason];
-  expect(recovery.findById(receipt.id)).toMatchObject({ status: "completed", resultStatus: expected });
-  expect(database.db.select().from(tasks).get()?.status).toBe(expected);
-  expect(head()).toBe(application.resultCommit);
-  expect(readChangeApplication(database.db, run.id)?.status).toBe("applied");
-  expect(() => recovery.request({ taskId, runId: run.id, requestKey: "no-second-run", action: "resume", providerGateVersion: null }, null, true)).toThrow();
-  expect(database.db.select().from(runs).all()).toHaveLength(1);
-});
+test.each(["cancel", "scope_changed", "timeout", "budget_limit", "server_shutdown"])(
+  "recovery preserves %s semantics while reconciling an already authorized change",
+  async (reason) => {
+    await approvedRound();
+    const application = await prepared();
+    if (reason === "cancel") {
+      database.db
+        .update(tasks)
+        .set({ status: "cancelled", cancelRequestedAt: new Date() })
+        .where(eq(tasks.id, taskId))
+        .run();
+    } else
+      store.requestStop(
+        run.id,
+        reason as "scope_changed" | "timeout" | "budget_limit" | "server_shutdown",
+      );
+    const { recovery, processor, request } = recoveryHarness();
+    const receipt = request("stopped");
+    await processor.process(receipt.id);
+    const expected = {
+      cancel: "cancelled",
+      scope_changed: "cancelled",
+      timeout: "failed",
+      budget_limit: "waiting_capacity",
+      server_shutdown: "succeeded",
+    }[reason];
+    expect(recovery.findById(receipt.id)).toMatchObject({
+      status: "completed",
+      resultStatus: expected,
+    });
+    expect(database.db.select().from(tasks).get()?.status).toBe(expected);
+    expect(head()).toBe(application.resultCommit);
+    expect(readChangeApplication(database.db, run.id)?.status).toBe("applied");
+    expect(() =>
+      recovery.request(
+        {
+          taskId,
+          runId: run.id,
+          requestKey: "no-second-run",
+          action: "resume",
+          providerGateVersion: null,
+        },
+        null,
+        true,
+      ),
+    ).toThrow();
+    expect(database.db.select().from(runs).all()).toHaveLength(1);
+  },
+);
 
 test("automatic reconciliation retains a pending request across shutdown and completes it under the next owner", async () => {
   await approvedRound();
   await prepared();
-  store.finish(run.id, { status: "interrupted", errorCode: "execution_error", result: null, usage: null, retryAt: null, terminationConfirmedAt: new Date() });
+  store.finish(run.id, {
+    status: "interrupted",
+    errorCode: "execution_error",
+    result: null,
+    usage: null,
+    retryAt: null,
+    terminationConfirmedAt: new Date(),
+  });
   const owner = acquireExecutionOwner(database.db);
   const stopped = new AbortController();
-  const first = recoveryHarness(owner.token, async (_id, bounded) => { stopped.abort(); bounded.throwIfAborted(); });
-  const automatic = createAutomaticRecovery({ db: database.db, ownerToken: owner.token, recovery: first.recovery, policy: defaultRetryPolicy, workspaceKeys: ["fixture"] });
+  const first = recoveryHarness(owner.token, async (_id, bounded) => {
+    stopped.abort();
+    bounded.throwIfAborted();
+  });
+  const automatic = createAutomaticRecovery({
+    db: database.db,
+    ownerToken: owner.token,
+    recovery: first.recovery,
+    policy: defaultRetryPolicy,
+    workspaceKeys: ["fixture"],
+  });
   expect(automatic.tick()).toBe(true);
   const receipt = first.processor.next()!;
-  expect(receipt.requestKey).toBe(`auto-application-${readChangeApplication(database.db, run.id)!.id}`);
+  expect(receipt.requestKey).toBe(
+    `auto-application-${readChangeApplication(database.db, run.id)!.id}`,
+  );
   await first.processor.process(receipt.id, stopped.signal);
   expect(first.recovery.findById(receipt.id)?.status).toBe("pending");
   owner.release();
@@ -779,35 +816,60 @@ test("automatic reconciliation retains a pending request across shutdown and com
   try {
     const second = recoveryHarness(secondOwner.token);
     await second.processor.process(receipt.id);
-    expect(second.recovery.findById(receipt.id)).toMatchObject({ status: "completed", resultStatus: "succeeded" });
+    expect(second.recovery.findById(receipt.id)).toMatchObject({
+      status: "completed",
+      resultStatus: "succeeded",
+    });
     expect(database.db.select().from(runs).all()).toHaveLength(1);
-  } finally { secondOwner.release(); }
+  } finally {
+    secondOwner.release();
+  }
 });
 
 test("unconfirmed application records one automatic failure and can be manually reconciled after the conflict is resolved", async () => {
   await approvedRound();
   const application = await prepared();
-  store.finish(run.id, { status: "interrupted", errorCode: "execution_error", result: null, usage: null, retryAt: null, terminationConfirmedAt: new Date() });
+  store.finish(run.id, {
+    status: "interrupted",
+    errorCode: "execution_error",
+    result: null,
+    usage: null,
+    retryAt: null,
+    terminationConfirmedAt: new Date(),
+  });
   const owner = acquireExecutionOwner(database.db);
   try {
     const { recovery, processor, request } = recoveryHarness(owner.token);
-    const automatic = createAutomaticRecovery({ db: database.db, ownerToken: owner.token, recovery, policy: defaultRetryPolicy, workspaceKeys: ["fixture"] });
+    const automatic = createAutomaticRecovery({
+      db: database.db,
+      ownerToken: owner.token,
+      recovery,
+      policy: defaultRetryPolicy,
+      workspaceKeys: ["fixture"],
+    });
     writeFileSync(join(source, "src/main.mjs"), "uncommitted source conflict\n");
     expect(automatic.tick()).toBe(true);
     const receipt = processor.next()!;
     await processor.process(receipt.id);
-    expect(recovery.findById(receipt.id)).toMatchObject({ status: "rejected", errorCode: "CHANGE_APPLICATION_UNCONFIRMED" });
+    expect(recovery.findById(receipt.id)).toMatchObject({
+      status: "rejected",
+      errorCode: "CHANGE_APPLICATION_UNCONFIRMED",
+    });
     expect(head()).toBe(application.baseRevision);
     expect(automatic.tick()).toBe(true);
     expect(automatic.tick()).toBe(false);
-    expect(database.db.select().from(tasks).get()?.retryState?.reason).toBe("change_application_unconfirmed");
+    expect(database.db.select().from(tasks).get()?.retryState?.reason).toBe(
+      "change_application_unconfirmed",
+    );
     expect(processor.next()).toBeUndefined();
     writeFileSync(join(source, "src/main.mjs"), "export const answer = 1;\n");
     await processor.process(request("manual-after-conflict").id);
     expect(database.db.select().from(tasks).get()?.status).toBe("succeeded");
     expect(database.db.select().from(tasks).get()?.retryState?.reason).toBeNull();
     expect(head()).toBe(application.resultCommit);
-  } finally { owner.release(); }
+  } finally {
+    owner.release();
+  }
 });
 
 test("a lost reconciliation response after a durable application still completes from saved evidence", async () => {
@@ -819,62 +881,125 @@ test("a lost reconciliation response after a durable application still completes
   });
   const receipt = request("lost-response");
   await processor.process(receipt.id);
-  expect(recovery.findById(receipt.id)).toMatchObject({ status: "completed", resultStatus: "succeeded" });
+  expect(recovery.findById(receipt.id)).toMatchObject({
+    status: "completed",
+    resultStatus: "succeeded",
+  });
 });
 
-test.each(["timeout", "budget_limit"] as const)("preserves %s when normal completion is saved before application recovery", async (reason) => {
-  await approvedRound();
-  await prepared();
-  store.requestStop(run.id, reason);
-  const expected = reason === "timeout" ? "failed" : "waiting_capacity";
-  const result = store.finish(run.id, { status: "interrupted", errorCode: reason, result: null, usage: null, retryAt: null, terminationConfirmedAt: new Date() });
-  expect(result).toMatchObject({ status: expected, errorCode: reason });
-  reopen();
-  const { recovery, processor, request } = recoveryHarness();
-  const receipt = request("finish-then-recover");
-  await processor.process(receipt.id);
-  expect(recovery.findById(receipt.id)).toMatchObject({ status: "completed", resultStatus: expected });
-  expect(database.db.select().from(runs).get()).toMatchObject({ status: expected, errorCode: reason });
-  expect(readChangeApplication(database.db, run.id)?.status).toBe("applied");
-});
-
+test.each(["timeout", "budget_limit"] as const)(
+  "preserves %s when normal completion is saved before application recovery",
+  async (reason) => {
+    await approvedRound();
+    await prepared();
+    store.requestStop(run.id, reason);
+    const expected = reason === "timeout" ? "failed" : "waiting_capacity";
+    const result = store.finish(run.id, {
+      status: "interrupted",
+      errorCode: reason,
+      result: null,
+      usage: null,
+      retryAt: null,
+      terminationConfirmedAt: new Date(),
+    });
+    expect(result).toMatchObject({ status: expected, errorCode: reason });
+    reopen();
+    const { recovery, processor, request } = recoveryHarness();
+    const receipt = request("finish-then-recover");
+    await processor.process(receipt.id);
+    expect(recovery.findById(receipt.id)).toMatchObject({
+      status: "completed",
+      resultStatus: expected,
+    });
+    expect(database.db.select().from(runs).get()).toMatchObject({
+      status: expected,
+      errorCode: reason,
+    });
+    expect(readChangeApplication(database.db, run.id)?.status).toBe("applied");
+  },
+);
 
 async function prepareFollowingPlan() {
   await approvedRound();
   const application = await prepared();
   await apply();
-  store.finish(run.id, { status: "succeeded", result: "Candidate inspected", errorCode: null, usage: null, terminationConfirmedAt: new Date() });
-  expect(database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()?.status).toBe("succeeded");
+  store.finish(run.id, {
+    status: "succeeded",
+    result: "Candidate inspected",
+    errorCode: null,
+    usage: null,
+    terminationConfirmedAt: new Date(),
+  });
+  expect(database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()?.status).toBe(
+    "succeeded",
+  );
   return { application, plan: createPlanningStore(database.db).reserveNext(["fixture"])! };
 }
 
 function followingPlanner(onRead?: () => void): AnalysisExecutor {
   return {
     async analyze(request, onEvent) {
-      const identity: ExecutionIdentity = { kind: "docker", containerId: randomUUID().replaceAll("-", "").repeat(2), token: randomUUID(), engineId: "fixture" };
+      const identity: ExecutionIdentity = {
+        kind: "docker",
+        containerId: randomUUID().replaceAll("-", "").repeat(2),
+        token: randomUUID(),
+        engineId: "fixture",
+      };
       await onEvent({ kind: "execution.prepared", execution: identity });
-      await onEvent({ kind: "execution.terminated", executionTermination: { identity, confirmedAt: new Date() } });
+      await onEvent({
+        kind: "execution.terminated",
+        executionTermination: { identity, confirmedAt: new Date() },
+      });
       const input = JSON.parse(request.instruction.split("\n").at(-1)!);
       expect(readFileSync(join(request.workspace, "src/main.mjs"), "utf8")).toBe(content);
       expect(input.sourceRevision).toBe(head());
       onRead?.();
-      return { output: JSON.stringify({ version: 1, goalVersion: input.goalVersion, inputDigest: input.inputDigest, outcome: "work", summary: "Continue from the accepted code", evidence: ["src/main.mjs returns 42"], tasks: [{ title: "Add another behavior", instruction: "Keep the accepted result and add the next behavior", acceptanceCriteria: "Both behaviors pass", paths: ["src/main.mjs"], evidence: ["src/main.mjs already returns 42"] }] }), usage: null };
+      return {
+        output: JSON.stringify({
+          version: 1,
+          goalVersion: input.goalVersion,
+          inputDigest: input.inputDigest,
+          outcome: "work",
+          summary: "Continue from the accepted code",
+          evidence: ["src/main.mjs returns 42"],
+          tasks: [
+            {
+              title: "Add another behavior",
+              instruction: "Keep the accepted result and add the next behavior",
+              acceptanceCriteria: "Both behaviors pass",
+              paths: ["src/main.mjs"],
+              evidence: ["src/main.mjs already returns 42"],
+            },
+          ],
+        }),
+        usage: null,
+      };
     },
     confirmTermination: async () => new Date(),
   };
 }
 
 function runFollowingPlan(id: string, executor: AnalysisExecutor, selectedStore = store) {
-  return runTask({ taskId: id, model: "fixture", workspace: source, timeoutMs: 5000, signal: signal() }, selectedStore, createPreparedExecutor(executor, preparedInputRoot(join(directory, "hub.sqlite")), database.db));
+  return runTask(
+    { taskId: id, model: "fixture", workspace: source, timeoutMs: 5000, signal: signal() },
+    selectedStore,
+    createPreparedExecutor(executor, preparedInputRoot(join(directory, "hub.sqlite")), database.db),
+  );
 }
 
 test("the next plan reads the accepted code and records that revision on its new Task", async () => {
   const { application, plan } = await prepareFollowingPlan();
-  expect(await runFollowingPlan(plan.taskId, followingPlanner())).toMatchObject({ status: "succeeded" });
+  expect(await runFollowingPlan(plan.taskId, followingPlanner())).toMatchObject({
+    status: "succeeded",
+  });
   const planned = database.db.select().from(runs).where(eq(runs.taskId, plan.taskId)).get()!;
-  expect(planned.preparedInput).toMatchObject({ source, revision: application.resultCommit, developmentRepository: repository() });
+  expect(planned.preparedInput).toMatchObject({
+    source,
+    revision: application.resultCommit,
+    developmentRepository: repository(),
+  });
   expect(planned.planningInput?.sourceRevision).toBe(application.resultCommit);
-  expect(planned.planningInput?.history.find(item => item.id === taskId)).toMatchObject({
+  expect(planned.planningInput?.history.find((item) => item.id === taskId)).toMatchObject({
     changeApplication: {
       runId: run.id,
       status: "applied",
@@ -889,45 +1014,82 @@ test("the next plan reads the accepted code and records that revision on its new
   expect(historyJson).not.toContain(directory);
   expect(historyJson).not.toContain("executionOffset");
   expect(historyJson).not.toContain("evidenceDigest");
-  const nextTask = database.db.select().from(tasks).where(eq(tasks.id, planned.planResult!.createdTaskIds[0]!)).get()!;
+  const nextTask = database.db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.id, planned.planResult!.createdTaskIds[0]!))
+    .get()!;
   expect(nextTask.plannedWork?.sourceRevision).toBe(application.resultCommit);
   expect(readFileSync(join(source, "src/main.mjs"), "utf8")).toContain("answer = 1");
   expect(git(source, "rev-parse", "HEAD")).toBe(application.baseRevision);
 });
 
-test.each(["source", "branch", "record"])("planning rejects an accepted %s that changes during the model call", async boundary => {
-  const { application, plan } = await prepareFollowingPlan();
-  const result = await runFollowingPlan(plan.taskId, followingPlanner(() => {
-    if (boundary === "source") writeFileSync(join(source, "src/main.mjs"), "external edit\n");
-    else if (boundary === "branch") git(join(repository().directory, "git"), "update-ref", "refs/heads/development", application.baseRevision);
-    else database.db.update(developmentRepositories).set({ prepared: { ...repository(), head: application.baseRevision } }).where(eq(developmentRepositories.projectId, projectId)).run();
-  }));
-  expect(result).toMatchObject({ status: "blocked", errorCode: "input_changed" });
-  const planned = database.db.select().from(runs).where(eq(runs.taskId, plan.taskId)).get()!;
-  expect(planned.planResult?.createdTaskIds).toEqual([]);
-  expect(database.db.select().from(tasks).all()).toHaveLength(2);
-});
+test.each(["source", "branch", "record"])(
+  "planning rejects an accepted %s that changes during the model call",
+  async (boundary) => {
+    const { application, plan } = await prepareFollowingPlan();
+    const result = await runFollowingPlan(
+      plan.taskId,
+      followingPlanner(() => {
+        if (boundary === "source") writeFileSync(join(source, "src/main.mjs"), "external edit\n");
+        else if (boundary === "branch")
+          git(
+            join(repository().directory, "git"),
+            "update-ref",
+            "refs/heads/development",
+            application.baseRevision,
+          );
+        else
+          database.db
+            .update(developmentRepositories)
+            .set({ prepared: { ...repository(), head: application.baseRevision } })
+            .where(eq(developmentRepositories.projectId, projectId))
+            .run();
+      }),
+    );
+    expect(result).toMatchObject({ status: "blocked", errorCode: "input_changed" });
+    const planned = database.db.select().from(runs).where(eq(runs.taskId, plan.taskId)).get()!;
+    expect(planned.planResult?.createdTaskIds).toEqual([]);
+    expect(database.db.select().from(tasks).all()).toHaveLength(2);
+  },
+);
 
 test("application excerpts distinguish pending and unavailable evidence and exclude private or out-of-scope paths", async () => {
   const { application, plan } = await prepareFollowingPlan();
-  const read = () => readPlanningContext(database.db, plan.taskId)!.history
-    .find(item => item.id === taskId)!.changeApplication!;
-  database.db.update(changeApplications).set({ status: "pending", appliedAt: null })
-    .where(eq(changeApplications.id, application.id)).run();
+  const read = () =>
+    readPlanningContext(database.db, plan.taskId)!.history.find((item) => item.id === taskId)!
+      .changeApplication!;
+  database.db
+    .update(changeApplications)
+    .set({ status: "pending", appliedAt: null })
+    .where(eq(changeApplications.id, application.id))
+    .run();
   expect(read()).toMatchObject({ status: "pending", appliedAt: null });
   const round = readDevelopmentRounds(database.db, run.id)[0]!;
   const candidate = round.candidate!;
-  database.db.update(developmentRounds).set({ candidate: { ...candidate, digest: "0".repeat(64) } })
-    .where(eq(developmentRounds.runId, run.id)).run();
+  database.db
+    .update(developmentRounds)
+    .set({ candidate: { ...candidate, digest: "0".repeat(64) } })
+    .where(eq(developmentRounds.runId, run.id))
+    .run();
   expect(read()).toMatchObject({ changedFileCount: null, changedFiles: [] });
   const change = candidate.changes[0]!;
-  database.db.update(developmentRounds).set({ candidate: { ...candidate, changes: [
-    { ...change, path: "src/new.mjs", before: null },
-    { ...change, path: "src/old.mjs", after: null },
-    { ...change, path: "src/.env" },
-    { ...change, path: "outside/private.mjs" },
-    ...Array.from({ length: 50 }, (_, i) => ({ ...change, path: `src/${i}.mjs` })),
-  ] } }).where(eq(developmentRounds.runId, run.id)).run();
+  database.db
+    .update(developmentRounds)
+    .set({
+      candidate: {
+        ...candidate,
+        changes: [
+          { ...change, path: "src/new.mjs", before: null },
+          { ...change, path: "src/old.mjs", after: null },
+          { ...change, path: "src/.env" },
+          { ...change, path: "outside/private.mjs" },
+          ...Array.from({ length: 50 }, (_, i) => ({ ...change, path: `src/${i}.mjs` })),
+        ],
+      },
+    })
+    .where(eq(developmentRounds.runId, run.id))
+    .run();
   const projected = read();
   expect(projected.changedFileCount).toBe(54);
   expect(projected.changedFiles).toHaveLength(40);
@@ -935,49 +1097,123 @@ test("application excerpts distinguish pending and unavailable evidence and excl
     { path: "src/new.mjs", action: "added" },
     { path: "src/old.mjs", action: "deleted" },
   ]);
-  expect(JSON.stringify(projected)).not.toMatch(/\.env|outside\/|inputDigest|directory|before|after/);
+  expect(JSON.stringify(projected)).not.toMatch(
+    /\.env|outside\/|inputDigest|directory|before|after/,
+  );
 });
 
-test.each([false, true])("planning recovery rechecks the recorded development snapshot, moved=%s", async moved => {
-  const { application, plan } = await prepareFollowingPlan();
-  await expect(runFollowingPlan(plan.taskId, followingPlanner(), { ...store, finish() { throw new Error("lost planning completion"); } })).rejects.toThrow("lost planning completion");
-  const planned = database.db.select().from(runs).where(eq(runs.taskId, plan.taskId)).get()!;
-  if (moved) git(join(repository().directory, "git"), "update-ref", "refs/heads/development", application.baseRevision);
-  reopen();
-  expect(await verifyPreparedResult(database.db, planned.id)).toBe(!moved);
-  const recovery = createDrizzleRecoveryStore(database.db);
-  const request = recovery.request({ taskId: plan.taskId, runId: planned.id, action: "reconcile", requestKey: randomUUID(), providerGateVersion: null }, null, true);
-  await createRecoveryProcessor(recovery, { confirm: async () => new Date(), cleanup: async () => {} }, undefined, id => verifyPreparedResult(database.db, id)).process(request.request.id);
-  expect(database.db.select().from(runs).where(eq(runs.id, planned.id)).get()).toMatchObject(moved ? { status: "blocked", errorCode: "input_changed" } : { status: "succeeded", errorCode: null });
-  expect(database.db.select().from(tasks).all()).toHaveLength(moved ? 2 : 3);
-});
+test.each([false, true])(
+  "planning recovery rechecks the recorded development snapshot, moved=%s",
+  async (moved) => {
+    const { application, plan } = await prepareFollowingPlan();
+    await expect(
+      runFollowingPlan(plan.taskId, followingPlanner(), {
+        ...store,
+        finish() {
+          throw new Error("lost planning completion");
+        },
+      }),
+    ).rejects.toThrow("lost planning completion");
+    const planned = database.db.select().from(runs).where(eq(runs.taskId, plan.taskId)).get()!;
+    if (moved)
+      git(
+        join(repository().directory, "git"),
+        "update-ref",
+        "refs/heads/development",
+        application.baseRevision,
+      );
+    reopen();
+    expect(await verifyPreparedResult(database.db, planned.id)).toBe(!moved);
+    const recovery = createDrizzleRecoveryStore(database.db);
+    const request = recovery.request(
+      {
+        taskId: plan.taskId,
+        runId: planned.id,
+        action: "reconcile",
+        requestKey: randomUUID(),
+        providerGateVersion: null,
+      },
+      null,
+      true,
+    );
+    await createRecoveryProcessor(
+      recovery,
+      { confirm: async () => new Date(), cleanup: async () => {} },
+      undefined,
+      (id) => verifyPreparedResult(database.db, id),
+    ).process(request.request.id);
+    expect(database.db.select().from(runs).where(eq(runs.id, planned.id)).get()).toMatchObject(
+      moved
+        ? { status: "blocked", errorCode: "input_changed" }
+        : { status: "succeeded", errorCode: null },
+    );
+    expect(database.db.select().from(tasks).all()).toHaveLength(moved ? 2 : 3);
+  },
+);
 
-
-test.each(["missing-adapter", "preparing", "unconfirmed"])("planning never falls back to original code when accepted storage is %s", async boundary => {
-  const { application, plan } = await prepareFollowingPlan();
-  let calls = 0;
-  const executor: AnalysisExecutor = { analyze: async () => { calls++; throw new Error("must not invoke AI"); }, confirmTermination: async () => new Date() };
-  const root = preparedInputRoot(join(directory, "hub.sqlite"));
-  const selected = { ...store, record(id: string, event: Parameters<typeof store.record>[1]) {
-    // Inject uncertainty after claim but before preparation is acknowledged.
-    if (event.kind === "input.preparing") {
-      if (boundary === "preparing") database.db.update(developmentRepositories).set({ prepared: null }).where(eq(developmentRepositories.projectId, projectId)).run();
-      if (boundary === "unconfirmed") database.db.update(changeApplications).set({ status: "pending", appliedAt: null }).where(eq(changeApplications.id, application.id)).run();
-    }
-    store.record(id, event);
-  } };
-  const result = await runTask({ taskId: plan.taskId, model: "fixture", workspace: source, timeoutMs: 5000, signal: signal() }, selected, createPreparedExecutor(executor, root, boundary === "missing-adapter" ? undefined : database.db));
-  expect(result).toMatchObject({ status: "blocked", errorCode: "input_unavailable" });
-  expect(calls).toBe(0);
-  expect(database.db.select().from(tasks).all()).toHaveLength(2);
-});
-
+test.each(["missing-adapter", "preparing", "unconfirmed"])(
+  "planning never falls back to original code when accepted storage is %s",
+  async (boundary) => {
+    const { application, plan } = await prepareFollowingPlan();
+    let calls = 0;
+    const executor: AnalysisExecutor = {
+      analyze: async () => {
+        calls++;
+        throw new Error("must not invoke AI");
+      },
+      confirmTermination: async () => new Date(),
+    };
+    const root = preparedInputRoot(join(directory, "hub.sqlite"));
+    const selected = {
+      ...store,
+      record(id: string, event: Parameters<typeof store.record>[1]) {
+        // Inject uncertainty after claim but before preparation is acknowledged.
+        if (event.kind === "input.preparing") {
+          if (boundary === "preparing")
+            database.db
+              .update(developmentRepositories)
+              .set({ prepared: null })
+              .where(eq(developmentRepositories.projectId, projectId))
+              .run();
+          if (boundary === "unconfirmed")
+            database.db
+              .update(changeApplications)
+              .set({ status: "pending", appliedAt: null })
+              .where(eq(changeApplications.id, application.id))
+              .run();
+        }
+        store.record(id, event);
+      },
+    };
+    const result = await runTask(
+      {
+        taskId: plan.taskId,
+        model: "fixture",
+        workspace: source,
+        timeoutMs: 5000,
+        signal: signal(),
+      },
+      selected,
+      createPreparedExecutor(
+        executor,
+        root,
+        boundary === "missing-adapter" ? undefined : database.db,
+      ),
+    );
+    expect(result).toMatchObject({ status: "blocked", errorCode: "input_unavailable" });
+    expect(calls).toBe(0);
+    expect(database.db.select().from(tasks).all()).toHaveLength(2);
+  },
+);
 
 test("planning reservations wait for a pending application from another Goal in the project", async () => {
   await approvedRound();
   await prepared();
   const original = database.db.select().from(goals).where(eq(goals.id, goalId)).get()!;
-  const other = createDrizzleGoalStore(database.db).register(projectId, "other-goal", { ...original.definition, description: "Another goal" }).goal;
+  const other = createDrizzleGoalStore(database.db).register(projectId, "other-goal", {
+    ...original.definition,
+    description: "Another goal",
+  }).goal;
   expect(createPlanningStore(database.db).reserveNext(["fixture"])).toBeNull();
   await apply();
   // The first Goal still has running work, but the distinct Goal can now plan.

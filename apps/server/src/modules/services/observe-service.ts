@@ -31,24 +31,18 @@ export async function observeService(
       signal: AbortSignal.any([signal, deadline]),
       headers: {
         Accept: "application/json",
-        ...(target.bearerToken
-          ? { Authorization: `Bearer ${target.bearerToken}` }
-          : {}),
+        ...(target.bearerToken ? { Authorization: `Bearer ${target.bearerToken}` } : {}),
       },
     });
     const rejectResponse = async (code: string) => {
       await response.body?.cancel();
       throw new ObservationError(code);
     };
-    if (response.status >= 300 && response.status < 400)
-      await rejectResponse("redirect_refused");
+    if (response.status >= 300 && response.status < 400) await rejectResponse("redirect_refused");
     if (!response.ok) await rejectResponse("http_error");
     if (
-      response.headers
-        .get("content-type")
-        ?.split(";")[0]
-        ?.trim()
-        .toLowerCase() !== "application/json"
+      response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !==
+      "application/json"
     )
       await rejectResponse("invalid_payload");
     if (Number(response.headers.get("content-length")) > 16384)
@@ -75,11 +69,7 @@ export async function observeService(
     try {
       snapshot = parseResponse(
         serviceSnapshotSchema,
-        JSON.parse(
-          new TextDecoder("utf-8", { fatal: true }).decode(
-            Buffer.concat(chunks),
-          ),
-        ),
+        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))),
       );
     } catch {
       throw new ObservationError("invalid_payload");
@@ -135,37 +125,26 @@ export function interpretObservation(
     };
   const snapshot = latest.snapshot;
   const time = now.getTime();
-  if (
-    Date.parse(latest.receivedAt) > time + 5000 ||
-    Date.parse(snapshot.observedAt) > time + 5000
-  )
+  if (Date.parse(latest.receivedAt) > time + 5000 || Date.parse(snapshot.observedAt) > time + 5000)
     return { state: "unknown", reason: "clock_skew" };
   if (
     time - Date.parse(latest.receivedAt) > policy.staleAfterMs ||
     time - Date.parse(snapshot.observedAt) > policy.staleAfterMs
   )
     return { state: "stale", reason: "observation_stale" };
-  if (snapshot.processState === "stopped")
-    return { state: "stopped", reason: "process_stopped" };
-  if (
-    snapshot.processState === "unknown" ||
-    snapshot.activityState === "unknown"
-  )
+  if (snapshot.processState === "stopped") return { state: "stopped", reason: "process_stopped" };
+  if (snapshot.processState === "unknown" || snapshot.activityState === "unknown")
     return { state: "unknown", reason: "signals_missing" };
   if (snapshot.activityState === "degraded")
     return { state: "degraded", reason: "reported_degraded" };
-  if (
-    snapshot.nextExpectedAt &&
-    time > Date.parse(snapshot.nextExpectedAt) + policy.staleAfterMs
-  )
+  if (snapshot.nextExpectedAt && time > Date.parse(snapshot.nextExpectedAt) + policy.staleAfterMs)
     return { state: "degraded", reason: "scheduled_work_overdue" };
   if (snapshot.activityState === "waiting")
     return policy.allowWaiting
       ? { state: "waiting", reason: "reported_waiting" }
       : { state: "degraded", reason: "waiting_not_allowed" };
   if (policy.activityTimeoutMs !== null) {
-    if (!snapshot.lastSuccessAt)
-      return { state: "unknown", reason: "progress_time_missing" };
+    if (!snapshot.lastSuccessAt) return { state: "unknown", reason: "progress_time_missing" };
     if (time - Date.parse(snapshot.lastSuccessAt) > policy.activityTimeoutMs)
       return { state: "degraded", reason: "progress_overdue" };
   }

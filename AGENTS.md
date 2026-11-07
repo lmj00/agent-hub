@@ -4,7 +4,7 @@
 
 ## 작업 전에 읽을 것
 
-1. [README](README.md)에서 프로젝트 목적·현재 구현 상태·첫 운영 버전의 범위를 확인합니다.
+1. [개발 참여 안내](CONTRIBUTING.md)의 파일 배치·검사 기준과 [README](README.md)에서 프로젝트 목적·현재 구현 상태·첫 운영 버전의 범위를 확인합니다.
 2. [구현 계획](docs/02-implementation-plan.md)에서 이번 작업의 단계와 완료 기준을 확인합니다. 실제 파일·검증 결과와 대조하고, 계획을 완료 기록으로 취급하지 않습니다.
 3. 변경할 기능의 동작은 [구조와 실행 규칙](docs/01-architecture.md), 기술 선택의 이유·대안은 [기술 선택 문서](docs/03-technology-decisions.md)를 읽습니다.
 

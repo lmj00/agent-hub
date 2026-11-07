@@ -21,8 +21,7 @@ export function usePolling<T>(
     async function refresh() {
       try {
         const data = await load(controller.signal);
-        if (!controller.signal.aborted)
-          setState({ key, data, error: null, checkedAt: new Date() });
+        if (!controller.signal.aborted) setState({ key, data, error: null, checkedAt: new Date() });
       } catch (error) {
         if (controller.signal.aborted) return;
         if (error instanceof ApiError && error.status === 401) {
@@ -36,8 +35,7 @@ export function usePolling<T>(
           error,
         }));
       }
-      if (!controller.signal.aborted)
-        timer = setTimeout(() => void refresh(), interval);
+      if (!controller.signal.aborted) timer = setTimeout(() => void refresh(), interval);
     }
     void refresh();
     return () => {
@@ -45,7 +43,5 @@ export function usePolling<T>(
       clearTimeout(timer);
     };
   }, [key, load, onExpired, interval, revision]);
-  return state.key === key
-    ? state
-    : { key, data: null, error: null, checkedAt: null };
+  return state.key === key ? state : { key, data: null, error: null, checkedAt: null };
 }

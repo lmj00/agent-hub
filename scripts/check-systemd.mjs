@@ -130,9 +130,17 @@ function snapshot(phase) {
   // Listing labels is read-only; inspect only executions owned by this invocation.
   const known = new Set(runIds);
   const ownedContainers = command("docker", [
-    "ps", "--all", "--no-trunc", "--filter", "label=io.agent-hub.run",
-    "--format", '{{.ID}} {{.Label "io.agent-hub.run"}}',
-  ]).split("\n").filter(Boolean).map((line) => line.split(" "))
+    "ps",
+    "--all",
+    "--no-trunc",
+    "--filter",
+    "label=io.agent-hub.run",
+    "--format",
+    '{{.ID}} {{.Label "io.agent-hub.run"}}',
+  ])
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.split(" "))
     .filter(([, runId]) => known.has(runId));
   const executions = ownedContainers.map(([id]) => {
     const containerPid = Number(command("docker", ["inspect", "--format", "{{.State.Pid}}", id]));
@@ -144,9 +152,12 @@ function snapshot(phase) {
     assert.equal(usage.oomKill, 0, "Owned cgroup recorded OOM kill");
   }
   const sample = {
-    kind: "resource-sample", phase,
+    kind: "resource-sample",
+    phase,
     elapsedMs: Math.round(started - scenarioStarted),
-    host: hostMemory(), service, executions,
+    host: hostMemory(),
+    service,
+    executions,
     // Metadata only. Opening/closing SQLite files here could invalidate its locks.
     state: treeSize(state),
     database: treeSize(join(state, "hub.sqlite")),
@@ -159,9 +170,16 @@ function snapshot(phase) {
 }
 
 async function completeTask(projectId) {
-  const task = (await api(`/projects/${projectId}/tasks`, {
-    instruction: "resource-cycle", requestKey: `systemd-${taskIds.length}`,
-  }, 201)).value;
+  const task = (
+    await api(
+      `/projects/${projectId}/tasks`,
+      {
+        instruction: "resource-cycle",
+        requestKey: `systemd-${taskIds.length}`,
+      },
+      201,
+    )
+  ).value;
   taskIds.push(task.id);
   const run = await waitFor(async () => {
     const { runs } = (await api(`/tasks/${task.id}/runs`)).value;
@@ -197,10 +215,7 @@ async function startTask(projectId) {
   runIds.push(run.id);
   const ids = containers(run.id);
   assert.equal(ids.length, 1);
-  assert.equal(
-    command("docker", ["inspect", "--format", "{{.State.Running}}", ids[0]]),
-    "true",
-  );
+  assert.equal(command("docker", ["inspect", "--format", "{{.State.Running}}", ids[0]]), "true");
   return { task, run, containerId: ids[0] };
 }
 async function recovered(fixture, errorCode) {
@@ -210,8 +225,7 @@ async function recovered(fixture, errorCode) {
     if (runs.length !== 2 || runs[0].status !== "succeeded") return false;
     // runTask saves success after termination, then awaits removal. Observe both
     // within this same deadline; a saved result alone is not finished cleanup.
-    if (containers(fixture.run.id).length || containers(runs[0].id).length)
-      return false;
+    if (containers(fixture.run.id).length || containers(runs[0].id).length) return false;
     return runs;
   }, "automatic recovery and single replacement");
   const old = (await api(`/runs/${fixture.run.id}`)).value;
@@ -227,16 +241,8 @@ async function recovered(fixture, errorCode) {
     Date.parse(old.terminationConfirmedAt) <= Date.parse(replacement.startedAt),
     "Old execution must terminate before replacement starts",
   );
-  assert.deepEqual(
-    containers(fixture.run.id),
-    [],
-    "Old container survives recovery",
-  );
-  assert.deepEqual(
-    containers(replacement.id),
-    [],
-    "Completed replacement container leaked",
-  );
+  assert.deepEqual(containers(fixture.run.id), [], "Old container survives recovery");
+  assert.deepEqual(containers(replacement.id), [], "Completed replacement container leaked");
   return {
     oldAttempt: old.attempt,
     newAttempt: replacement.attempt,
@@ -247,9 +253,7 @@ async function recovered(fixture, errorCode) {
 function inspectStoppedDatabase() {
   assert.equal(property("ActiveState"), "inactive");
   assert.equal(property("MainPID"), "0");
-  const Database = createRequire(join(root, "apps/server/package.json"))(
-    "better-sqlite3",
-  );
+  const Database = createRequire(join(root, "apps/server/package.json"))("better-sqlite3");
   // No second SQLite connection while the server is running.
   const db = new Database(join(state, "hub.sqlite"), {
     readonly: true,
@@ -258,15 +262,10 @@ function inspectStoppedDatabase() {
   try {
     assert.deepEqual(db.pragma("integrity_check"), [{ integrity_check: "ok" }]);
     assert.deepEqual(db.pragma("foreign_key_check"), []);
-    assert.equal(
-      db.prepare("SELECT count(*) AS n FROM execution_owner").get().n,
-      0,
-    );
+    assert.equal(db.prepare("SELECT count(*) AS n FROM execution_owner").get().n, 0);
     assert.equal(
       db
-        .prepare(
-          "SELECT count(*) AS n FROM run_executions WHERE termination_confirmed_at IS NULL",
-        )
+        .prepare("SELECT count(*) AS n FROM run_executions WHERE termination_confirmed_at IS NULL")
         .get().n,
       0,
     );
@@ -294,8 +293,9 @@ try {
   assert.ok(existsSync("/sys/fs/cgroup/cgroup.controllers"), "cgroup v2 is required");
   const machineId = readFileSync("/etc/machine-id", "utf8").trim();
   assert.match(machineId, /^[a-f0-9]{32}$/);
-  journalPaths = ["/var/log/journal", "/run/log/journal"]
-    .map((path) => join(path, `${machineId}.agent-hub`));
+  journalPaths = ["/var/log/journal", "/run/log/journal"].map((path) =>
+    join(path, `${machineId}.agent-hub`),
+  );
   for (const path of journalPaths) absent(path);
   for (const path of [
     root,
@@ -307,21 +307,13 @@ try {
     `/etc/systemd/system/${unit}.d`,
   ])
     absent(path);
-  assert.equal(
-    property("LoadState"),
-    "not-found",
-    "Refusing an existing service",
-  );
+  assert.equal(property("LoadState"), "not-found", "Refusing an existing service");
   for (const database of ["passwd", "group"]) {
     try {
       command("getent", [database, "agent-hub"]);
       throw new Error("Existing fixture account");
     } catch (error) {
-      assert.equal(
-        error.status,
-        2,
-        "Refusing an existing account or failed account lookup",
-      );
+      assert.equal(error.status, 2, "Refusing an existing account or failed account lookup");
     }
   }
   assert.equal(systemctl("is-active", "docker.service"), "active");
@@ -371,15 +363,10 @@ try {
   cpSync(process.execPath, join(root, "node"));
   mkdirSync(join(state, "codex"), { mode: 0o700 });
   mkdirSync(join(state, "workspace"), { mode: 0o700 });
-  writeFileSync(
-    join(state, "workspace/README.md"),
-    "Synthetic lifecycle fixture\n",
-  );
-  writeFileSync(
-    join(state, "codex/auth.json"),
-    JSON.stringify({ auth_mode: "chatgpt" }),
-    { mode: 0o600 },
-  );
+  writeFileSync(join(state, "workspace/README.md"), "Synthetic lifecycle fixture\n");
+  writeFileSync(join(state, "codex/auth.json"), JSON.stringify({ auth_mode: "chatgpt" }), {
+    mode: 0o600,
+  });
   const password = randomBytes(24).toString("hex");
   const { hashPassword } = await import(
     pathToFileURL(join(root, "apps/server/dist/modules/auth/password.js"))
@@ -441,11 +428,7 @@ try {
   headers = session(await api("/auth/login", { password }));
   await api("/health/ready");
   const project = (
-    await api(
-      "/projects",
-      { name: "Systemd fixture", workspaceKey: "example" },
-      201,
-    )
+    await api("/projects", { name: "Systemd fixture", workspaceKey: "example" }, 201)
   ).value;
   snapshot("idle-baseline");
 
@@ -458,9 +441,7 @@ try {
   systemctl("kill", "--kill-who=main", "--signal=SIGKILL", unit);
   await waitFor(() => {
     const pid = property("MainPID");
-    return (
-      pid !== "0" && pid !== previousPid && property("ActiveState") === "active"
-    );
+    return pid !== "0" && pid !== previousPid && property("ActiveState") === "active";
   }, "systemd automatic restart");
   await ready();
   assert.equal(property("NRestarts"), "1");
@@ -473,9 +454,7 @@ try {
   assert.equal(snapshot("graceful-active").executions.length, 1);
   systemctl("stop", unit);
   assert.equal(snapshot("graceful-stopped").executions.length, 0);
-  const stopped = inspectStoppedDatabase().find(
-    (run) => run.id === graceful.run.id,
-  );
+  const stopped = inspectStoppedDatabase().find((run) => run.id === graceful.run.id);
   assert.equal(stopped.error_code, "server_shutdown");
   assert.notEqual(stopped.status, "succeeded");
   assert.ok(stopped.termination_confirmed_at);
@@ -561,35 +540,27 @@ try {
   // Only containers for task/run IDs created by this invocation may be removed.
   if (safeToRemove && unitInstalled) {
     try {
-      const Database = createRequire(join(root, "apps/server/package.json"))(
-        "better-sqlite3",
-      );
+      const Database = createRequire(join(root, "apps/server/package.json"))("better-sqlite3");
       if (existsSync(join(state, "hub.sqlite"))) {
         const db = new Database(join(state, "hub.sqlite"), { readonly: true });
         try {
           for (const taskId of taskIds)
-            for (const row of db
-              .prepare("SELECT id FROM runs WHERE task_id = ?")
-              .all(taskId))
+            for (const row of db.prepare("SELECT id FROM runs WHERE task_id = ?").all(taskId))
               runIds.push(row.id);
         } finally {
           db.close();
         }
       }
       for (const runId of new Set(runIds))
-        for (const id of containers(runId))
-          command("docker", ["rm", "--force", id]);
+        for (const id of containers(runId)) command("docker", ["rm", "--force", id]);
     } catch {
       safeToRemove = false;
       process.exitCode = 1;
-      console.error(
-        "Unable to clean owned executions; retaining fixture files",
-      );
+      console.error("Unable to clean owned executions; retaining fixture files");
     }
   }
   if (safeToRemove) {
-    for (const path of owned.reverse())
-      rmSync(path, { recursive: true, force: true });
+    for (const path of owned.reverse()) rmSync(path, { recursive: true, force: true });
     if (unitInstalled) systemctl("daemon-reload");
     if (accountCreated) command("userdel", ["agent-hub"]);
     if (unitInstalled) console.log(JSON.stringify({ kind: "fixture-cleanup", completed: true }));

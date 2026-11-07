@@ -30,10 +30,7 @@ import {
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { createContainerExecutor } from "../src/modules/execution/execution-process.js";
 import { readExecutions } from "../src/modules/execution/execution-record-store.js";
-import type {
-  AnalysisEvent,
-  ExecutionIdentity,
-} from "../src/modules/execution/analysis.js";
+import type { AnalysisEvent, ExecutionIdentity } from "../src/modules/execution/analysis.js";
 import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
 import {
   readDevelopmentRepository,
@@ -57,10 +54,7 @@ import {
   type VerificationResult,
 } from "../src/modules/execution/verification-config.js";
 import type { AnalysisAssessment } from "@agent-hub/contracts";
-import {
-  preparedInputRoot,
-  type GoalScope,
-} from "../src/modules/goals/prepared-workspace.js";
+import { preparedInputRoot, type GoalScope } from "../src/modules/goals/prepared-workspace.js";
 import type { PlannedWork } from "../src/modules/goals/goal-plan-policy.js";
 
 let directory: string,
@@ -99,9 +93,7 @@ function git(...args: string[]) {
   ).trim();
 }
 beforeEach(() => {
-  directory = realpathSync(
-    mkdtempSync(join(tmpdir(), "hub-development-journal-")),
-  );
+  directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-development-journal-")));
   source = join(directory, "source");
   mkdirSync(join(source, "src"), { recursive: true });
   writeFileSync(join(source, "src/main.ts"), "export const answer = 1;\n");
@@ -164,11 +156,7 @@ beforeEach(() => {
   // Public dispatch remains disabled until tests, review and ChangeApplication
   // are connected. Simulate only the internal development Run in this fixture.
   run = store.claim(taskId, "fixture");
-  database.db
-    .update(tasks)
-    .set({ plannedWork })
-    .where(eq(tasks.id, taskId))
-    .run();
+  database.db.update(tasks).set({ plannedWork }).where(eq(tasks.id, taskId)).run();
   inputRoot = preparedInputRoot(join(directory, "hub.sqlite"));
   repositoryRoot = developmentRoot(join(directory, "hub.sqlite"));
 });
@@ -319,17 +307,13 @@ test("saves intent before I/O, preserves input and candidate across reopen and s
     .set({ plannedWork: { ...plannedWork, sourceRevision: "b".repeat(40) } })
     .where(eq(tasks.id, taskId))
     .run();
-  const prepared = await prepareRecordedDevelopment(
-    database.db,
-    request(),
-    (event) => {
-      if (event.development?.type === "repository.intent")
-        expect(existsSync(event.development.repository.directory)).toBe(false);
-      if (event.development?.type === "input.intent")
-        expect(existsSync(event.development.input.directory)).toBe(false);
-      record(event);
-    },
-  );
+  const prepared = await prepareRecordedDevelopment(database.db, request(), (event) => {
+    if (event.development?.type === "repository.intent")
+      expect(existsSync(event.development.repository.directory)).toBe(false);
+    if (event.development?.type === "input.intent")
+      expect(existsSync(event.development.input.directory)).toBe(false);
+    record(event);
+  });
   execute();
   const candidate = await capture(prepared);
   const before = readDevelopmentRounds(database.db, run.id);
@@ -344,9 +328,7 @@ test("saves intent before I/O, preserves input and candidate across reopen and s
   database.close();
   database = openDatabase(join(directory, "hub.sqlite"));
   expect(readDevelopmentRounds(database.db, run.id)).toEqual(before);
-  expect(readDevelopmentRepository(database.db, projectId)?.prepared).toEqual(
-    prepared.repository,
-  );
+  expect(readDevelopmentRepository(database.db, projectId)?.prepared).toEqual(prepared.repository);
   expect(database.client.pragma("foreign_key_check")).toEqual([]);
 });
 
@@ -376,8 +358,7 @@ test.each(["repository.ready", "input.ready"] as const)(
   async (type) => {
     await expect(
       prepareRecordedDevelopment(database.db, request(), (event) => {
-        if (event.development?.type === type)
-          throw new Error("ready save failed");
+        if (event.development?.type === type) throw new Error("ready save failed");
         record(event);
       }),
     ).rejects.toThrow("ready save failed");
@@ -386,19 +367,11 @@ test.each(["repository.ready", "input.ready"] as const)(
     // A new SQLite connection represents reloading durable records, not an in-memory cache.
     const connection = openDatabase(join(directory, "hub.sqlite"));
     try {
-      const prepared = await prepareRecordedDevelopment(
-        connection.db,
-        request(),
-        record,
-      );
+      const prepared = await prepareRecordedDevelopment(connection.db, request(), record);
       expect(prepared.repository.id).toBe(repositoryId);
       if (inputId) expect(prepared.input.id).toBe(inputId);
-      expect(
-        connection.db.select().from(developmentRepositories).all(),
-      ).toHaveLength(1);
-      expect(connection.db.select().from(developmentRounds).all()).toHaveLength(
-        1,
-      );
+      expect(connection.db.select().from(developmentRepositories).all()).toHaveLength(1);
+      expect(connection.db.select().from(developmentRounds).all()).toHaveLength(1);
     } finally {
       connection.close();
     }
@@ -420,9 +393,7 @@ test("partial input files without a final publication are held and not overwritt
   await expect(prepare()).rejects.toThrow();
   const round = readDevelopmentRounds(database.db, run.id)[0]!;
   expect(round.input).toBeNull();
-  expect(
-    readFileSync(join(dirname(round.intent.directory), "partial"), "utf8"),
-  ).toBe("preserve");
+  expect(readFileSync(join(dirname(round.intent.directory), "partial"), "utf8")).toBe("preserve");
 });
 
 test("requires ready input before starting and saved termination before capturing or starting the next phase", async () => {
@@ -435,9 +406,7 @@ test("requires ready input before starting and saved termination before capturin
   const candidate = await capture(prepared);
   await verifyInput();
   expect(() => execute()).not.toThrow();
-  expect(readDevelopmentRounds(database.db, run.id)[0]?.candidate).toEqual(
-    candidate,
-  );
+  expect(readDevelopmentRounds(database.db, run.id)[0]?.candidate).toEqual(candidate);
 });
 
 test("a failed candidate write rolls back and keeps the following phase blocked", async () => {
@@ -463,12 +432,8 @@ test("duplicate ready delivery preserves the first record and a conflicting cand
   const first = readDevelopmentRounds(database.db, run.id)[0]!;
   save({ type: "candidate.ready", sequence: 1, candidate });
   expect(readDevelopmentRounds(database.db, run.id)[0]).toEqual(first);
-  await expect(capture(prepared, 1, "different\n")).rejects.toThrow(
-    "input_unavailable",
-  );
-  expect(readDevelopmentRounds(database.db, run.id)[0]?.candidate).toEqual(
-    candidate,
-  );
+  await expect(capture(prepared, 1, "different\n")).rejects.toThrow("input_unavailable");
+  expect(readDevelopmentRounds(database.db, run.id)[0]?.candidate).toEqual(candidate);
 });
 
 test("rework has a bounded ordered sequence and must continue the preceding candidate", async () => {
@@ -484,30 +449,22 @@ test("rework has a bounded ordered sequence and must continue the preceding cand
     scope,
     plannedWork.paths,
   );
-  expect(() =>
-    save({ type: "input.intent", sequence: 2, input: wrong }),
-  ).toThrow("input_unavailable");
+  expect(() => save({ type: "input.intent", sequence: 2, input: wrong })).toThrow(
+    "input_unavailable",
+  );
   const second = await prepare(2, candidate);
   expect(second.input.tree).toBe(candidate.tree);
-  expect(
-    readFileSync(join(second.input.directory, "src/main.ts"), "utf8"),
-  ).toContain("42");
+  expect(readFileSync(join(second.input.directory, "src/main.ts"), "utf8")).toContain("42");
   execute();
-  const secondCandidate = await capture(
-    second,
-    2,
-    "export const answer = 43;\n",
-  );
+  const secondCandidate = await capture(second, 2, "export const answer = 43;\n");
   await finishReview(2);
   const third = await prepare(3, secondCandidate);
   execute();
   const thirdCandidate = await capture(third, 3);
   await expect(prepare(4, thirdCandidate)).rejects.toThrow("input_unavailable");
-  expect(
-    readDevelopmentRounds(database.db, run.id).map(
-      (value) => value.executionOffset,
-    ),
-  ).toEqual([0, 3, 6]);
+  expect(readDevelopmentRounds(database.db, run.id).map((value) => value.executionOffset)).toEqual([
+    0, 3, 6,
+  ]);
 }, 20000);
 
 test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
@@ -541,23 +498,13 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
     );
     await exec(
       "docker",
-      [
-        "build",
-        "-f",
-        "docker/verification-node.Dockerfile",
-        "-t",
-        configuration.image,
-        ".",
-      ],
+      ["build", "-f", "docker/verification-node.Dockerfile", "-t", configuration.image, "."],
       { cwd, timeout: 90000 },
     );
     const home = join(directory, "synthetic-home");
     mkdirSync(home);
     writeFileSync(join(home, "auth.json"), "synthetic credential");
-    const executor = createContainerExecutor(
-      "agent-hub-development-test:local",
-      home,
-    );
+    const executor = createContainerExecutor("agent-hub-development-test:local", home);
     const prepared = await prepare();
     try {
       const result = await executor.analyze(
@@ -577,9 +524,7 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
         },
         record,
       );
-      expect(
-        readExecutions(database.db, run.id)[0]?.terminationConfirmedAt,
-      ).toBeInstanceOf(Date);
+      expect(readExecutions(database.db, run.id)[0]?.terminationConfirmedAt).toBeInstanceOf(Date);
       const candidate = await captureRecordedDevelopment(
         prepared.repository,
         prepared.input,
@@ -588,13 +533,11 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
         signal(),
         record,
       );
-      expect(
-        readDevelopmentRounds(database.db, run.id)[0]?.candidate?.digest,
-      ).toBe(candidate.digest);
+      expect(readDevelopmentRounds(database.db, run.id)[0]?.candidate?.digest).toBe(
+        candidate.digest,
+      );
       const second = await verifyInput();
-      expect(
-        readFileSync(join(second.input.directory, "src/large-0.txt")),
-      ).toHaveLength(700000);
+      expect(readFileSync(join(second.input.directory, "src/large-0.txt"))).toHaveLength(700000);
       const verified = await executor.analyze(
         {
           runId: run.id,
@@ -627,10 +570,9 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
         sequence: 1,
         result: verified.verification!,
       });
-      expect(
-        readDevelopmentRounds(database.db, run.id)[0]!.verificationResult!
-          .output,
-      ).toContain("AssertionError");
+      expect(readDevelopmentRounds(database.db, run.id)[0]!.verificationResult!.output).toContain(
+        "AssertionError",
+      );
       expect(readExecutions(database.db, run.id)).toHaveLength(2);
       expect(git("status", "--porcelain")).toBe("");
       const proof = await executor.confirmTermination!(run.id);
@@ -656,17 +598,11 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
 test("Goal pause allows saving completed evidence but forbids another phase or rework", async () => {
   const prepared = await prepare();
   execute();
-  database.db
-    .update(goals)
-    .set({ status: "paused" })
-    .where(eq(goals.id, scope.goalId))
-    .run();
+  database.db.update(goals).set({ status: "paused" }).where(eq(goals.id, scope.goalId)).run();
   const candidate = await capture(prepared);
   expect(() => execute()).toThrow("input_unavailable");
   await expect(prepare(2, candidate)).rejects.toThrow("goal_changed");
-  expect(readDevelopmentRounds(database.db, run.id)[0]?.candidate).toEqual(
-    candidate,
-  );
+  expect(readDevelopmentRounds(database.db, run.id)[0]?.candidate).toEqual(candidate);
 });
 
 test("a changed owner cannot publish readiness or start execution", async () => {
@@ -675,9 +611,9 @@ test("a changed owner cannot publish readiness or start execution", async () => 
     .insert(executionOwner)
     .values({ slot: 1, token: randomUUID(), hostname: "fixture", pid: 99999 })
     .run();
-  expect(() =>
-    save({ type: "input.ready", sequence: 1, input: prepared.input }),
-  ).toThrow("ownership");
+  expect(() => save({ type: "input.ready", sequence: 1, input: prepared.input })).toThrow(
+    "ownership",
+  );
   expect(() => execute()).toThrow("ownership");
 });
 
@@ -704,9 +640,7 @@ test("a captured candidate cannot mark the Task successful and input cleanup req
   cleanupRecordedDevelopment(database.db, inputRoot, run.id);
   expect(existsSync(prepared.input.directory)).toBe(false);
   expect(existsSync(prepared.repository.directory)).toBe(true);
-  expect(
-    readDevelopmentRounds(database.db, run.id)[0]?.candidate,
-  ).not.toBeNull();
+  expect(readDevelopmentRounds(database.db, run.id)[0]?.candidate).not.toBeNull();
 });
 
 test("a retry may reuse only this Task's latest candidate after the previous Run termination proof", async () => {
@@ -727,16 +661,8 @@ test("a retry may reuse only this Task's latest candidate after the previous Run
     .run();
   const priorId = run.id;
   run = store.claim(taskId, "fixture");
-  database.db
-    .update(tasks)
-    .set({ plannedWork })
-    .where(eq(tasks.id, taskId))
-    .run();
-  database.db
-    .update(runs)
-    .set({ terminationConfirmedAt: null })
-    .where(eq(runs.id, priorId))
-    .run();
+  database.db.update(tasks).set({ plannedWork }).where(eq(tasks.id, taskId)).run();
+  database.db.update(runs).set({ terminationConfirmedAt: null }).where(eq(runs.id, priorId)).run();
   await expect(prepare(1, candidate)).rejects.toThrow("input_unavailable");
   database.db
     .update(runs)
@@ -776,11 +702,7 @@ test("a different Task cannot use another Task's unaccepted candidate", async ()
     })
     .run();
   run = store.claim(taskId, "fixture");
-  database.db
-    .update(tasks)
-    .set({ plannedWork })
-    .where(eq(tasks.id, taskId))
-    .run();
+  database.db.update(tasks).set({ plannedWork }).where(eq(tasks.id, taskId)).run();
   await expect(prepare(1, candidate)).rejects.toThrow("input_unavailable");
   const fresh = await prepare();
   expect(fresh.input.tree).toBe(prepared.repository.headTree);
@@ -860,8 +782,7 @@ test.each(["verification.intent", "verification.ready"] as const)(
     ).rejects.toThrow("verification write failed");
     expect(existsSync(target)).toBe(type === "verification.ready");
     expect(() => execute()).toThrow("input_unavailable");
-    const stored = readDevelopmentRounds(database.db, run.id)[0]!
-      .verificationIntent;
+    const stored = readDevelopmentRounds(database.db, run.id)[0]!.verificationIntent;
     const connection = openDatabase(join(directory, "hub.sqlite"));
     try {
       const restored = await prepareRecordedVerification(
@@ -877,9 +798,7 @@ test.each(["verification.intent", "verification.ready"] as const)(
       );
       if (stored) expect(restored.input.id).toBe(stored.input.id);
       expect(restored.input.id).not.toBe(prepared.input.id);
-      expect(
-        readFileSync(join(restored.input.directory, "src/main.ts"), "utf8"),
-      ).toContain("42");
+      expect(readFileSync(join(restored.input.directory, "src/main.ts"), "utf8")).toContain("42");
       expect(readDevelopmentRounds(database.db, run.id)).toHaveLength(1);
     } finally {
       connection.close();
@@ -904,13 +823,11 @@ test("verification configuration is immutable after preparation and a cancellati
       },
       (event) => {
         record(event);
-        if (event.development?.type === "verification.intent")
-          controller.abort();
+        if (event.development?.type === "verification.intent") controller.abort();
       },
     ),
   ).rejects.toThrow();
-  const intent = readDevelopmentRounds(database.db, run.id)[0]!
-    .verificationIntent!;
+  const intent = readDevelopmentRounds(database.db, run.id)[0]!.verificationIntent!;
   expect(existsSync(intent.input.directory)).toBe(false);
   await expect(
     prepareRecordedVerification(
@@ -939,9 +856,9 @@ test("verification needs the exact candidate input, configuration and test execu
   await verifyInput();
   const identity = execute(false);
   const result = verificationResult();
-  expect(() =>
-    save({ type: "verification.complete", sequence: 1, result }),
-  ).toThrow("input_unavailable");
+  expect(() => save({ type: "verification.complete", sequence: 1, result })).toThrow(
+    "input_unavailable",
+  );
   finishExecution(identity);
   expect(() => execute()).toThrow("input_unavailable");
   const mutations: Partial<VerificationResult>[] = [
@@ -972,9 +889,9 @@ test("verification needs the exact candidate input, configuration and test execu
   database.client.exec(
     "CREATE TRIGGER reject_verification BEFORE UPDATE OF verification_result ON development_rounds BEGIN SELECT RAISE(ABORT, 'test result write failed'); END",
   );
-  expect(() =>
-    save({ type: "verification.complete", sequence: 1, result }),
-  ).toThrow("test result write failed");
+  expect(() => save({ type: "verification.complete", sequence: 1, result })).toThrow(
+    "test result write failed",
+  );
   expect(() => execute()).toThrow("input_unavailable");
   database.client.exec("DROP TRIGGER reject_verification");
   save({ type: "verification.complete", sequence: 1, result });
@@ -1012,9 +929,9 @@ test.each([false, true])(
       stepSequence: 2,
       assessment: assessment(passed),
     };
-    expect(() =>
-      save({ type: "review.complete", sequence: 1, review }),
-    ).toThrow("input_unavailable");
+    expect(() => save({ type: "review.complete", sequence: 1, review })).toThrow(
+      "input_unavailable",
+    );
     finishExecution(execution);
     for (const mutation of [
       { candidateDigest: "b".repeat(64) },
@@ -1056,13 +973,12 @@ test.each([false, true])(
     save({ type: "review.complete", sequence: 1, review });
     expect(readDevelopmentRounds(database.db, run.id)[0]).toEqual(before);
     expect(() => execute()).toThrow("input_unavailable");
-    if (passed)
-      await expect(prepare(2, candidate)).rejects.toThrow("input_unavailable");
+    if (passed) await expect(prepare(2, candidate)).rejects.toThrow("input_unavailable");
     else {
       await prepare(2, candidate);
-      expect(() =>
-        save({ type: "review.complete", sequence: 1, review }),
-      ).toThrow("input_unavailable");
+      expect(() => save({ type: "review.complete", sequence: 1, review })).toThrow(
+        "input_unavailable",
+      );
     }
   },
 );
@@ -1074,11 +990,7 @@ test("completed verification survives a Goal pause and reopen; both inputs need 
   const verification = await verifyInput();
   execute();
   const result = verificationResult();
-  database.db
-    .update(goals)
-    .set({ status: "paused" })
-    .where(eq(goals.id, scope.goalId))
-    .run();
+  database.db.update(goals).set({ status: "paused" }).where(eq(goals.id, scope.goalId)).run();
   save({ type: "verification.complete", sequence: 1, result });
   expect(() => execute()).toThrow("input_unavailable");
   const before = readDevelopmentRounds(database.db, run.id);
@@ -1101,9 +1013,7 @@ test("completed verification survives a Goal pause and reopen; both inputs need 
   cleanupRecordedDevelopment(database.db, inputRoot, run.id);
   expect(existsSync(verification.input.directory)).toBe(false);
   expect(existsSync(prepared.input.directory)).toBe(false);
-  expect(
-    readDevelopmentRounds(database.db, run.id)[0]!.verificationResult,
-  ).toEqual(result);
+  expect(readDevelopmentRounds(database.db, run.id)[0]!.verificationResult).toEqual(result);
 });
 
 test("verification migration preserves populated development records without inventing successful evidence", async () => {
@@ -1166,9 +1076,7 @@ test("verification migration preserves populated development records without inv
     expect(restored.verificationResult).toBeNull();
     expect(() =>
       migrated.client
-        .prepare(
-          "UPDATE development_rounds SET verification_result='{}',verified_at=1",
-        )
+        .prepare("UPDATE development_rounds SET verification_result='{}',verified_at=1")
         .run(),
     ).toThrow("CHECK");
     expect(migrated.client.pragma("foreign_key_check")).toEqual([]);

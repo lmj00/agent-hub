@@ -1,13 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, lte, or } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  changeApplications,
-  notifications,
-  runs,
-  taskReleases,
-  tasks,
-} from "../../db/schema.js";
+import { changeApplications, notifications, runs, taskReleases, tasks } from "../../db/schema.js";
 import { assertExecutionOwner } from "../execution/execution-owner.js";
 import type { QueueStatus } from "../execution/execution-queue.js";
 import { readProviderGate } from "../execution/provider-gate.js";
@@ -20,21 +14,9 @@ import type {
 
 type Db = ReturnType<typeof openDatabase>["db"];
 type Receipt = typeof notifications.$inferSelect;
-type Issue = Pick<
-  Receipt,
-  "reason" | "conditionKey" | "projectId" | "taskId" | "runId"
->;
-const taskStates = [
-  "blocked",
-  "failed",
-  "interrupted",
-  "waiting_capacity",
-] as const;
-const retryLimits = new Set([
-  "retry_limit",
-  "repeated_error_limit",
-  "task_time_limit",
-]);
+type Issue = Pick<Receipt, "reason" | "conditionKey" | "projectId" | "taskId" | "runId">;
+const taskStates = ["blocked", "failed", "interrupted", "waiting_capacity"] as const;
+const retryLimits = new Set(["retry_limit", "repeated_error_limit", "task_time_limit"]);
 
 export function listNotifications(db: Db) {
   return db
@@ -74,11 +56,7 @@ export function createNotificationStore(
       if (queue && queue.lastCheckedAt === null) return undefined;
       // claimNext has found a surviving running record instead of starting work.
       // A genuinely running queue, however old its activity timestamp, is excluded.
-      if (
-        queue?.state === "held" &&
-        queue.reason === "running" &&
-        queue.runId
-      ) {
+      if (queue?.state === "held" && queue.reason === "running" && queue.runId) {
         const held = db
           .select({
             runId: runs.id,
@@ -99,9 +77,7 @@ export function createNotificationStore(
       }
       if (queue?.state !== "error") return null;
       const reason =
-        queue.reason === "configuration_invalid"
-          ? "configuration_required"
-          : "storage_error";
+        queue.reason === "configuration_invalid" ? "configuration_required" : "storage_error";
       return {
         conditionKey: reason,
         reason,
@@ -176,8 +152,7 @@ export function createNotificationStore(
       .from(tasks)
       .where(eq(tasks.id, taskId))
       .get();
-    if (!task || !taskStates.some((status) => status === task.status))
-      return null;
+    if (!task || !taskStates.some((status) => status === task.status)) return null;
     const run = db
       .select({
         id: runs.id,
@@ -201,10 +176,7 @@ export function createNotificationStore(
           .select({ id: changeApplications.id })
           .from(changeApplications)
           .where(
-            and(
-              eq(changeApplications.taskId, taskId),
-              eq(changeApplications.status, "pending"),
-            ),
+            and(eq(changeApplications.taskId, taskId), eq(changeApplications.status, "pending")),
           )
           .get() ||
         db
@@ -218,13 +190,10 @@ export function createNotificationStore(
       // Account-wide holds have one provider notification, not one per affected task.
       if (
         gate?.blocked &&
-        ["authentication", "unsupported_settings", "capacity"].includes(
-          run?.errorCode ?? "",
-        )
+        ["authentication", "unsupported_settings", "capacity"].includes(run?.errorCode ?? "")
       )
         return null;
-      if (task.status === "waiting_capacity" || run?.errorCode === "capacity")
-        return null;
+      if (task.status === "waiting_capacity" || run?.errorCode === "capacity") return null;
       const retryReason = task.retryState?.reason ?? "";
       reason = retryLimits.has(retryReason)
         ? (retryReason as NotificationReason)
@@ -309,10 +278,8 @@ export function createNotificationStore(
             .orderBy(asc(changeApplications.repositoryId))
             .limit(25)
             .all();
-          for (const application of applications)
-            sync(`application:${application.id}`, now);
-          applicationCursor =
-            applications.length === 25 ? applications.at(-1)!.repositoryId : "";
+          for (const application of applications) sync(`application:${application.id}`, now);
+          applicationCursor = applications.length === 25 ? applications.at(-1)!.repositoryId : "";
           for (const status of taskStates) {
             const cursor = cursors.get(status);
             const page = db
@@ -324,10 +291,7 @@ export function createNotificationStore(
                   cursor
                     ? or(
                         gt(tasks.createdAt, cursor.at),
-                        and(
-                          eq(tasks.createdAt, cursor.at),
-                          gt(tasks.id, cursor.id),
-                        ),
+                        and(eq(tasks.createdAt, cursor.at), gt(tasks.id, cursor.id)),
                       )
                     : undefined,
                 ),
@@ -355,25 +319,15 @@ export function createNotificationStore(
     },
     claim(
       now = new Date(),
-    ):
-      | { id: string; attempt: number; payload: NotificationPayload }
-      | undefined {
+    ): { id: string; attempt: number; payload: NotificationPayload } | undefined {
       return db.transaction(
         () => {
           assertExecutionOwner(db, ownerToken);
           const row = db
             .select()
             .from(notifications)
-            .where(
-              and(
-                eq(notifications.status, "pending"),
-                lte(notifications.nextAttemptAt, now),
-              ),
-            )
-            .orderBy(
-              asc(notifications.nextAttemptAt),
-              asc(notifications.sourceKey),
-            )
+            .where(and(eq(notifications.status, "pending"), lte(notifications.nextAttemptAt, now)))
+            .orderBy(asc(notifications.nextAttemptAt), asc(notifications.sourceKey))
             .limit(1)
             .get();
           if (!row) return;
@@ -397,10 +351,7 @@ export function createNotificationStore(
             return;
           }
           const attempt = row.attempts + 1;
-          const delay = Math.min(
-            config.maxDelayMs,
-            config.initialDelayMs * 2 ** (attempt - 1),
-          );
+          const delay = Math.min(config.maxDelayMs, config.initialDelayMs * 2 ** (attempt - 1));
           // A crash after delivery but before acknowledgement retries the same id.
           db.update(notifications)
             .set({
@@ -430,22 +381,12 @@ export function createNotificationStore(
         { behavior: "immediate" },
       );
     },
-    finish(
-      id: string,
-      attempt: number,
-      result: DeliveryResult,
-      now = new Date(),
-    ) {
+    finish(id: string, attempt: number, result: DeliveryResult, now = new Date()) {
       db.transaction(
         () => {
           assertExecutionOwner(db, ownerToken);
-          const row = db
-            .select()
-            .from(notifications)
-            .where(eq(notifications.id, id))
-            .get();
-          if (!row || row.status !== "pending" || row.attempts !== attempt)
-            return;
+          const row = db.select().from(notifications).where(eq(notifications.id, id)).get();
+          if (!row || row.status !== "pending" || row.attempts !== attempt) return;
           sync(row.sourceKey, now);
           const status =
             result === "delivered"
@@ -460,12 +401,7 @@ export function createNotificationStore(
               nextAttemptAt: status === "pending" ? row.nextAttemptAt : null,
               updatedAt: now,
             })
-            .where(
-              and(
-                eq(notifications.id, id),
-                eq(notifications.status, "pending"),
-              ),
-            )
+            .where(and(eq(notifications.id, id), eq(notifications.status, "pending")))
             .run();
         },
         { behavior: "immediate" },

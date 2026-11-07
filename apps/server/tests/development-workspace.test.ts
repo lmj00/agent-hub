@@ -29,10 +29,7 @@ import {
   type DevelopmentInput,
   type DevelopmentRepository,
 } from "../src/modules/goals/development-workspace.js";
-import {
-  preparedInputRoot,
-  type GoalScope,
-} from "../src/modules/goals/prepared-workspace.js";
+import { preparedInputRoot, type GoalScope } from "../src/modules/goals/prepared-workspace.js";
 
 let directory: string, source: string, root: string, inputs: string;
 const signal = () => new AbortController().signal;
@@ -89,11 +86,7 @@ function input(repo: DevelopmentRepository, paths = ["src"], selected = scope) {
     signal(),
   );
 }
-function change(
-  path: string,
-  content: string | Buffer | null,
-  mode: string = "100644",
-) {
+function change(path: string, content: string | Buffer | null, mode: string = "100644") {
   return {
     path,
     mode: content === null ? null : mode,
@@ -129,69 +122,48 @@ test("only a fully published repository can be adopted after restart", async () 
   const repo = await prepareDevelopmentRepository(intent, signal());
   expect(await recoverDevelopmentRepository(intent, signal())).toEqual(repo);
   rmSync(join(repo.directory, "repository.ready.json"));
-  await expect(
-    recoverDevelopmentRepository(intent, signal()),
-  ).rejects.toThrow();
+  await expect(recoverDevelopmentRepository(intent, signal())).rejects.toThrow();
   expect(git(source, ["status", "--porcelain"])).toBe("");
   const missing = developmentRepositoryIntent(root, source, randomUUID());
-  await expect(
-    recoverDevelopmentRepository(missing, signal()),
-  ).rejects.toThrow();
+  await expect(recoverDevelopmentRepository(missing, signal())).rejects.toThrow();
   expect(existsSync(missing.directory)).toBe(false);
 });
 
 test("input recovery checks publication, contents, repository identity and accepted head tree", async () => {
   const repo = await repository();
-  const intent = developmentInputIntent(inputs, repo, randomUUID(), scope, [
-    "src",
-  ]);
+  const intent = developmentInputIntent(inputs, repo, randomUUID(), scope, ["src"]);
   const prepared = await prepareDevelopmentInput(intent, repo, signal());
-  expect(await recoverDevelopmentInput(intent, repo, signal())).toEqual(
-    prepared,
-  );
+  expect(await recoverDevelopmentInput(intent, repo, signal())).toEqual(prepared);
   await expect(
     recoverDevelopmentInput(intent, { ...repo, id: randomUUID() }, signal()),
   ).rejects.toThrow("stale");
   await expect(
     assertDevelopmentBase({ ...repo, headTree: "a".repeat(40) }, signal()),
   ).rejects.toThrow("tree changed");
-  writeFileSync(
-    join(prepared.directory, "src/main.ts"),
-    "export const answer = 9;\n",
-  );
-  await expect(recoverDevelopmentInput(intent, repo, signal())).rejects.toThrow(
-    "file changed",
-  );
+  writeFileSync(join(prepared.directory, "src/main.ts"), "export const answer = 9;\n");
+  await expect(recoverDevelopmentInput(intent, repo, signal())).rejects.toThrow("file changed");
   rmSync(join(dirname(prepared.directory), "input.ready.json"));
-  await expect(
-    recoverDevelopmentInput(intent, repo, signal()),
-  ).rejects.toThrow();
+  await expect(recoverDevelopmentInput(intent, repo, signal())).rejects.toThrow();
 });
 
 test("input recovery refuses additional files and directory links", async () => {
   const repo = await repository();
-  const intent = developmentInputIntent(inputs, repo, randomUUID(), scope, [
-    "src",
-  ]);
+  const intent = developmentInputIntent(inputs, repo, randomUUID(), scope, ["src"]);
   const prepared = await prepareDevelopmentInput(intent, repo, signal());
   writeFileSync(join(prepared.directory, "src/.env"), "unexpected");
-  await expect(recoverDevelopmentInput(intent, repo, signal())).rejects.toThrow(
-    "Unexpected",
-  );
+  await expect(recoverDevelopmentInput(intent, repo, signal())).rejects.toThrow("Unexpected");
   rmSync(join(prepared.directory, "src/.env"));
   rmSync(join(prepared.directory, "src"), { recursive: true });
   symlinkSync(join(source, "src"), join(prepared.directory, "src"));
-  await expect(
-    recoverDevelopmentInput(intent, repo, signal()),
-  ).rejects.toThrow();
+  await expect(recoverDevelopmentInput(intent, repo, signal())).rejects.toThrow();
 });
 
 test("input cleanup is idempotent and requires the saved identity", async () => {
   const repo = await repository(),
     prepared = await input(repo);
-  expect(() =>
-    removeDevelopmentInput(inputs, { ...prepared, repositoryId: randomUUID() }),
-  ).toThrow("identity");
+  expect(() => removeDevelopmentInput(inputs, { ...prepared, repositoryId: randomUUID() })).toThrow(
+    "identity",
+  );
   expect(existsSync(prepared.directory)).toBe(true);
   removeDevelopmentInput(inputs, prepared);
   removeDevelopmentInput(inputs, prepared);
@@ -209,14 +181,7 @@ test("rework starts from the previous candidate and records the cumulative chang
     signal(),
   );
   const second = await prepareDevelopmentInput(
-    developmentInputIntent(
-      inputs,
-      repo,
-      first.runId,
-      scope,
-      ["src"],
-      firstCandidate,
-    ),
+    developmentInputIntent(inputs, repo, first.runId, scope, ["src"], firstCandidate),
     repo,
     signal(),
   );
@@ -225,28 +190,17 @@ test("rework starts from the previous candidate and records the cumulative chang
     tree: firstCandidate.tree,
     previousCandidate: firstCandidate.digest,
   });
-  expect(readFileSync(join(second.directory, "src/main.ts"), "utf8")).toBe(
-    "first fix\n",
-  );
+  expect(readFileSync(join(second.directory, "src/main.ts"), "utf8")).toBe("first fix\n");
   const final = await stageDevelopmentCandidate(
     repo,
     second,
     bundle(second, [change("src/extra.ts", "second fix\n")]),
     signal(),
   );
-  expect(final.changes.map((entry) => entry.path)).toEqual([
-    "src/extra.ts",
-    "src/main.ts",
-  ]);
-  expect(
-    git(join(repo.directory, "git"), ["show", `${final.tree}:src/main.ts`]),
-  ).toBe("first fix");
-  await expect(
-    verifyDevelopmentCandidate(repo, second, final, signal()),
-  ).resolves.toBeUndefined();
-  expect(git(join(repo.directory, "git"), ["rev-parse", "HEAD"])).toBe(
-    repo.head,
-  );
+  expect(final.changes.map((entry) => entry.path)).toEqual(["src/extra.ts", "src/main.ts"]);
+  expect(git(join(repo.directory, "git"), ["show", `${final.tree}:src/main.ts`])).toBe("first fix");
+  await expect(verifyDevelopmentCandidate(repo, second, final, signal())).resolves.toBeUndefined();
+  expect(git(join(repo.directory, "git"), ["rev-parse", "HEAD"])).toBe(repo.head);
   expect(git(source, ["status", "--porcelain"])).toBe("");
 });
 
@@ -260,14 +214,7 @@ test("rework can revert an earlier edit and cannot hide an earlier change outsid
     signal(),
   );
   const narrower = await prepareDevelopmentInput(
-    developmentInputIntent(
-      inputs,
-      repo,
-      first.runId,
-      scope,
-      ["src/delete.ts"],
-      candidate,
-    ),
+    developmentInputIntent(inputs, repo, first.runId, scope, ["src/delete.ts"], candidate),
     repo,
     signal(),
   );
@@ -275,14 +222,7 @@ test("rework can revert an earlier edit and cannot hide an earlier change outsid
     stageDevelopmentCandidate(repo, narrower, bundle(narrower, []), signal()),
   ).rejects.toThrow("Cumulative");
   const second = await prepareDevelopmentInput(
-    developmentInputIntent(
-      inputs,
-      repo,
-      first.runId,
-      scope,
-      ["src"],
-      candidate,
-    ),
+    developmentInputIntent(inputs, repo, first.runId, scope, ["src"], candidate),
     repo,
     signal(),
   );
@@ -310,9 +250,9 @@ test("candidate verification recomputes the tree diff even when a forged manifes
     ...record,
     digest: createHash("sha256").update(JSON.stringify(record)).digest("hex"),
   };
-  await expect(
-    verifyDevelopmentCandidate(repo, prepared, forged, signal()),
-  ).rejects.toThrow("tree changed");
+  await expect(verifyDevelopmentCandidate(repo, prepared, forged, signal())).rejects.toThrow(
+    "tree changed",
+  );
 });
 
 test("imports only the current tree into a private repository and supplies scoped context without history or secrets", async () => {
@@ -330,17 +270,13 @@ test("imports only the current tree into a private repository and supplies scope
   expect(existsSync(join(storage, "objects/info/alternates"))).toBe(false);
   expect(git(storage, ["remote"])).toBe("");
   expect(lstatSync(repo.directory).mode & 0o777).toBe(0o700);
-  expect(lstatSync(join(repo.directory, "repository.json")).mode & 0o777).toBe(
-    0o600,
-  );
+  expect(lstatSync(join(repo.directory, "repository.json")).mode & 0o777).toBe(0o600);
   expect(prepared.files.map((entry) => entry.path)).toEqual([
     "src/delete.ts",
     "src/main.ts",
     "tests/main.test.ts",
   ]);
-  expect(readFileSync(join(prepared.directory, "src/main.ts"), "utf8")).toBe(
-    "current\n",
-  );
+  expect(readFileSync(join(prepared.directory, "src/main.ts"), "utf8")).toBe("current\n");
   for (const path of ["src/.env", "src/private", "outside.txt"])
     expect(existsSync(join(prepared.directory, path))).toBe(false);
   expect(() => git(prepared.directory, ["rev-parse", "HEAD"])).toThrow();
@@ -370,21 +306,11 @@ test("stages exact additions, deletion and executable bytes while preserving out
     inputDigest: prepared.digest,
     digest: expect.stringMatching(/^[a-f0-9]{64}$/),
   });
-  expect(git(storage, ["show", `${candidate.tree}:src/main.ts`])).toContain(
-    "2",
-  );
-  expect(git(storage, ["show", `${candidate.tree}:outside.txt`])).toBe(
-    "outside",
-  );
-  expect(git(storage, ["show", `${candidate.tree}:src/.env`])).toBe(
-    "secret fixture",
-  );
-  expect(() =>
-    git(storage, ["show", `${candidate.tree}:src/delete.ts`]),
-  ).toThrow();
-  expect(git(storage, ["ls-tree", candidate.tree, "src/run.sh"])).toMatch(
-    /^100755 blob/,
-  );
+  expect(git(storage, ["show", `${candidate.tree}:src/main.ts`])).toContain("2");
+  expect(git(storage, ["show", `${candidate.tree}:outside.txt`])).toBe("outside");
+  expect(git(storage, ["show", `${candidate.tree}:src/.env`])).toBe("secret fixture");
+  expect(() => git(storage, ["show", `${candidate.tree}:src/delete.ts`])).toThrow();
+  expect(git(storage, ["ls-tree", candidate.tree, "src/run.sh"])).toMatch(/^100755 blob/);
   expect(
     execFileSync("git", ["show", `${candidate.tree}:src/binary.bin`], {
       cwd: storage,
@@ -417,12 +343,8 @@ test("the next input includes an accepted commit, while a stale descriptor or un
   const nextRepo = { ...repo, head: accepted, headTree: candidate.tree },
     second = await input(nextRepo);
   expect(second.revision).toBe(accepted);
-  expect(readFileSync(join(second.directory, "src/main.ts"), "utf8")).toBe(
-    "accepted\n",
-  );
-  expect(readFileSync(join(first.directory, "src/main.ts"), "utf8")).toContain(
-    "1",
-  );
+  expect(readFileSync(join(second.directory, "src/main.ts"), "utf8")).toBe("accepted\n");
+  expect(readFileSync(join(first.directory, "src/main.ts"), "utf8")).toContain("1");
   await expect(
     stageDevelopmentCandidate(nextRepo, first, bundle(first, []), signal()),
   ).rejects.toThrow("stale");
@@ -436,8 +358,7 @@ test.each(["dirty", "head", "hidden"])(
       prepared = await input(repo);
     if (kind === "head") commit();
     else {
-      if (kind === "hidden")
-        git(source, ["update-index", "--assume-unchanged", "src/main.ts"]);
+      if (kind === "hidden") git(source, ["update-index", "--assume-unchanged", "src/main.ts"]);
       file("src/main.ts", "external edit");
     }
     await expect(
@@ -448,9 +369,7 @@ test.each(["dirty", "head", "hidden"])(
         signal(),
       ),
     ).rejects.toThrow();
-    expect(git(join(repo.directory, "git"), ["rev-parse", "HEAD"])).toBe(
-      repo.head,
-    );
+    expect(git(join(repo.directory, "git"), ["rev-parse", "HEAD"])).toBe(repo.head);
   },
 );
 
@@ -470,12 +389,7 @@ test.each([
   const repo = await repository(),
     prepared = await input(repo);
   await expect(
-    stageDevelopmentCandidate(
-      repo,
-      prepared,
-      bundle(prepared, [change(path, "bad")]),
-      signal(),
-    ),
+    stageDevelopmentCandidate(repo, prepared, bundle(prepared, [change(path, "bad")]), signal()),
   ).rejects.toThrow("scope");
 });
 
@@ -494,30 +408,19 @@ test.each([
   const repo = await repository(),
     prepared = await input(repo);
   const result = bundle(prepared, [change("src/main.ts", "new")]);
-  if (kind === "symlink")
-    result.changes = [change("src/link", "/outside", "120000")];
-  if (kind === "submodule")
-    result.changes = [change("src/vendor", "object", "160000")];
+  if (kind === "symlink") result.changes = [change("src/link", "/outside", "120000")];
+  if (kind === "submodule") result.changes = [change("src/vendor", "object", "160000")];
   if (kind === "bad-base64")
-    result.changes = [
-      { path: "src/main.ts", mode: "100644", content: "a===!" },
-    ];
-  if (kind === "duplicate")
-    result.changes.push(change("src/main.ts", "another"));
+    result.changes = [{ path: "src/main.ts", mode: "100644", content: "a===!" }];
+  if (kind === "duplicate") result.changes.push(change("src/main.ts", "another"));
   if (kind === "base") result.baseRevision = "0".repeat(40);
   if (kind === "digest") result.inputDigest = "0".repeat(64);
   if (kind === "mutated-input") prepared.writePaths.push("tests");
-  if (kind === "delete-missing")
-    result.changes = [change("src/missing.ts", null)];
+  if (kind === "delete-missing") result.changes = [change("src/missing.ts", null)];
   if (kind === "case") result.changes = [change("src/Main.ts", "alias")];
-  if (kind === "file-directory")
-    result.changes = [change("src/main.ts/child", "collision")];
-  await expect(
-    stageDevelopmentCandidate(repo, prepared, result, signal()),
-  ).rejects.toThrow();
-  expect(git(join(repo.directory, "git"), ["rev-parse", "HEAD"])).toBe(
-    repo.head,
-  );
+  if (kind === "file-directory") result.changes = [change("src/main.ts/child", "collision")];
+  await expect(stageDevelopmentCandidate(repo, prepared, result, signal())).rejects.toThrow();
+  expect(git(join(repo.directory, "git"), ["rev-parse", "HEAD"])).toBe(repo.head);
 });
 
 test("a declared file-to-directory replacement preserves every unrelated tree entry", async () => {
@@ -526,21 +429,15 @@ test("a declared file-to-directory replacement preserves every unrelated tree en
   const candidate = await stageDevelopmentCandidate(
     repo,
     prepared,
-    bundle(prepared, [
-      change("src/main.ts/child", "replacement"),
-      change("src/main.ts", null),
-    ]),
+    bundle(prepared, [change("src/main.ts/child", "replacement"), change("src/main.ts", null)]),
     signal(),
   );
-  expect(
-    git(join(repo.directory, "git"), [
-      "show",
-      `${candidate.tree}:src/main.ts/child`,
-    ]),
-  ).toBe("replacement");
-  expect(
-    git(join(repo.directory, "git"), ["show", `${candidate.tree}:outside.txt`]),
-  ).toBe("outside");
+  expect(git(join(repo.directory, "git"), ["show", `${candidate.tree}:src/main.ts/child`])).toBe(
+    "replacement",
+  );
+  expect(git(join(repo.directory, "git"), ["show", `${candidate.tree}:outside.txt`])).toBe(
+    "outside",
+  );
 });
 
 test("rejects case and Unicode aliases of directories, duplicate normalization and excessive path depth", async () => {
@@ -553,12 +450,7 @@ test("rejects case and Unicode aliases of directories, duplicate normalization a
     [change(`src/${"a".repeat(1025)}`, "long")],
   ])
     await expect(
-      stageDevelopmentCandidate(
-        repo,
-        prepared,
-        bundle(prepared, changes),
-        signal(),
-      ),
+      stageDevelopmentCandidate(repo, prepared, bundle(prepared, changes), signal()),
     ).rejects.toThrow();
 });
 
@@ -583,9 +475,9 @@ test("imports SHA-256 repositories and retains their object format for new candi
   );
   expect(repo.head).toHaveLength(64);
   expect(candidate.tree).toHaveLength(64);
-  expect(
-    git(join(repo.directory, "git"), ["show", `${candidate.tree}:src/main.ts`]),
-  ).toBe("changed");
+  expect(git(join(repo.directory, "git"), ["show", `${candidate.tree}:src/main.ts`])).toBe(
+    "changed",
+  );
 });
 
 test("does not read a model-modified worktree, Git configuration, hook or symlink when building a candidate", async () => {
@@ -600,19 +492,16 @@ test("does not read a model-modified worktree, Git configuration, hook or symlin
   );
   git(prepared.directory, ["config", "core.fsmonitor", hook]);
   rmSync(join(prepared.directory, "src/main.ts"));
-  symlinkSync(
-    join(source, "src/.env"),
-    join(prepared.directory, "src/main.ts"),
-  );
+  symlinkSync(join(source, "src/.env"), join(prepared.directory, "src/main.ts"));
   const candidate = await stageDevelopmentCandidate(
     repo,
     prepared,
     bundle(prepared, [change("src/main.ts", "declared bytes")]),
     signal(),
   );
-  expect(
-    git(join(repo.directory, "git"), ["show", `${candidate.tree}:src/main.ts`]),
-  ).toBe("declared bytes");
+  expect(git(join(repo.directory, "git"), ["show", `${candidate.tree}:src/main.ts`])).toBe(
+    "declared bytes",
+  );
   expect(existsSync(executed)).toBe(false);
   expect(readFileSync(join(source, "src/.env"), "utf8")).toBe("secret fixture");
 });
@@ -626,19 +515,12 @@ test.each(["file", "total", "count", "result-count"])(
       bound === "file"
         ? [change("src/big", "x".repeat(1048577))]
         : bound === "total"
-          ? Array.from({ length: 9 }, (_, i) =>
-              change(`src/big-${i}`, "x".repeat(1048576)),
-            )
+          ? Array.from({ length: 9 }, (_, i) => change(`src/big-${i}`, "x".repeat(1048576)))
           : Array.from({ length: bound === "count" ? 501 : 498 }, (_, i) =>
               change(`src/new-${i}`, "small"),
             );
     await expect(
-      stageDevelopmentCandidate(
-        repo,
-        prepared,
-        bundle(prepared, changes),
-        signal(),
-      ),
+      stageDevelopmentCandidate(repo, prepared, bundle(prepared, changes), signal()),
     ).rejects.toThrow("limits");
   },
 );
@@ -653,41 +535,30 @@ test("baseline limits include files outside the AI scope, and original symbolic 
   const repo = await repository(),
     prepared = await input(repo);
   expect(existsSync(join(prepared.directory, "outside-link"))).toBe(false);
-  await expect(
-    input(repo, ["src"], { ...scope, allowedPaths: ["."] }),
-  ).rejects.toThrow("symlink or submodule");
+  await expect(input(repo, ["src"], { ...scope, allowedPaths: ["."] })).rejects.toThrow(
+    "symlink or submodule",
+  );
 });
 
 test("refuses linked storage and replaced identity markers; aborted preparation creates no repository", async () => {
   const intent = developmentRepositoryIntent(root, source, randomUUID());
-  await expect(
-    prepareDevelopmentRepository(intent, AbortSignal.abort()),
-  ).rejects.toThrow();
+  await expect(prepareDevelopmentRepository(intent, AbortSignal.abort())).rejects.toThrow();
   expect(existsSync(intent.directory)).toBe(false);
   const linked = join(directory, "linked");
   symlinkSync(root, linked);
-  expect(() =>
-    developmentRepositoryIntent(linked, source, randomUUID()),
-  ).toThrow();
+  expect(() => developmentRepositoryIntent(linked, source, randomUUID())).toThrow();
   const repo = await repository();
   writeFileSync(
     join(repo.directory, "repository.json"),
     JSON.stringify({ ...repo, projectId: "another" }),
   );
-  await expect(assertDevelopmentBase(repo, signal())).rejects.toThrow(
-    "identity changed",
-  );
+  await expect(assertDevelopmentBase(repo, signal())).rejects.toThrow("identity changed");
   expect(git(source, ["status", "--porcelain"])).toBe("");
 });
 
 test("preserves an out-of-scope submodule reference without importing or exposing its repository", async () => {
   const linkedCommit = git(source, ["rev-parse", "HEAD"]);
-  git(source, [
-    "update-index",
-    "--add",
-    "--cacheinfo",
-    `160000,${linkedCommit},vendor`,
-  ]);
+  git(source, ["update-index", "--add", "--cacheinfo", `160000,${linkedCommit},vendor`]);
   git(source, ["commit", "--quiet", "-m", "submodule fixture"]);
   const repo = await repository(),
     prepared = await input(repo);

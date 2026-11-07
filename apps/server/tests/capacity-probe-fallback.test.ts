@@ -16,10 +16,7 @@ import {
 } from "../src/db/schema.js";
 import { createCapacityRecovery } from "../src/modules/execution/capacity-recovery.js";
 import { defaultCapacityPolicy } from "../src/modules/execution/capacity-policy.js";
-import {
-  defaultRetryPolicy,
-  initialRetryState,
-} from "../src/modules/execution/retry-policy.js";
+import { defaultRetryPolicy, initialRetryState } from "../src/modules/execution/retry-policy.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { acquireExecutionOwner } from "../src/modules/execution/execution-owner.js";
 import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
@@ -40,19 +37,13 @@ const definition: GoalDefinition = {
   checkIntervalMs: 60000,
   budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
 };
-let directory: string,
-  projectId: string,
-  sourceGoal: string,
-  sourceTask: string,
-  sourceRun: string;
-let database: ReturnType<typeof openDatabase>,
-  owner: ReturnType<typeof acquireExecutionOwner>;
+let directory: string, projectId: string, sourceGoal: string, sourceTask: string, sourceRun: string;
+let database: ReturnType<typeof openDatabase>, owner: ReturnType<typeof acquireExecutionOwner>;
 let store: ReturnType<typeof createDrizzleRunStore>,
   goals: ReturnType<typeof createDrizzleGoalStore>;
 let capacity: ReturnType<typeof createCapacityRecovery>;
 const gate = () => store.getProviderGate();
-const row = (id: string) =>
-  database.db.select().from(tasks).where(eq(tasks.id, id)).get()!;
+const row = (id: string) => database.db.select().from(tasks).where(eq(tasks.id, id)).get()!;
 function candidate() {
   const goal = goals.register(projectId, randomUUID(), definition).goal;
   const id = randomUUID();
@@ -209,9 +200,7 @@ test("replaces an unstarted reservation atomically and another SQLite connection
     });
     expect(scheduler.tick()).toBe(false);
     expect(gate().probeTaskId).toBe(next.taskId);
-    expect(() =>
-      store.reserveProviderCheck(next.taskId, original.version),
-    ).toThrow("GATE_CHANGED");
+    expect(() => store.reserveProviderCheck(next.taskId, original.version)).toThrow("GATE_CHANGED");
   } finally {
     second.close();
   }
@@ -317,20 +306,12 @@ test.each([
         errorCode: "transient",
       })
       .run();
-  if (
-    kind === "retry-limit" ||
-    kind === "retry-count" ||
-    kind === "retry-time"
-  ) {
+  if (kind === "retry-limit" || kind === "retry-count" || kind === "retry-time") {
     const retry = initialRetryState(defaultRetryPolicy);
     if (kind === "retry-limit") retry.totalRunMs = retry.policy.maxTotalRunMs;
     else if (kind === "retry-count") retry.retries = retry.policy.maxRetries;
     else retry.nextAttemptAt = new Date(Date.now() + 30000).toISOString();
-    database.db
-      .update(tasks)
-      .set({ retryState: retry })
-      .where(eq(tasks.id, next.taskId))
-      .run();
+    database.db.update(tasks).set({ retryState: retry }).where(eq(tasks.id, next.taskId)).run();
   }
   if (kind === "budget")
     database.db

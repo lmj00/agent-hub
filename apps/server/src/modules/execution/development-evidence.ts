@@ -14,13 +14,10 @@ export function readDevelopmentEvidence(
   const records = db
     .select({
       sequence: developmentRounds.sequence,
-      inputReady: sql<boolean>`${developmentRounds.input} IS NOT NULL`.mapWith(
+      inputReady: sql<boolean>`${developmentRounds.input} IS NOT NULL`.mapWith(Boolean),
+      verificationReady: sql<boolean>`${developmentRounds.verificationInput} IS NOT NULL`.mapWith(
         Boolean,
       ),
-      verificationReady:
-        sql<boolean>`${developmentRounds.verificationInput} IS NOT NULL`.mapWith(
-          Boolean,
-        ),
       candidate: developmentRounds.candidate,
       test: developmentRounds.verificationResult,
       review: developmentRounds.review,
@@ -46,8 +43,7 @@ export function readDevelopmentEvidence(
             ? "testing"
             : !record.review
               ? "reviewing"
-              : record.review.assessment.complete &&
-                  record.test.status === "passed"
+              : record.review.assessment.complete && record.test.status === "passed"
                 ? "verified"
                 : "needs_changes",
     createdAt: record.createdAt.toISOString(),
@@ -56,12 +52,7 @@ export function readDevelopmentEvidence(
     changes:
       record.candidate?.changes.map((change) => ({
         path: redactOutput(change.path),
-        action:
-          change.after === null
-            ? "delete"
-            : change.before === null
-              ? "add"
-              : "modify",
+        action: change.after === null ? "delete" : change.before === null ? "add" : "modify",
         bytes: change.bytes,
       })) ?? [],
     test:
@@ -83,19 +74,34 @@ export function readDevelopmentEvidence(
           }
         : null,
   }));
-  const application = db.select({
-    id: changeApplications.id,
-    status: changeApplications.status,
-    roundSequence: changeApplications.roundSequence,
-    baseRevision: changeApplications.baseRevision,
-    resultCommit: changeApplications.resultCommit,
-    candidateDigest: changeApplications.candidateDigest,
-    createdAt: changeApplications.createdAt,
-    appliedAt: changeApplications.appliedAt,
-  }).from(changeApplications).where(eq(changeApplications.runId, run.id)).get();
+  const application = db
+    .select({
+      id: changeApplications.id,
+      status: changeApplications.status,
+      roundSequence: changeApplications.roundSequence,
+      baseRevision: changeApplications.baseRevision,
+      resultCommit: changeApplications.resultCommit,
+      candidateDigest: changeApplications.candidateDigest,
+      createdAt: changeApplications.createdAt,
+      appliedAt: changeApplications.appliedAt,
+    })
+    .from(changeApplications)
+    .where(eq(changeApplications.runId, run.id))
+    .get();
   return {
-    phase: application ? application.status === "applied" ? "applied" : "applying" : rounds.at(-1)?.phase ?? "preparing",
-    maxRounds: 3, rounds,
-    application: application ? { ...application, createdAt: application.createdAt.toISOString(), appliedAt: application.appliedAt?.toISOString() ?? null } : null,
+    phase: application
+      ? application.status === "applied"
+        ? "applied"
+        : "applying"
+      : (rounds.at(-1)?.phase ?? "preparing"),
+    maxRounds: 3,
+    rounds,
+    application: application
+      ? {
+          ...application,
+          createdAt: application.createdAt.toISOString(),
+          appliedAt: application.appliedAt?.toISOString() ?? null,
+        }
+      : null,
   };
 }

@@ -4,18 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
-import {
-  parseResponse,
-  runDetailsSchema,
-  runtimeSkillRoles,
-} from "@agent-hub/contracts";
+import { parseResponse, runDetailsSchema, runtimeSkillRoles } from "@agent-hub/contracts";
 import { buildApp } from "../src/app.js";
 import { openDatabase } from "../src/db/connection.js";
 import { projects, runs, steps, tasks } from "../src/db/schema.js";
-import {
-  hashPassword,
-  type PasswordHash,
-} from "../src/modules/auth/password.js";
+import { hashPassword, type PasswordHash } from "../src/modules/auth/password.js";
 import { loadAuthConfig } from "../src/modules/auth/auth-config.js";
 import { loadRuntimeSkill } from "../src/modules/execution/runtime-skills.js";
 
@@ -104,10 +97,7 @@ afterEach(async () => {
   database.close();
   rmSync(directory, { recursive: true, force: true });
 });
-function addStep(
-  sequence: number,
-  record: Partial<typeof steps.$inferInsert> = {},
-) {
+function addStep(sequence: number, record: Partial<typeof steps.$inferInsert> = {}) {
   database.db
     .insert(steps)
     .values({
@@ -145,9 +135,7 @@ test("requires login and projects all four saved roles without private journal f
       runtimeSkillLoadedAt: loadedAt,
     });
   }
-  expect(
-    (await app.inject({ method: "GET", url: `/runs/${runId}` })).statusCode,
-  ).toBe(401);
+  expect((await app.inject({ method: "GET", url: `/runs/${runId}` })).statusCode).toBe(401);
   const result = await read();
   expect(result.runtimeSkillVersion).toBe(1);
   expect(result.steps.map((step) => step.runtimeSkill)).toEqual(
@@ -191,11 +179,7 @@ test("distinguishes absent, selected and loaded records and preserves them after
 });
 
 test("legacy runs retain null policy and missing evidence instead of receiving today's profile", async () => {
-  database.db
-    .update(runs)
-    .set({ runtimeSkillVersion: null })
-    .where(eq(runs.id, runId))
-    .run();
+  database.db.update(runs).set({ runtimeSkillVersion: null }).where(eq(runs.id, runId)).run();
   addStep(1);
   const result = await read();
   expect(result.runtimeSkillVersion).toBeNull();

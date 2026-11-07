@@ -1,13 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  goalRevisions,
-  goals,
-  planningCycles,
-  runs,
-  tasks,
-} from "../../db/schema.js";
+import { goalRevisions, goals, planningCycles, runs, tasks } from "../../db/schema.js";
 import type { RunCompletion } from "../execution/run-task.js";
 import {
   parseGoalPlan,
@@ -15,20 +9,11 @@ import {
   type PlannedWork,
   type PlanResult,
 } from "./goal-plan-policy.js";
-import {
-  preparedGoalChanged,
-  planningSourceChanged,
-} from "./prepared-input-store.js";
+import { preparedGoalChanged, planningSourceChanged } from "./prepared-input-store.js";
 import { goalVerificationOutcome } from "./goal-verification.js";
-import {
-  overlappingWorkPaths,
-  readPlanningWork,
-} from "./planning-work-state.js";
+import { overlappingWorkPaths, readPlanningWork } from "./planning-work-state.js";
 
-type Db = Pick<
-  ReturnType<typeof openDatabase>["db"],
-  "select" | "insert" | "update"
->;
+type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "insert" | "update">;
 
 // Called inside the same transaction as Run/Task completion and budget settlement.
 export function applyPlanningCompletion(
@@ -37,11 +22,7 @@ export function applyPlanningCompletion(
   completion: RunCompletion,
   now: Date,
 ): RunCompletion {
-  const cycle = db
-    .select()
-    .from(planningCycles)
-    .where(eq(planningCycles.taskId, run.taskId))
-    .get();
+  const cycle = db.select().from(planningCycles).where(eq(planningCycles.taskId, run.taskId)).get();
   if (!cycle) return completion;
   if (cycle.status === "applied")
     return {
@@ -65,10 +46,7 @@ export function applyPlanningCompletion(
           errorCode: "termination_unconfirmed",
         }
       : completion;
-  const reject = (
-    reason: string,
-    suppressed?: PlanResult["suppressed"],
-  ): RunCompletion => {
+  const reject = (reason: string, suppressed?: PlanResult["suppressed"]): RunCompletion => {
     if (run.planResult)
       db.update(runs)
         .set({
@@ -93,9 +71,7 @@ export function applyPlanningCompletion(
     };
   };
   if (completion.status !== "succeeded")
-    return run.planResult
-      ? reject(completion.errorCode ?? "invalid_plan")
-      : completion;
+    return run.planResult ? reject(completion.errorCode ?? "invalid_plan") : completion;
   if (
     !run.preparedInput ||
     run.preparedInput.phase !== "ready" ||
@@ -104,10 +80,7 @@ export function applyPlanningCompletion(
     run.planResult.proposal !== completion.result
   )
     return reject("input_unavailable");
-  if (
-    cycle.goalId !== run.preparedInput.scope.goalId ||
-    cycle.goalVersion !== run.goalVersion
-  )
+  if (cycle.goalId !== run.preparedInput.scope.goalId || cycle.goalVersion !== run.goalVersion)
     return reject("goal_changed");
   if (planningSourceChanged(db, run)) return reject("input_changed");
   if (preparedGoalChanged(db, run)) return reject("goal_changed");

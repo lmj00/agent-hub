@@ -1,20 +1,11 @@
 import { randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { parseResponse, taskSchema } from "@agent-hub/contracts";
 import { buildApp } from "../src/app.js";
-import {
-  AnalysisError,
-  type AnalysisExecutor,
-} from "../src/modules/execution/analysis.js";
+import { AnalysisError, type AnalysisExecutor } from "../src/modules/execution/analysis.js";
 import { loadExecutionConfig } from "../src/modules/execution/execution-config.js";
 
 let directory: string;
@@ -24,10 +15,7 @@ beforeEach(() => {
   directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-auto-api-")));
   mkdirSync(join(directory, "home"));
   mkdirSync(join(directory, "workspace"));
-  writeFileSync(
-    join(directory, "home/auth.json"),
-    JSON.stringify({ auth_mode: "chatgpt" }),
-  );
+  writeFileSync(join(directory, "home/auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
   const file = join(directory, "execution.json");
   writeFileSync(
     file,
@@ -83,9 +71,7 @@ test("HTTP exposes the persisted wait and the queue performs exactly one delayed
     analyze,
     confirmTermination: async () => new Date(),
   });
-  await vi.waitFor(async () =>
-    expect((await view(id)).status).toBe("waiting_retry"),
-  );
+  await vi.waitFor(async () => expect((await view(id)).status).toBe("waiting_retry"));
   const waiting = await view(id);
   expect(waiting.retryState).toMatchObject({
     retries: 0,
@@ -93,21 +79,14 @@ test("HTTP exposes the persisted wait and the queue performs exactly one delayed
     reason: "retry_scheduled",
   });
   expect(waiting.retryState?.nextAttemptAt).not.toBeNull();
-  expect(
-    (await app!.inject({ method: "GET", url: "/health/live" })).statusCode,
-  ).toBe(200);
-  await vi.waitFor(
-    async () => expect((await view(id)).status).toBe("succeeded"),
-    { timeout: 3000 },
-  );
+  expect((await app!.inject({ method: "GET", url: "/health/live" })).statusCode).toBe(200);
+  await vi.waitFor(async () => expect((await view(id)).status).toBe("succeeded"), {
+    timeout: 3000,
+  });
   expect(analyze).toHaveBeenCalledTimes(2);
   expect((await view(id)).retryState?.retries).toBe(1);
-  const history = (
-    await app!.inject({ method: "GET", url: `/tasks/${id}/runs` })
-  ).json().runs;
-  expect(history.map((run: { attempt: number }) => run.attempt)).toEqual([
-    2, 1,
-  ]);
+  const history = (await app!.inject({ method: "GET", url: `/tasks/${id}/runs` })).json().runs;
+  expect(history.map((run: { attempt: number }) => run.attempt)).toEqual([2, 1]);
 });
 
 test("HTTP cancellation during the scheduled wait prevents the automatic call", async () => {
@@ -118,21 +97,15 @@ test("HTTP cancellation during the scheduled wait prevents the automatic call", 
     analyze,
     confirmTermination: async () => new Date(),
   });
-  await vi.waitFor(async () =>
-    expect((await view(id)).status).toBe("waiting_retry"),
-  );
-  const runId = (
-    await app!.inject({ method: "GET", url: `/tasks/${id}/runs` })
-  ).json().runs[0].id;
+  await vi.waitFor(async () => expect((await view(id)).status).toBe("waiting_retry"));
+  const runId = (await app!.inject({ method: "GET", url: `/tasks/${id}/runs` })).json().runs[0].id;
   const response = await app!.inject({
     method: "POST",
     url: `/tasks/${id}/recovery-requests`,
     payload: { action: "cancel", requestKey: "cancel", runId },
   });
   expect(response.statusCode).toBe(202);
-  await vi.waitFor(async () =>
-    expect((await view(id)).status).toBe("cancelled"),
-  );
+  await vi.waitFor(async () => expect((await view(id)).status).toBe("cancelled"));
   await new Promise((resolve) => setTimeout(resolve, 1100));
   expect(analyze).toHaveBeenCalledTimes(1);
   expect((await view(id)).retryState?.nextAttemptAt).toBeNull();
@@ -149,11 +122,9 @@ test("a retry receives only the remaining cumulative time, not another full Run 
         throw new AnalysisError("transient");
       }
       return new Promise((_resolve, reject) =>
-        request.signal.addEventListener(
-          "abort",
-          () => reject(new Error("aborted")),
-          { once: true },
-        ),
+        request.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true,
+        }),
       );
     },
     confirmTermination: async () => new Date(),
@@ -162,12 +133,8 @@ test("a retry receives only the remaining cumulative time, not another full Run 
     timeout: 4000,
   });
   expect(calls).toBe(2);
-  const detail = (
-    await app!.inject({ method: "GET", url: `/tasks/${id}/runs` })
-  ).json().runs[0];
-  expect(
-    Date.parse(detail.finishedAt) - Date.parse(detail.startedAt),
-  ).toBeLessThan(600);
+  const detail = (await app!.inject({ method: "GET", url: `/tasks/${id}/runs` })).json().runs[0];
+  expect(Date.parse(detail.finishedAt) - Date.parse(detail.startedAt)).toBeLessThan(600);
   expect((await view(id)).retryState!.totalRunMs).toBeGreaterThanOrEqual(1000);
 });
 
@@ -199,27 +166,20 @@ test("capacity recovery waits for provided time, reserves one check and reopens 
     analyze,
     confirmTermination: async () => new Date(),
   });
-  await vi.waitFor(async () =>
-    expect((await view(id)).status).toBe("waiting_capacity"),
-  );
-  const before = (
-    await app!.inject({ method: "GET", url: "/execution/provider-gate" })
-  ).json();
+  await vi.waitFor(async () => expect((await view(id)).status).toBe("waiting_capacity"));
+  const before = (await app!.inject({ method: "GET", url: "/execution/provider-gate" })).json();
   expect(before).toMatchObject({
     blocked: true,
     retryAt: retryAt.toISOString(),
     capacityState: { checks: 0, nextCheckAt: retryAt.toISOString() },
   });
   expect(analyze).toHaveBeenCalledTimes(1);
-  await vi.waitFor(
-    async () => expect((await view(id)).status).toBe("succeeded"),
-    { timeout: 4000 },
-  );
+  await vi.waitFor(async () => expect((await view(id)).status).toBe("succeeded"), {
+    timeout: 4000,
+  });
   expect(analyze).toHaveBeenCalledTimes(2);
   expect(
-    (
-      await app!.inject({ method: "GET", url: "/execution/provider-gate" })
-    ).json(),
+    (await app!.inject({ method: "GET", url: "/execution/provider-gate" })).json(),
   ).toMatchObject({ blocked: false, capacityState: null });
   expect((await view(id)).retryState?.retries).toBe(1);
 });

@@ -34,7 +34,10 @@ import {
   verifyPreparedResult,
 } from "../src/modules/goals/prepared-executor.js";
 import { preparedInputRoot } from "../src/modules/goals/prepared-workspace.js";
-import { goalVerificationInstruction, goalVerificationPassed } from "../src/modules/goals/goal-verification.js";
+import {
+  goalVerificationInstruction,
+  goalVerificationPassed,
+} from "../src/modules/goals/goal-verification.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { createDrizzleRecoveryStore } from "../src/modules/execution/drizzle-recovery-store.js";
 import { createRecoveryProcessor } from "../src/modules/execution/recover-task.js";
@@ -51,8 +54,7 @@ import type {
 } from "../src/modules/execution/analysis.js";
 
 let directory: string, source: string, goalId: string, taskId: string;
-let database: ReturnType<typeof openDatabase>,
-  store: ReturnType<typeof createDrizzleRunStore>;
+let database: ReturnType<typeof openDatabase>, store: ReturnType<typeof createDrizzleRunStore>;
 const definition: GoalDefinition = {
   description: "완성된 예제 계산기 확인",
   completionCriteria: "정답 42와 실행 가능한 검사 스크립트가 있어야 한다",
@@ -76,12 +78,9 @@ const approval = {
   complete: true,
   next: null,
 };
-const row = () =>
-  database.db.select().from(runs).where(eq(runs.taskId, taskId)).get()!;
+const row = () => database.db.select().from(runs).where(eq(runs.taskId, taskId)).get()!;
 beforeEach(() => {
-  directory = realpathSync(
-    mkdtempSync(join(tmpdir(), "hub-goal-verification-")),
-  );
+  directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-goal-verification-")));
   source = join(directory, "source");
   mkdirSync(join(source, "src"), { recursive: true });
   mkdirSync(join(source, "tests"));
@@ -127,11 +126,7 @@ beforeEach(() => {
       createdAt: new Date(),
     })
     .run();
-  goalId = createDrizzleGoalStore(database.db).register(
-    projectId,
-    "goal",
-    definition,
-  ).goal.id;
+  goalId = createDrizzleGoalStore(database.db).register(projectId, "goal", definition).goal.id;
   taskId = createPlanningStore(database.db).reserveNext(["fixture"])!.taskId;
   store = createDrizzleRunStore(database.db);
 });
@@ -147,10 +142,7 @@ function fixture(
     failed?: boolean;
     reject?: boolean;
     noLoad?: boolean;
-    beforeCall?: (
-      request: AnalysisRequest,
-      call: number,
-    ) => void | Promise<void>;
+    beforeCall?: (request: AnalysisRequest, call: number) => void | Promise<void>;
     afterEvent?: (event: AnalysisEvent) => void | Promise<void>;
   } = {},
 ) {
@@ -171,8 +163,7 @@ function fixture(
         await options.afterEvent?.(value);
       };
       if (!request.verification) {
-        const role =
-          request.responseMode === "goal-plan" ? "planner" : "reviewer";
+        const role = request.responseMode === "goal-plan" ? "planner" : "reviewer";
         const context = {
           sequence: request.stepSequence!,
           selection: loadRuntimeSkill(role).selection,
@@ -199,9 +190,7 @@ function fixture(
           verification: {
             candidateDigest: request.verification.candidateDigest,
             inputDigest: request.development!.inputDigest,
-            configurationDigest: verificationConfigDigest(
-              request.verification.config,
-            ),
+            configurationDigest: verificationConfigDigest(request.verification.config),
             configuration: request.verification.config,
             execution: identity,
             imageId: `sha256:${"a".repeat(64)}`,
@@ -244,12 +233,9 @@ function fixture(
   return { executor, calls };
 }
 const wrapped = (executor: AnalysisExecutor) =>
-  createPreparedExecutor(
-    executor,
-    preparedInputRoot(join(directory, "hub.sqlite")),
-    database.db,
-    { verification: new Map([["fixture", configuration]]) },
-  );
+  createPreparedExecutor(executor, preparedInputRoot(join(directory, "hub.sqlite")), database.db, {
+    verification: new Map([["fixture", configuration]]),
+  });
 const execute = (executor: AnalysisExecutor, selectedStore = store) =>
   runTask(
     {
@@ -274,11 +260,9 @@ test("complete proposal stores fresh tests and an independently budgeted goal-wi
     "assessment",
   ]);
   expect(calls[1]!.development!.writePaths).toEqual([]);
-  expect(
-    calls[1]!.development!.files.find(
-      (file) => file.path === "tests/verify.mjs",
-    )?.mode,
-  ).toBe("100755");
+  expect(calls[1]!.development!.files.find((file) => file.path === "tests/verify.mjs")?.mode).toBe(
+    "100755",
+  );
   const reviewInput = JSON.parse(calls[2]!.instruction.split("\n").at(-1)!);
   expect(reviewInput.definition).toEqual(definition);
   expect(reviewInput).toMatchObject({
@@ -307,9 +291,10 @@ test("complete proposal stores fresh tests and an independently budgeted goal-wi
     nextCheckAt: null,
   });
   expect(database.db.select().from(goalRevisions).all()).toHaveLength(2);
-  expect(
-    database.db.select().from(goalRevisions).all()[1]!.snapshot,
-  ).toMatchObject({ status: "completed", version: 2 });
+  expect(database.db.select().from(goalRevisions).all()[1]!.snapshot).toMatchObject({
+    status: "completed",
+    version: 2,
+  });
   expect(database.db.select().from(tasks).all()).toHaveLength(1);
   expect(createPlanningStore(database.db).reserveNext(["fixture"])).toBeNull();
   expect(
@@ -317,11 +302,7 @@ test("complete proposal stores fresh tests and an independently budgeted goal-wi
       .select()
       .from(steps)
       .all()
-      .map((step) => [
-        step.sequence,
-        step.runtimeSkill?.role,
-        !!step.runtimeSkillLoadedAt,
-      ]),
+      .map((step) => [step.sequence, step.runtimeSkill?.role, !!step.runtimeSkillLoadedAt]),
   ).toEqual([
     [1, "planner", true],
     [2, "reviewer", true],
@@ -356,9 +337,7 @@ test.each(["test failure", "review rejection"])(
     });
     await execute(executor);
     expect(goalVerificationPassed(database.db, row())).toBe(false);
-    expect(row().planResult?.verification?.review?.assessment.complete).toBe(
-      false,
-    );
+    expect(row().planResult?.verification?.review?.assessment.complete).toBe(false);
     expect(database.db.select().from(goals).get()!.status).toBe("active");
     expect(row()).toMatchObject({
       status: "succeeded",
@@ -367,9 +346,9 @@ test.each(["test failure", "review rejection"])(
     expect(row().result).toContain(
       reason === "test failure" ? "실제 테스트 실패" : "목표 기준 부족",
     );
-    expect(
-      database.db.select().from(goals).get()!.nextCheckAt!.getTime(),
-    ).toBeGreaterThan(Date.now());
+    expect(database.db.select().from(goals).get()!.nextCheckAt!.getTime()).toBeGreaterThan(
+      Date.now(),
+    );
     expect(database.db.select().from(goalRevisions).all()).toHaveLength(1);
   },
 );
@@ -378,8 +357,7 @@ test.each(["intent", "test", "review"])(
   "failed %s persistence prevents later execution",
   async (stage) => {
     const { executor, calls } = fixture();
-    const kind =
-      stage === "intent" ? "started" : stage === "test" ? "tested" : "reviewed";
+    const kind = stage === "intent" ? "started" : stage === "test" ? "tested" : "reviewed";
     await execute(executor, {
       ...store,
       record(id, event) {
@@ -388,9 +366,7 @@ test.each(["intent", "test", "review"])(
         return store.record(id, event);
       },
     });
-    expect(calls).toHaveLength(
-      stage === "intent" ? 1 : stage === "test" ? 2 : 3,
-    );
+    expect(calls).toHaveLength(stage === "intent" ? 1 : stage === "test" ? 2 : 3);
     expect(goalVerificationPassed(database.db, row())).toBe(false);
     expect(database.db.select().from(goals).get()!.status).toBe("active");
   },
@@ -431,14 +407,12 @@ test.each(["test identity", "test configuration", "termination"])(
       ...store,
       record(id, event) {
         if (event.goalVerification?.type === "tested") {
-          if (field === "test identity")
-            event.goalVerification.result.execution.token = "forged";
+          if (field === "test identity") event.goalVerification.result.execution.token = "forged";
           if (field === "test configuration") {
             event.goalVerification.result.configuration.command = ["different"];
-            event.goalVerification.result.configurationDigest =
-              verificationConfigDigest(
-                event.goalVerification.result.configuration,
-              );
+            event.goalVerification.result.configurationDigest = verificationConfigDigest(
+              event.goalVerification.result.configuration,
+            );
           }
           if (field === "termination")
             database.db
@@ -471,72 +445,65 @@ test("Goal changes while tests run prevent the independent review", async () => 
   expect(database.db.select().from(goals).get()!.status).toBe("paused");
 });
 
-test.each(["wait", "continuous"])(
-  "%s proposals do not execute goal verification",
-  async (mode) => {
-    if (mode === "continuous")
+test.each(["wait", "continuous"])("%s proposals do not execute goal verification", async (mode) => {
+  if (mode === "continuous")
+    database.db
+      .update(goals)
+      .set({ definition: { ...definition, kind: "continuous" } })
+      .where(eq(goals.id, goalId))
+      .run();
+  const { executor, calls } = fixture({
+    outcome: mode === "wait" ? "wait" : "complete",
+  });
+  await execute(executor);
+  expect(calls).toHaveLength(1);
+  expect(row().planResult?.verification).toBeUndefined();
+  expect(row()).toMatchObject({
+    status: "succeeded",
+    planResult: { reason: "wait" },
+  });
+  expect(database.db.select().from(goals).get()).toMatchObject({
+    status: "active",
+    version: 1,
+    nextCheckAt: expect.any(Date),
+  });
+});
+
+test.each(["digest", "test identity", "test configuration", "review step", "termination", "skill"])(
+  "altered %s invalidates stored proof",
+  async (field) => {
+    await execute(fixture().executor);
+    const stored = row(),
+      proof = structuredClone(stored.planResult!.verification!);
+    if (field === "digest") proof.inputDigest = "0".repeat(64);
+    if (field === "test identity") proof.test!.result.execution.token = "changed";
+    if (field === "test configuration") proof.configuration.command = ["changed"];
+    if (field === "review step")
       database.db
-        .update(goals)
-        .set({ definition: { ...definition, kind: "continuous" } })
-        .where(eq(goals.id, goalId))
+        .update(steps)
+        .set({ assessment: { ...approval, report: "different report" } })
+        .where(eq(steps.sequence, 2))
         .run();
-    const { executor, calls } = fixture({
-      outcome: mode === "wait" ? "wait" : "complete",
-    });
-    await execute(executor);
-    expect(calls).toHaveLength(1);
-    expect(row().planResult?.verification).toBeUndefined();
-    expect(row()).toMatchObject({
-      status: "succeeded",
-      planResult: { reason: "wait" },
-    });
-    expect(database.db.select().from(goals).get()).toMatchObject({
-      status: "active",
-      version: 1,
-      nextCheckAt: expect.any(Date),
-    });
+    if (field === "termination")
+      database.db
+        .update(runExecutions)
+        .set({ terminationConfirmedAt: null })
+        .where(eq(runExecutions.sequence, 3))
+        .run();
+    if (field === "skill")
+      database.db
+        .update(steps)
+        .set({ runtimeSkillLoadedAt: null })
+        .where(eq(steps.sequence, 2))
+        .run();
+    expect(
+      goalVerificationPassed(database.db, {
+        ...stored,
+        planResult: { ...stored.planResult!, verification: proof },
+      }),
+    ).toBe(false);
   },
 );
-
-test.each([
-  "digest",
-  "test identity",
-  "test configuration",
-  "review step",
-  "termination",
-  "skill",
-])("altered %s invalidates stored proof", async (field) => {
-  await execute(fixture().executor);
-  const stored = row(),
-    proof = structuredClone(stored.planResult!.verification!);
-  if (field === "digest") proof.inputDigest = "0".repeat(64);
-  if (field === "test identity") proof.test!.result.execution.token = "changed";
-  if (field === "test configuration") proof.configuration.command = ["changed"];
-  if (field === "review step")
-    database.db
-      .update(steps)
-      .set({ assessment: { ...approval, report: "different report" } })
-      .where(eq(steps.sequence, 2))
-      .run();
-  if (field === "termination")
-    database.db
-      .update(runExecutions)
-      .set({ terminationConfirmedAt: null })
-      .where(eq(runExecutions.sequence, 3))
-      .run();
-  if (field === "skill")
-    database.db
-      .update(steps)
-      .set({ runtimeSkillLoadedAt: null })
-      .where(eq(steps.sequence, 2))
-      .run();
-  expect(
-    goalVerificationPassed(database.db, {
-      ...stored,
-      planResult: { ...stored.planResult!, verification: proof },
-    }),
-  ).toBe(false);
-});
 
 test("termination during fixed tests prevents the reviewer from starting", async () => {
   const reached = Promise.withResolvers<void>();
@@ -589,9 +556,7 @@ test("final Run write failure rolls back Goal completion and recovers exactly on
     version: 1,
   });
   expect(database.db.select().from(goalRevisions).all()).toHaveLength(1);
-  expect(database.db.select().from(planningCycles).get()!.status).toBe(
-    "reserved",
-  );
+  expect(database.db.select().from(planningCycles).get()!.status).toBe("reserved");
   database.client.exec("DROP TRIGGER fail_completed_run");
   database.close();
   database = openDatabase(join(directory, "hub.sqlite"));
@@ -646,17 +611,13 @@ test.each(["goal change", "cancel", "proof changed"])(
       ...store,
       finish(id, completion) {
         if (change === "goal change")
-          createDrizzleGoalStore(database.db).change(
-            goalId,
-            "pause-after-review",
-            1,
-            { action: "pause" },
-          );
+          createDrizzleGoalStore(database.db).change(goalId, "pause-after-review", 1, {
+            action: "pause",
+          });
         else if (change === "cancel") store.requestStop(id, "user_cancel");
         else {
           const saved = row();
-          saved.planResult!.verification!.review!.verificationDigest =
-            "0".repeat(64);
+          saved.planResult!.verification!.review!.verificationDigest = "0".repeat(64);
           database.db
             .update(runs)
             .set({ planResult: saved.planResult })
@@ -667,9 +628,7 @@ test.each(["goal change", "cancel", "proof changed"])(
       },
     });
     expect(result.status).toBe(change === "cancel" ? "cancelled" : "blocked");
-    expect(database.db.select().from(goals).get()!.status).not.toBe(
-      "completed",
-    );
+    expect(database.db.select().from(goals).get()!.status).not.toBe("completed");
     expect(
       database.db
         .select()
@@ -696,12 +655,9 @@ test.each(["source", "Goal"])(
     if (changed === "source")
       writeFileSync(join(source, "src/main.mjs"), "export const answer = 0;\n");
     else
-      createDrizzleGoalStore(database.db).change(
-        goalId,
-        "pause-before-recovery",
-        1,
-        { action: "pause" },
-      );
+      createDrizzleGoalStore(database.db).change(goalId, "pause-before-recovery", 1, {
+        action: "pause",
+      });
     const recovery = createDrizzleRecoveryStore(database.db);
     const request = recovery.request(
       {
@@ -725,9 +681,7 @@ test.each(["source", "Goal"])(
       status: "blocked",
       errorCode: changed === "source" ? "input_changed" : "goal_changed",
     });
-    expect(database.db.select().from(goals).get()!.status).not.toBe(
-      "completed",
-    );
+    expect(database.db.select().from(goals).get()!.status).not.toBe("completed");
     expect(
       database.db
         .select()
@@ -743,10 +697,7 @@ test("repeated incomplete Goal checks feed the next plan and stop after three wi
   for (let index = 0; index < 3; index++) {
     if (index) {
       const due = database.db.select().from(goals).get()!.nextCheckAt!;
-      taskId = createPlanningStore(database.db).reserveNext(
-        ["fixture"],
-        due,
-      )!.taskId;
+      taskId = createPlanningStore(database.db).reserveNext(["fixture"], due)!.taskId;
     }
     const { executor, calls } = fixture({ reject: true });
     const result = await execute(executor);
@@ -767,10 +718,7 @@ test("repeated incomplete Goal checks feed the next plan and stop after three wi
   expect(database.db.select().from(goals).get()!.status).toBe("active");
   expect(database.db.select().from(goalRevisions).all()).toHaveLength(1);
   expect(
-    createPlanningStore(database.db).reserveNext(
-      ["fixture"],
-      new Date(Date.now() + 3600000),
-    ),
+    createPlanningStore(database.db).reserveNext(["fixture"], new Date(Date.now() + 3600000)),
   ).toBeNull();
 });
 
@@ -778,8 +726,12 @@ test("whole-Goal review bounds saved evidence and escaped test output without lo
   await execute(fixture().executor);
   const input = structuredClone(row().planningInput!);
   input.history = Array.from({ length: 20 }, (_, index) => ({
-    id: `past-${index}`, kind: "work", status: "succeeded",
-    instruction: '한글\\"'.repeat(100), problemKey: null, lastRun: null,
+    id: `past-${index}`,
+    kind: "work",
+    status: "succeeded",
+    instruction: '한글\\"'.repeat(100),
+    problemKey: null,
+    lastRun: null,
   }));
   input.historyCount = 300;
   input.counts.history = { total: 300, included: 20 };
@@ -828,8 +780,7 @@ test.each([
             kind: "work",
             instruction: "Older unresolved work",
             requestKey: oldTask,
-            status:
-              condition === "suppressed old work" ? "blocked" : "succeeded",
+            status: condition === "suppressed old work" ? "blocked" : "succeeded",
             createdAt: at,
             plannedWork: {
               planningTaskId: taskId,
@@ -855,8 +806,7 @@ test.each([
             startedAt: at,
             lastActivityAt: at,
             finishedAt: at,
-            terminationConfirmedAt:
-              condition === "unfinished old Run" ? null : at,
+            terminationConfirmedAt: condition === "unfinished old Run" ? null : at,
           })
           .run();
         if (condition === "unfinished container")

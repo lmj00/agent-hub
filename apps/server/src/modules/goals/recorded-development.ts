@@ -2,11 +2,7 @@ import { lstatSync } from "node:fs";
 import { dirname } from "node:path";
 import { eq, isNotNull } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  developmentRepositories,
-  developmentRounds,
-  runs,
-} from "../../db/schema.js";
+import { developmentRepositories, developmentRounds, runs } from "../../db/schema.js";
 import type { AnalysisEvent } from "../execution/analysis.js";
 import {
   parseVerificationConfig,
@@ -87,8 +83,7 @@ export async function prepareRecordedDevelopment(
       ? await recoverDevelopmentRepository(stored.intent, signal)
       : await prepareDevelopmentRepository(stored.intent, signal));
   await assertDevelopmentBase(repository, signal);
-  if (!stored.prepared)
-    await save(onEvent, { type: "repository.ready", repository });
+  if (!stored.prepared) await save(onEvent, { type: "repository.ready", repository });
   const round = readDevelopmentRounds(db, request.runId).find(
     (value) => value.sequence === request.sequence,
   );
@@ -128,12 +123,7 @@ export async function captureRecordedDevelopment(
   signal: AbortSignal,
   onEvent: Save,
 ) {
-  const candidate = await stageDevelopmentCandidate(
-    repository,
-    input,
-    result,
-    signal,
-  );
+  const candidate = await stageDevelopmentCandidate(repository, input, result, signal);
   // The store requires the developer container's saved termination proof.
   await save(onEvent, { type: "candidate.ready", sequence, candidate });
   return candidate;
@@ -157,8 +147,7 @@ export async function prepareRecordedVerification(
   const current = readDevelopmentRounds(db, request.runId).find(
     (round) => round.sequence === request.sequence,
   );
-  if (!current?.input || !current.candidate)
-    throw new Error("Development candidate is not ready");
+  if (!current?.input || !current.candidate) throw new Error("Development candidate is not ready");
   const repository = db
     .select()
     .from(developmentRepositories)
@@ -168,16 +157,10 @@ export async function prepareRecordedVerification(
   const configuration = parseVerificationConfig(request.configuration);
   if (
     current.verificationIntent &&
-    JSON.stringify(current.verificationIntent.configuration) !==
-      JSON.stringify(configuration)
+    JSON.stringify(current.verificationIntent.configuration) !== JSON.stringify(configuration)
   )
     throw new Error("Verification configuration changed");
-  await verifyDevelopmentCandidate(
-    repository,
-    current.input,
-    current.candidate,
-    signal,
-  );
+  await verifyDevelopmentCandidate(repository, current.input, current.candidate, signal);
   const verification = current.verificationIntent ?? {
     candidateDigest: current.candidate.digest,
     input: developmentInputIntent(
@@ -208,17 +191,12 @@ export async function prepareRecordedVerification(
   return { input, candidate: current.candidate, configuration };
 }
 
-export function cleanupRecordedDevelopment(
-  db: Db,
-  root: string,
-  runId: string,
-) {
+export function cleanupRecordedDevelopment(db: Db, root: string, runId: string) {
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
   if (!run?.terminationConfirmedAt) return;
   for (const round of readDevelopmentRounds(db, runId)) {
     removeDevelopmentInput(root, round.intent);
-    if (round.verificationIntent)
-      removeDevelopmentInput(root, round.verificationIntent.input);
+    if (round.verificationIntent) removeDevelopmentInput(root, round.verificationIntent.input);
   }
 }
 

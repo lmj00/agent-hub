@@ -15,34 +15,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import {
-  parseResponse,
-  runDetailsSchema,
-  type GoalDefinition,
-} from "@agent-hub/contracts";
+import { parseResponse, runDetailsSchema, type GoalDefinition } from "@agent-hub/contracts";
 import { buildApp } from "../src/app.js";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
-import {
-  executionOwner,
-  projects,
-  runs,
-  serviceTargets,
-  tasks,
-} from "../src/db/schema.js";
+import { executionOwner, projects, runs, serviceTargets, tasks } from "../src/db/schema.js";
 import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
-import {
-  createPlanningStore,
-  readPlanningContext,
-} from "../src/modules/goals/planning-store.js";
-import {
-  buildPlanningInput,
-  planningInstruction,
-} from "../src/modules/goals/goal-plan-policy.js";
+import { createPlanningStore, readPlanningContext } from "../src/modules/goals/planning-store.js";
+import { buildPlanningInput, planningInstruction } from "../src/modules/goals/goal-plan-policy.js";
 import { createPreparedExecutor } from "../src/modules/goals/prepared-executor.js";
-import {
-  preparedInputRoot,
-  type PreparedInput,
-} from "../src/modules/goals/prepared-workspace.js";
+import { preparedInputRoot, type PreparedInput } from "../src/modules/goals/prepared-workspace.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { runTask } from "../src/modules/execution/run-task.js";
 import { loadExecutionConfig } from "../src/modules/execution/execution-config.js";
@@ -55,10 +36,7 @@ import {
   type ServiceTargetConfig,
 } from "../src/modules/services/service-config.js";
 import type { ObservationResult } from "../src/modules/services/observe-service.js";
-import type {
-  AnalysisExecutor,
-  AnalysisRequest,
-} from "../src/modules/execution/analysis.js";
+import type { AnalysisExecutor, AnalysisRequest } from "../src/modules/execution/analysis.js";
 
 const definition: GoalDefinition = {
   description: "Improve example using evidence",
@@ -70,20 +48,14 @@ const definition: GoalDefinition = {
   checkIntervalMs: 60000,
   budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
 };
-let directory: string,
-  source: string,
-  projectId: string,
-  goalId: string,
-  planId: string;
+let directory: string, source: string, projectId: string, goalId: string, planId: string;
 let database: ReturnType<typeof openDatabase>,
   services: ReturnType<typeof createDrizzleServiceStore>;
 let target: ServiceTargetConfig, observer: ObserverStatus;
 const path = () => join(directory, "hub.sqlite");
 const closes: (() => Promise<unknown>)[] = [];
 beforeEach(() => {
-  directory = realpathSync(
-    mkdtempSync(join(tmpdir(), "hub-planning-evidence-")),
-  );
+  directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-planning-evidence-")));
   source = join(directory, "source");
   mkdirSync(source);
   mkdirSync(join(source, "src"));
@@ -125,11 +97,7 @@ beforeEach(() => {
       createdAt: new Date(),
     })
     .run();
-  goalId = createDrizzleGoalStore(database.db).register(
-    projectId,
-    "goal",
-    definition,
-  ).goal.id;
+  goalId = createDrizzleGoalStore(database.db).register(projectId, "goal", definition).goal.id;
   planId = createPlanningStore(database.db).reserveNext(["example"])!.taskId;
   target = {
     key: "service",
@@ -157,10 +125,8 @@ afterEach(async () => {
   database.close();
   rmSync(directory, { recursive: true, force: true });
 });
-const context = (now = new Date()) =>
-  readPlanningContext(database.db, planId, observer, now)!;
-const stored = () =>
-  database.db.select().from(runs).where(eq(runs.taskId, planId)).get()!;
+const context = (now = new Date()) => readPlanningContext(database.db, planId, observer, now)!;
+const stored = () => database.db.select().from(runs).where(eq(runs.taskId, planId)).get()!;
 function good(now = new Date()): ObservationResult {
   return {
     receivedAt: now,
@@ -197,12 +163,7 @@ function prepared(): PreparedInput {
 }
 async function execute(
   provider: (request: AnalysisRequest) => Promise<void> | void = () => {},
-  store = createDrizzleRunStore(
-    database.db,
-    undefined,
-    {},
-    { getObserverStatus: () => observer },
-  ),
+  store = createDrizzleRunStore(database.db, undefined, {}, { getObserverStatus: () => observer }),
 ) {
   const executor: AnalysisExecutor = {
     async analyze(request) {
@@ -249,9 +210,7 @@ test.each([
   (scenario, reason) => {
     const now = new Date();
     if (scenario !== "missing") {
-      const result = good(
-        new Date(now.getTime() - (scenario === "stale" ? 20000 : 0)),
-      );
+      const result = good(new Date(now.getTime() - (scenario === "stale" ? 20000 : 0)));
       if (scenario === "stopped") result.snapshot!.processState = "stopped";
       services.save(target, result);
     }
@@ -394,9 +353,7 @@ test("does not allow late or altered parent input to overwrite evidence", async 
       }),
     ).toThrow();
   }, store);
-  expect(stored().planningInput!.capturedAt).not.toBe(
-    new Date(0).toISOString(),
-  );
+  expect(stored().planningInput!.capturedAt).not.toBe(new Date(0).toISOString());
   expect(() =>
     store.record(stored().id, {
       kind: "planning.input_ready",
@@ -437,9 +394,7 @@ test("allocates bounded Unicode and escaped excerpts fairly without changing com
   const before = structuredClone(input),
     built = buildPlanningInput(input, files);
   expect(
-    Buffer.byteLength(
-      JSON.stringify({ instruction: planningInstruction(built) }),
-    ),
+    Buffer.byteLength(JSON.stringify({ instruction: planningInstruction(built) })),
   ).toBeLessThanOrEqual(60000);
   expect(built.definition).toEqual(definition);
   expect(input).toEqual(before);
@@ -463,9 +418,7 @@ test("refuses an oversized required Goal instead of silently dropping permission
     description: "🧪".repeat(10000),
     completionCriteria: "🧪".repeat(6000),
   };
-  expect(() => buildPlanningInput(input, prepared())).toThrow(
-    "input_unavailable",
-  );
+  expect(() => buildPlanningInput(input, prepared())).toThrow("input_unavailable");
 });
 test("fails before calling the provider when required Goal context cannot fit", async () => {
   const goalStore = createDrizzleGoalStore(database.db);
@@ -474,10 +427,7 @@ test("fails before calling the provider when required Goal context cannot fit", 
       ...definition,
       description: "한".repeat(10000),
       completionCriteria: "한".repeat(6000),
-      allowedPaths: Array.from(
-        { length: 30 },
-        (_, i) => `src/${i}${"한".repeat(150)}`,
-      ),
+      allowedPaths: Array.from({ length: 30 }, (_, i) => `src/${i}${"한".repeat(150)}`),
     },
   });
   planId = createPlanningStore(database.db).reserveNext(["example"])!.taskId;
@@ -495,16 +445,12 @@ test("preserves existing run records when adding durable planning input", () => 
   cpSync(migrationsDirectory, folder, { recursive: true });
   const journalPath = join(folder, "meta/_journal.json"),
     journal = JSON.parse(readFileSync(journalPath, "utf8"));
-  journal.entries = journal.entries.filter(
-    (entry: { idx: number }) => entry.idx < 22,
-  );
+  journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 22);
   writeFileSync(journalPath, JSON.stringify(journal));
   const oldPath = join(directory, "old.sqlite"),
     old = openDatabase(oldPath, folder);
   old.client
-    .prepare(
-      "INSERT INTO projects(id,name,workspace_key,created_at) VALUES (?,?,?,?)",
-    )
+    .prepare("INSERT INTO projects(id,name,workspace_key,created_at) VALUES (?,?,?,?)")
     .run(projectId, "Old", "example", Date.now());
   old.client
     .prepare(
@@ -527,7 +473,10 @@ test("preserves existing run records when adding durable planning input", () => 
       Date.now(),
       "Existing result",
     );
-  const { execution, ...before } = old.client.prepare("SELECT * FROM runs").get() as Record<string, unknown>;
+  const { execution, ...before } = old.client.prepare("SELECT * FROM runs").get() as Record<
+    string,
+    unknown
+  >;
   expect(execution).toBeNull();
   old.close();
   database = openDatabase(oldPath);
@@ -537,15 +486,15 @@ test("preserves existing run records when adding durable planning input", () => 
     development_version: null,
     runtime_skill_version: null,
   });
-  expect(database.client.prepare("SELECT count(*) AS count FROM run_executions").get()).toEqual({ count: 0 });
+  expect(database.client.prepare("SELECT count(*) AS count FROM run_executions").get()).toEqual({
+    count: 0,
+  });
   expect(() => database.checkReady()).not.toThrow();
 });
 
 test("the HTTP observer and running app pass real collected evidence to a planning call without contacting the AI service", async () => {
   // Drop the unstarted fixture reservation so the real app can observe first.
-  database.client
-    .prepare("DELETE FROM planning_cycles WHERE task_id = ?")
-    .run(planId);
+  database.client.prepare("DELETE FROM planning_cycles WHERE task_id = ?").run(planId);
   database.db.delete(tasks).where(eq(tasks.id, planId)).run();
   let methods: string[] = [];
   const upstream = createServer((request, response) => {
@@ -553,9 +502,7 @@ test("the HTTP observer and running app pass real collected evidence to a planni
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify(good().snapshot));
   });
-  await new Promise<void>((resolve) =>
-    upstream.listen(0, "127.0.0.1", resolve),
-  );
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
   closes.push(
     () =>
       new Promise<void>((resolve) => {
@@ -581,10 +528,7 @@ test("the HTTP observer and running app pass real collected evidence to a planni
     { mode: 0o600 },
   );
   mkdirSync(join(directory, "codex"));
-  writeFileSync(
-    join(directory, "codex/auth.json"),
-    JSON.stringify({ auth_mode: "chatgpt" }),
-  );
+  writeFileSync(join(directory, "codex/auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
   const configFile = join(directory, "execution.json");
   writeFileSync(
     configFile,
@@ -631,16 +575,14 @@ test("the HTTP observer and running app pass real collected evidence to a planni
     .poll(
       () =>
         (
-          database.client
-            .prepare("SELECT count(*) AS n FROM service_observations")
-            .get() as { n: number }
+          database.client.prepare("SELECT count(*) AS n FROM service_observations").get() as {
+            n: number;
+          }
         ).n,
     )
     .toBeGreaterThan(0);
   const token = database.db.select().from(executionOwner).get()!.token;
-  planId = createPlanningStore(database.db, token).reserveNext([
-    "example",
-  ])!.taskId;
+  planId = createPlanningStore(database.db, token).reserveNext(["example"])!.taskId;
   await expect.poll(() => received).toBeTruthy();
   expect(received).toMatchObject({
     services: [

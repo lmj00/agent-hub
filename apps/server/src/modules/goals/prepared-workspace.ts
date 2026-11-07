@@ -1,12 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import {
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
   git,
@@ -61,10 +54,7 @@ export function privateInputPath(path: string) {
       (part) =>
         /^(?:\.git|\.codex|\.agents|\.claude|\.gstack|\.cursor|\.local|\.ssh|\.aws|\.kube|\.docker|\.npmrc|\.netrc|\.pypirc|\.git-credentials|node_modules|\.env(?:\..*)?|auth\.json|credentials(?:\.json)?|id_rsa|id_ed25519)$/i.test(
           part,
-        ) ||
-        /\.(?:pem|key|p12|pfx|sqlite(?:3)?|db)(?:-(?:wal|shm|journal))?$/i.test(
-          part,
-        ),
+        ) || /\.(?:pem|key|p12|pfx|sqlite(?:3)?|db)(?:-(?:wal|shm|journal))?$/i.test(part),
     );
 }
 export type ScopedGitFile = {
@@ -73,10 +63,7 @@ export type ScopedGitFile = {
   bytes: number;
   mode: "100644" | "100755";
 };
-export function scopedGitFiles(
-  entries: GitEntry[],
-  scope: GoalScope,
-): ScopedGitFile[] {
+export function scopedGitFiles(entries: GitEntry[], scope: GoalScope): ScopedGitFile[] {
   const files: ScopedGitFile[] = [];
   let total = 0;
   for (const entry of entries) {
@@ -86,10 +73,7 @@ export function scopedGitFiles(
       privateInputPath(entry.path)
     )
       continue;
-    if (
-      (entry.mode !== "100644" && entry.mode !== "100755") ||
-      entry.type !== "blob"
-    )
+    if ((entry.mode !== "100644" && entry.mode !== "100755") || entry.type !== "blob")
       throw new Error("Goal scope contains a symlink or submodule");
     const bytes = entry.bytes;
     if (
@@ -116,9 +100,7 @@ export function privateDirectory(path: string) {
     stat.uid !== process.getuid?.() ||
     (stat.mode & 0o077) !== 0
   )
-    throw new Error(
-      "Prepared input directory must be private and owned by this user",
-    );
+    throw new Error("Prepared input directory must be private and owned by this user");
 }
 export function preparedDirectoryName(databasePath: string) {
   return `.prepared-${createHash("sha256").update(resolve(databasePath)).digest("hex").slice(0, 16)}`;
@@ -126,10 +108,7 @@ export function preparedDirectoryName(databasePath: string) {
 
 export function preparedInputRoot(databasePath: string) {
   const parent = realpathSync(dirname(resolve(databasePath)));
-  const root = join(
-    parent,
-    preparedDirectoryName(databasePath),
-  );
+  const root = join(parent, preparedDirectoryName(databasePath));
   privateDirectory(root);
   return root;
 }
@@ -160,14 +139,8 @@ export function inputIntent(
     files: [],
   };
 }
-export async function assertSourceUnchanged(
-  input: PreparedInput,
-  signal: AbortSignal,
-) {
-  if (
-    input.phase !== "ready" ||
-    (await sourceRevision(input.source, signal)) !== input.revision
-  )
+export async function assertSourceUnchanged(input: PreparedInput, signal: AbortSignal) {
+  if (input.phase !== "ready" || (await sourceRevision(input.source, signal)) !== input.revision)
     throw new Error("Prepared source changed during execution");
 }
 
@@ -208,7 +181,10 @@ export async function prepareGitWorkspace(
     if (!isWithin(intent.directory, destination) || file.path === marker)
       throw new Error("Invalid prepared destination");
     mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
-    writeFileSync(destination, contents[index]!, { mode: file.mode === "100755" ? 0o700 : 0o600, flag: "wx" });
+    writeFileSync(destination, contents[index]!, {
+      mode: file.mode === "100755" ? 0o700 : 0o600,
+      flag: "wx",
+    });
   }
   // A fresh Git root prevents discovery of configuration in the server's ancestor repository.
   await git(intent.directory, ["init", "--quiet", "--template="], signal);
@@ -238,19 +214,11 @@ export function removePreparedWorkspace(root: string, input: PreparedInput) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
-  if (
-    !stat.isDirectory() ||
-    stat.isSymbolicLink() ||
-    stat.uid !== process.getuid?.()
-  )
+  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.())
     throw new Error("Prepared input ownership changed");
   const markerPath = join(input.directory, marker),
     markerStat = lstatSync(markerPath);
-  if (
-    !markerStat.isFile() ||
-    markerStat.isSymbolicLink() ||
-    markerStat.size > 1024
-  )
+  if (!markerStat.isFile() || markerStat.isSymbolicLink() || markerStat.size > 1024)
     throw new Error("Prepared input marker changed");
   const identity = JSON.parse(readFileSync(markerPath, "utf8"));
   if (identity.id !== input.id || identity.runId !== input.runId)

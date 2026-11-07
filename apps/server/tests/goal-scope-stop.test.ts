@@ -28,10 +28,8 @@ let directory: string, projectId: string, goalId: string, taskId: string;
 let database: ReturnType<typeof openDatabase>,
   goals: ReturnType<typeof createDrizzleGoalStore>,
   store: ReturnType<typeof createDrizzleRunStore>;
-const task = () =>
-  database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
-const run = () =>
-  database.db.select().from(runs).where(eq(runs.taskId, taskId)).get()!;
+const task = () => database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+const run = () => database.db.select().from(runs).where(eq(runs.taskId, taskId)).get()!;
 const narrow = () =>
   goals.change(goalId, "narrow", 1, {
     definition: { ...definition, allowedPaths: ["src/main"] },
@@ -114,8 +112,7 @@ test.each([true, false])(
       analyze(request) {
         request.signal.addEventListener("abort", () => {
           durableBeforeSignal =
-            run().stopReason === "scope_changed" &&
-            goals.findById(goalId).version === 2;
+            run().stopReason === "scope_changed" && goals.findById(goalId).version === 2;
         });
         started.resolve();
         return new Promise(() => {});
@@ -147,9 +144,7 @@ test.each([true, false])(
         status: "active",
       });
       expect(
-        (
-          await app.inject({ method: "GET", url: `/runs/${outcome.runId}` })
-        ).json(),
+        (await app.inject({ method: "GET", url: `/runs/${outcome.runId}` })).json(),
       ).toMatchObject({
         stopReason: "scope_changed",
         errorCode: "scope_changed",
@@ -263,15 +258,12 @@ test.each(["pause", "description", "expand"])(
   "a %s change keeps the active run's original stop intent",
   (change) => {
     store.claim(taskId, "fixture");
-    if (change === "pause")
-      goals.change(goalId, "change", 1, { action: "pause" });
+    if (change === "pause") goals.change(goalId, "change", 1, { action: "pause" });
     else
       goals.change(goalId, "change", 1, {
         definition: {
           ...definition,
-          ...(change === "expand"
-            ? { allowedPaths: ["."] }
-            : { description: "New description" }),
+          ...(change === "expand" ? { allowedPaths: ["."] } : { description: "New description" }),
         },
       });
     expect(run().stopReason).toBeNull();

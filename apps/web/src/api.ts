@@ -37,9 +37,7 @@ export function createApiClient(fetcher: typeof fetch = fetch) {
         options.method === "POST" || options.method === "PATCH" || options.method === "PUT"
           ? { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }
           : {},
-      ...(options.body === undefined
-        ? {}
-        : { body: JSON.stringify(options.body) }),
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
     });
     if (!response.ok) {
       let code = "HTTP_ERROR";
@@ -94,7 +92,8 @@ export const api = createApiClient();
 const messages: Record<string, string> = {
   INVALID_BUDGET: "예산 기간·호출 횟수·실행 시간을 확인해 주세요.",
   BUDGET_VERSION_CHANGED: "예산 설정이 바뀌었습니다. 최신 설정을 다시 열어 확인해 주세요.",
-  PERIOD_BUDGET_EXHAUSTED: "이번 기간의 실행 예산을 다 썼습니다. 표시된 다음 기간까지 기다려 주세요.",
+  PERIOD_BUDGET_EXHAUSTED:
+    "이번 기간의 실행 예산을 다 썼습니다. 표시된 다음 기간까지 기다려 주세요.",
   INVALID_GOAL: "목표와 완료 기준, 허용 경로·제외 경로, 예산 범위를 확인해 주세요.",
   GOAL_VERSION_CHANGED: "목표 기준이 바뀌었습니다. 최신 버전과 작업 범위를 다시 확인해야 합니다.",
   GOAL_PAUSED: "연결된 목표가 일시정지되어 새 실행을 시작할 수 없습니다.",
@@ -102,38 +101,34 @@ const messages: Record<string, string> = {
   GOAL_COMPLETED: "완료된 목표를 수정하거나 연결된 작업을 다시 실행할 수 없습니다.",
   INVALID_CREDENTIALS: "비밀번호를 확인해 주세요.",
   TOO_MANY_REQUESTS: "로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요.",
-  ORIGIN_NOT_ALLOWED:
-    "접속 주소가 서버에 등록한 주소와 다릅니다. 설정한 주소로 접속해 주세요.",
+  ORIGIN_NOT_ALLOWED: "접속 주소가 서버에 등록한 주소와 다릅니다. 설정한 주소로 접속해 주세요.",
   INVALID_RESPONSE:
     "서버 응답을 읽을 수 없습니다. 새로고침 후에도 같으면 서버 버전을 확인해 주세요.",
-  STALE_RUN:
-    "더 최근의 실행이 있습니다. 최신 기록을 확인한 뒤 다시 요청해 주세요.",
-  GATE_CHANGED:
-    "실행 제한 상태가 바뀌었습니다. 최신 상태를 확인한 뒤 다시 요청해 주세요.",
+  STALE_RUN: "더 최근의 실행이 있습니다. 최신 기록을 확인한 뒤 다시 요청해 주세요.",
+  GATE_CHANGED: "실행 제한 상태가 바뀌었습니다. 최신 상태를 확인한 뒤 다시 요청해 주세요.",
   RECOVERY_LIMIT_REACHED:
     "작업 또는 계정의 재시도·누적 시간 상한에 도달했습니다. 실행 기록과 정책을 검토해 주세요.",
   RETRY_TOO_EARLY: "아직 다시 시도할 수 있는 시각이 아닙니다.",
   PROVIDER_CHECK_RESERVED: "이미 실행 제한을 확인하는 작업이 예약돼 있습니다.",
   TASK_NOT_RELEASABLE: "목표의 계획에서 생성된 취소 작업만 다시 허용할 수 있습니다.",
   TASK_ALREADY_RELEASED: "이미 다시 허용한 작업이 있습니다. 연결된 작업을 확인해 주세요.",
-  TASK_SCOPE_CHANGED: "현재 목표의 허용 범위에서 이 작업을 수행할 수 없습니다. 목표와 작업 경로를 확인해 주세요.",
-  TASK_CANCELLED:
-    "취소한 작업은 재개할 수 없습니다. 필요하면 새 작업을 등록해 주세요.",
+  TASK_SCOPE_CHANGED:
+    "현재 목표의 허용 범위에서 이 작업을 수행할 수 없습니다. 목표와 작업 경로를 확인해 주세요.",
+  TASK_CANCELLED: "취소한 작업은 재개할 수 없습니다. 필요하면 새 작업을 등록해 주세요.",
   TASK_ALREADY_COMPLETED: "이미 완료된 작업입니다.",
-  CHANGE_APPLICATION_EXISTS: "코드 반영 기록이 있는 작업입니다. 새로 실행하지 말고 상태 확인으로 기존 결과를 대조해 주세요.",
-  CHANGE_APPLICATION_UNCONFIRMED: "코드 반영 결과를 확인하지 못했습니다. 원본과 개발 저장소 상태를 확인한 뒤 다시 상태 확인을 요청해 주세요.",
+  CHANGE_APPLICATION_EXISTS:
+    "코드 반영 기록이 있는 작업입니다. 새로 실행하지 말고 상태 확인으로 기존 결과를 대조해 주세요.",
+  CHANGE_APPLICATION_UNCONFIRMED:
+    "코드 반영 결과를 확인하지 못했습니다. 원본과 개발 저장소 상태를 확인한 뒤 다시 상태 확인을 요청해 주세요.",
   TASK_ALREADY_QUEUED: "이미 실행 대기 중입니다.",
   RUN_ACTIVE: "현재 실행 중입니다. 중단하려면 취소를 요청해 주세요.",
-  RECOVERY_IN_PROGRESS:
-    "이 작업의 상태를 확인하고 있습니다. 잠시 후 결과를 확인해 주세요.",
+  RECOVERY_IN_PROGRESS: "이 작업의 상태를 확인하고 있습니다. 잠시 후 결과를 확인해 주세요.",
   TERMINATION_UNCONFIRMED:
     "이전 실행이 끝났는지 확인하지 못했습니다. 실행 환경을 확인한 뒤 다시 요청해 주세요.",
   TERMINATION_TRACKING_REQUIRED:
     "현재 실행 설정은 종료 확인을 지원하지 않습니다. 컨테이너 실행 설정이 필요합니다.",
-  UNKNOWN_STOP_REASON:
-    "이전 기록의 중단 이유를 알 수 없어 재개하지 않았습니다.",
-  UNRESOLVED_RUN:
-    "종료가 확인되지 않은 다른 실행이 있습니다. 해당 실행부터 확인해 주세요.",
+  UNKNOWN_STOP_REASON: "이전 기록의 중단 이유를 알 수 없어 재개하지 않았습니다.",
+  UNRESOLVED_RUN: "종료가 확인되지 않은 다른 실행이 있습니다. 해당 실행부터 확인해 주세요.",
   EXECUTION_DISABLED: "서버의 자동 실행 설정이 꺼져 있습니다.",
   REQUEST_KEY_CONFLICT:
     "같은 요청 키에 다른 내용이 사용됐습니다. 목록을 확인한 뒤 새 요청을 보내 주세요.",

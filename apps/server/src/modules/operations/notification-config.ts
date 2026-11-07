@@ -18,8 +18,7 @@ export function loadNotificationConfig(path: string): NotificationConfig {
   // Filesystem errors may include a private path. Startup exposes only a fixed error.
   try {
     const { value, sourcePath } = readPrivateJson(path, "Notification config");
-    if (!value || typeof value !== "object" || Array.isArray(value))
-      throw new Error();
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
     const input = value as Record<string, unknown>;
     const fields = [
       "version",
@@ -50,27 +49,18 @@ export function loadNotificationConfig(path: string): NotificationConfig {
       throw new Error();
     if (
       input.bearerToken !== undefined &&
-      (typeof input.bearerToken !== "string" ||
-        !/^[\x21-\x7e]{1,2048}$/.test(input.bearerToken))
+      (typeof input.bearerToken !== "string" || !/^[\x21-\x7e]{1,2048}$/.test(input.bearerToken))
     )
       throw new Error();
-    const integer = (
-      key: string,
-      fallback: number,
-      min: number,
-      max: number,
-    ) => {
+    const integer = (key: string, fallback: number, min: number, max: number) => {
       const v = input[key] ?? fallback;
-      if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max)
-        throw new Error();
+      if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) throw new Error();
       return v;
     };
     const config = {
       sourcePath,
       url: url.href,
-      ...(input.bearerToken === undefined
-        ? {}
-        : { bearerToken: input.bearerToken as string }),
+      ...(input.bearerToken === undefined ? {} : { bearerToken: input.bearerToken as string }),
       destinationHash: createHash("sha256")
         .update(JSON.stringify([url.href, input.bearerToken ?? null]))
         .digest("hex"),
@@ -84,8 +74,6 @@ export function loadNotificationConfig(path: string): NotificationConfig {
     if (config.maxDelayMs < config.initialDelayMs) throw new Error();
     return config;
   } catch {
-    throw new Error(
-      "Invalid notification config; check private file, endpoint and limits",
-    );
+    throw new Error("Invalid notification config; check private file, endpoint and limits");
   }
 }

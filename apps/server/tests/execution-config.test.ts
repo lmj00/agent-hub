@@ -2,16 +2,28 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { isWithin, loadExecutionConfig, validateExecutionEnvironment } from "../src/modules/execution/execution-config.js";
+import {
+  isWithin,
+  loadExecutionConfig,
+  validateExecutionEnvironment,
+} from "../src/modules/execution/execution-config.js";
 
 let directory: string;
 let file: string;
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "hub-config-"));
-  mkdirSync(join(directory, "auth")); mkdirSync(join(directory, "workspace"));
+  mkdirSync(join(directory, "auth"));
+  mkdirSync(join(directory, "workspace"));
   writeFileSync(join(directory, "auth", "auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
   file = join(directory, "execution.json");
-  writeFileSync(file, JSON.stringify({ model: "test-model", codexHome: "auth", workspaces: { example: "workspace" } }));
+  writeFileSync(
+    file,
+    JSON.stringify({
+      model: "test-model",
+      codexHome: "auth",
+      workspaces: { example: "workspace" },
+    }),
+  );
 });
 afterEach(() => rmSync(directory, { recursive: true, force: true }));
 
@@ -29,20 +41,54 @@ test("resolves prepared workspaces relative to the private config", () => {
 
 test("accepts operator-fixed test image and argv for a configured workspace", () => {
   const base = JSON.parse(readFileSync(file, "utf8"));
-  writeFileSync(file, JSON.stringify({ ...base, containerImage: "hub:local", verification: { example: { image: "node-test:local", command: ["node", "--test"] } } }));
-  expect(loadExecutionConfig(file).verification?.get("example")).toEqual({ image: "node-test:local", command: ["node", "--test"], timeoutMs: 60000 });
+  writeFileSync(
+    file,
+    JSON.stringify({
+      ...base,
+      containerImage: "hub:local",
+      verification: { example: { image: "node-test:local", command: ["node", "--test"] } },
+    }),
+  );
+  expect(loadExecutionConfig(file).verification?.get("example")).toEqual({
+    image: "node-test:local",
+    command: ["node", "--test"],
+    timeoutMs: 60000,
+  });
 });
 
 test.each([
   { verification: { example: { image: "test:local", command: ["node", "--test"] } } },
-  { containerImage: "hub:local", verification: { missing: { image: "test:local", command: ["node"] } } },
-  { containerImage: "hub:local", verification: { example: { image: "--privileged", command: ["node"] } } },
-  { containerImage: "hub:local", verification: { example: { image: "test:local", command: "node --test" } } },
-  { containerImage: "hub:local", verification: { example: { image: "test:local", command: [], timeoutMs: 60000 } } },
-  { containerImage: "hub:local", verification: { example: { image: "test:local", command: ["node"], timeoutMs: 999 } } },
-  { containerImage: "hub:local", verification: { example: { image: "test:local", command: ["node"], timeoutMs: 300001 } } },
-  { containerImage: "hub:local", verification: { example: { image: "test:local", command: ["node"], environment: { TOKEN: "synthetic" } } } },
-])("rejects invalid or unbounded verification configuration %#", change => {
+  {
+    containerImage: "hub:local",
+    verification: { missing: { image: "test:local", command: ["node"] } },
+  },
+  {
+    containerImage: "hub:local",
+    verification: { example: { image: "--privileged", command: ["node"] } },
+  },
+  {
+    containerImage: "hub:local",
+    verification: { example: { image: "test:local", command: "node --test" } },
+  },
+  {
+    containerImage: "hub:local",
+    verification: { example: { image: "test:local", command: [], timeoutMs: 60000 } },
+  },
+  {
+    containerImage: "hub:local",
+    verification: { example: { image: "test:local", command: ["node"], timeoutMs: 999 } },
+  },
+  {
+    containerImage: "hub:local",
+    verification: { example: { image: "test:local", command: ["node"], timeoutMs: 300001 } },
+  },
+  {
+    containerImage: "hub:local",
+    verification: {
+      example: { image: "test:local", command: ["node"], environment: { TOKEN: "synthetic" } },
+    },
+  },
+])("rejects invalid or unbounded verification configuration %#", (change) => {
   const base = JSON.parse(readFileSync(file, "utf8"));
   writeFileSync(file, JSON.stringify({ ...base, ...change }));
   expect(() => loadExecutionConfig(file)).toThrow();
@@ -72,9 +118,19 @@ test("permits inert SDK plugin caches but rejects added plugin configuration", (
 });
 
 test("rejects authentication inside the analyzed workspace and project-level overrides", () => {
-  writeFileSync(file, JSON.stringify({ model: "test-model", codexHome: "auth", workspaces: { example: "." } }));
+  writeFileSync(
+    file,
+    JSON.stringify({ model: "test-model", codexHome: "auth", workspaces: { example: "." } }),
+  );
   expect(() => loadExecutionConfig(file)).toThrow("separate");
-  writeFileSync(file, JSON.stringify({ model: "test-model", codexHome: "auth", workspaces: { example: "workspace" } }));
+  writeFileSync(
+    file,
+    JSON.stringify({
+      model: "test-model",
+      codexHome: "auth",
+      workspaces: { example: "workspace" },
+    }),
+  );
   mkdirSync(join(directory, "workspace", ".codex"));
   writeFileSync(join(directory, "workspace", ".codex", "config.toml"), "");
   expect(() => loadExecutionConfig(file)).toThrow("project Codex config");
@@ -82,19 +138,29 @@ test("rejects authentication inside the analyzed workspace and project-level ove
 
 test("server login secrets cannot be placed inside an AI workspace", () => {
   const config = loadExecutionConfig(file);
-  const databasePath = join(directory, "hub.sqlite"); writeFileSync(databasePath, "");
-  const secret = join(config.workspaces.get("example")!, "server-auth.json"); writeFileSync(secret, "{}");
-  expect(() => validateExecutionEnvironment(config, databasePath, [secret])).toThrow("Private server configuration");
-  const outside = join(directory, "server-auth.json"); writeFileSync(outside, "{}");
+  const databasePath = join(directory, "hub.sqlite");
+  writeFileSync(databasePath, "");
+  const secret = join(config.workspaces.get("example")!, "server-auth.json");
+  writeFileSync(secret, "{}");
+  expect(() => validateExecutionEnvironment(config, databasePath, [secret])).toThrow(
+    "Private server configuration",
+  );
+  const outside = join(directory, "server-auth.json");
+  writeFileSync(outside, "{}");
   expect(() => validateExecutionEnvironment(config, databasePath, [outside])).not.toThrow();
 });
 
 test("capacity checks have their own policy and can be disabled without disabling transient recovery", () => {
   const base = { model: "fixture", codexHome: "auth", workspaces: { example: "workspace" } };
   writeFileSync(file, JSON.stringify({ ...base, automaticRecovery: {} }));
-  expect(loadExecutionConfig(file).capacityRecovery).toMatchObject({ initialDelayMs: 900000, maxDelayMs: 21600000, maxChecks: 3 });
+  expect(loadExecutionConfig(file).capacityRecovery).toMatchObject({
+    initialDelayMs: 900000,
+    maxDelayMs: 21600000,
+    maxChecks: 3,
+  });
   writeFileSync(file, JSON.stringify({ ...base, automaticRecovery: { capacity: false } }));
-  expect(loadExecutionConfig(file).automaticRecovery).toBeDefined(); expect(loadExecutionConfig(file).capacityRecovery).toBeUndefined();
+  expect(loadExecutionConfig(file).automaticRecovery).toBeDefined();
+  expect(loadExecutionConfig(file).capacityRecovery).toBeUndefined();
   for (const capacity of [null, true, { maxChecks: 0 }]) {
     writeFileSync(file, JSON.stringify({ ...base, automaticRecovery: { capacity } }));
     expect(() => loadExecutionConfig(file)).toThrow();

@@ -43,19 +43,13 @@ const definition: GoalDefinition = {
   checkIntervalMs: 60000,
   budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
 };
-let directory: string,
-  source: string,
-  root: string,
-  taskId: string,
-  goalId: string;
+let directory: string, source: string, root: string, taskId: string, goalId: string;
 let database: ReturnType<typeof openDatabase>,
   owner: ReturnType<typeof acquireExecutionOwner>,
   store: ReturnType<typeof createDrizzleRunStore>,
   goals: ReturnType<typeof createDrizzleGoalStore>;
 beforeEach(() => {
-  directory = realpathSync(
-    mkdtempSync(join(tmpdir(), "hub-prepared-execution-")),
-  );
+  directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-prepared-execution-")));
   source = join(directory, "source");
   mkdirSync(source);
   const git = (...args: string[]) =>
@@ -131,10 +125,7 @@ const base = (
   analyze: vi.fn(analyze),
   confirmTermination: async () => new Date(),
 });
-const run = (
-  executor: AnalysisExecutor,
-  signal = new AbortController().signal,
-) =>
+const run = (executor: AnalysisExecutor, signal = new AbortController().signal) =>
   runTask(
     { taskId, model: "fixture", workspace: source, timeoutMs: 5000, signal },
     store,
@@ -163,9 +154,7 @@ test("persists preparation intent before copying and ready metadata before invok
     expect(request.scope).toBeUndefined();
     expect(request.workspace).toBe(input.directory);
     expect(request.workspace).not.toBe(source);
-    expect(readFileSync(join(request.workspace, "main.ts"), "utf8")).toContain(
-      "42",
-    );
+    expect(readFileSync(join(request.workspace, "main.ts"), "utf8")).toContain("42");
     expect(existsSync(join(request.workspace, "outside.txt"))).toBe(false);
     return { output: "Verified source", usage: null };
   });
@@ -192,8 +181,7 @@ test.each(["preparing", "ready"])(
       terminationConfirmedAt: expect.any(Date),
     });
     expect(executor.analyze).not.toHaveBeenCalled();
-    if (row().preparedInput)
-      expect(existsSync(row().preparedInput!.directory)).toBe(false);
+    if (row().preparedInput) expect(existsSync(row().preparedInput!.directory)).toBe(false);
   },
 );
 
@@ -308,7 +296,17 @@ test("recovery cleanup runs only after the store persisted its proof", async () 
     containerId: "a".repeat(64),
     token: "fixture",
   };
-  database.db.insert(runExecutions).values({ runId: result.runId, sequence: 1, containerId: identity.containerId, token: identity.token, engineId: identity.engineId, createdAt: new Date() }).run();
+  database.db
+    .insert(runExecutions)
+    .values({
+      runId: result.runId,
+      sequence: 1,
+      containerId: identity.containerId,
+      token: identity.token,
+      engineId: identity.engineId,
+      createdAt: new Date(),
+    })
+    .run();
   const recovery = createDrizzleRecoveryStore(database.db, owner.token);
   const request = recovery.request(
     {
@@ -448,10 +446,7 @@ test("a termination observer arriving during preparation rechecks whether AI has
 test("the automatic server queue supplies the same scoped input and omits private metadata from HTTP", async () => {
   const home = join(directory, "home");
   mkdirSync(home);
-  writeFileSync(
-    join(home, "auth.json"),
-    JSON.stringify({ auth_mode: "chatgpt" }),
-  );
+  writeFileSync(join(home, "auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
   const path = join(directory, "execution.json");
   writeFileSync(
     path,

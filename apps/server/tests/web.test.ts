@@ -1,19 +1,10 @@
 import { randomBytes } from "node:crypto";
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import { buildApp } from "../src/app.js";
-import {
-  hashPassword,
-  type PasswordHash,
-} from "../src/modules/auth/password.js";
+import { hashPassword, type PasswordHash } from "../src/modules/auth/password.js";
 
 let directory: string;
 let app: ReturnType<typeof buildApp>;
@@ -29,15 +20,9 @@ beforeEach(() => {
     join(webDirectory, "index.html"),
     "<!doctype html><title>Fixture hub</title><main>Login shell</main>",
   );
-  writeFileSync(
-    join(webDirectory, "assets", "index-fixture.js"),
-    "console.log('fixture')",
-  );
+  writeFileSync(join(webDirectory, "assets", "index-fixture.js"), "console.log('fixture')");
   writeFileSync(join(directory, "private.txt"), "fixture-private-file");
-  writeFileSync(
-    join(webDirectory, "assets", ".private"),
-    "fixture-hidden-file",
-  );
+  writeFileSync(join(webDirectory, "assets", ".private"), "fixture-hidden-file");
   app = buildApp({
     databasePath: join(directory, "hub.sqlite"),
     webDirectory,
@@ -59,9 +44,7 @@ test("the public login shell and built assets are served with CSP while APIs rem
   expect(index.statusCode).toBe(200);
   expect(index.body).toContain("Login shell");
   expect(index.headers["content-type"]).toContain("text/html");
-  expect(index.headers["content-security-policy"]).toContain(
-    "default-src 'self'",
-  );
+  expect(index.headers["content-security-policy"]).toContain("default-src 'self'");
   expect(index.headers["cache-control"]).toBe("no-store");
   const asset = await app.inject("/assets/index-fixture.js");
   expect(asset.statusCode).toBe(200);
@@ -96,10 +79,9 @@ test("public shell routes do not allow cross-site access or bypass write authent
       })
     ).statusCode,
   ).toBe(403);
-  expect(
-    (await app.inject({ method: "POST", url: "/assets/index-fixture.js" }))
-      .statusCode,
-  ).toBe(404);
+  expect((await app.inject({ method: "POST", url: "/assets/index-fixture.js" })).statusCode).toBe(
+    404,
+  );
   expect(() =>
     buildApp({
       databasePath: join(directory, "other.sqlite"),

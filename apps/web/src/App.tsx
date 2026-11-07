@@ -22,8 +22,7 @@ export function App() {
     refreshSession();
   }, [refreshSession]);
 
-  if (session?.authenticated)
-    return <Workspace onExpired={expired} onLogout={refreshSession} />;
+  if (session?.authenticated) return <Workspace onExpired={expired} onLogout={refreshSession} />;
   return (
     <main className="login-layout">
       <section className="login-intro">
@@ -68,9 +67,7 @@ export function App() {
         ) : (
           <Login onLogin={setSession} />
         )}
-        <p className="login-footnote">
-          이 공간에는 프로젝트 지시와 실행 결과가 저장됩니다.
-        </p>
+        <p className="login-footnote">이 공간에는 프로젝트 지시와 실행 결과가 저장됩니다.</p>
       </section>
     </main>
   );

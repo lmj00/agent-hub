@@ -14,19 +14,14 @@ const testLabels = {
   output_limit: "출력 한도 초과",
 };
 
-export function GoalVerificationPanel({
-  evidence,
-}: {
-  evidence: GoalVerificationEvidence;
-}) {
+export function GoalVerificationPanel({ evidence }: { evidence: GoalVerificationEvidence }) {
   return (
     <section className="development-evidence" aria-label="목표 전체 검증 기록">
       <div className="section-heading">
         <h3>목표 전체 검증 기록</h3>
       </div>
       <p className="subtle-note">
-        마지막 작업뿐 아니라 목표의 모든 완료 기준을 실제 테스트와 별도 검토로
-        확인합니다.
+        마지막 작업뿐 아니라 목표의 모든 완료 기준을 실제 테스트와 별도 검토로 확인합니다.
       </p>
       <div className="development-check">
         <strong>
@@ -48,17 +43,13 @@ export function GoalVerificationPanel({
         {evidence.test ? (
           <>
             <p>
-              {testLabels[evidence.test.status]} · 종료 코드{" "}
-              {evidence.test.exitCode} · {evidence.test.elapsedMs}ms
+              {testLabels[evidence.test.status]} · 종료 코드 {evidence.test.exitCode} ·{" "}
+              {evidence.test.elapsedMs}ms
             </p>
-            {evidence.test.oomKilled ? (
-              <p>메모리 한도로 실행이 종료됐습니다.</p>
-            ) : null}
+            {evidence.test.oomKilled ? <p>메모리 한도로 실행이 종료됐습니다.</p> : null}
             <details>
               <summary>테스트 출력 보기</summary>
-              <pre className="development-output">
-                {evidence.test.output || "출력 없음"}
-              </pre>
+              <pre className="development-output">{evidence.test.output || "출력 없음"}</pre>
             </details>
           </>
         ) : (
@@ -87,9 +78,7 @@ export function GoalVerificationPanel({
                 </ul>
               </>
             ) : null}
-            <p className="subtle-note">
-              기록 {dateTime(evidence.review.recordedAt)}
-            </p>
+            <p className="subtle-note">기록 {dateTime(evidence.review.recordedAt)}</p>
           </>
         ) : (
           <p>저장된 독립 검토 결과가 없습니다.</p>
@@ -98,14 +87,10 @@ export function GoalVerificationPanel({
       <details>
         <summary>검증한 코드 버전 보기</summary>
         <p>
-          커밋{" "}
-          <code className="application-revision">
-            {evidence.sourceRevision}
-          </code>
+          커밋 <code className="application-revision">{evidence.sourceRevision}</code>
         </p>
         <p>
-          검증 자료{" "}
-          <code className="application-revision">{evidence.inputDigest}</code>
+          검증 자료 <code className="application-revision">{evidence.inputDigest}</code>
         </p>
       </details>
     </section>

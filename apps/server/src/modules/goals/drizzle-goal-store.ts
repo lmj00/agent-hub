@@ -22,17 +22,9 @@ function view(row: typeof goals.$inferSelect): Goal {
 const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
-export function createDrizzleGoalStore(
-  db: ReturnType<typeof openDatabase>["db"],
-) {
+export function createDrizzleGoalStore(db: ReturnType<typeof openDatabase>["db"]) {
   function requireProject(projectId: string) {
-    if (
-      !db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId))
-        .get()
-    )
+    if (!db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get())
       throw new GoalError("PROJECT_NOT_FOUND");
   }
   return {
@@ -45,26 +37,15 @@ export function createDrizzleGoalStore(
           const existing = tx
             .select()
             .from(goals)
-            .where(
-              and(
-                eq(goals.projectId, projectId),
-                eq(goals.requestKey, requestKey),
-              ),
-            )
+            .where(and(eq(goals.projectId, projectId), eq(goals.requestKey, requestKey)))
             .get();
           if (existing) {
             const first = tx
               .select()
               .from(goalRevisions)
-              .where(
-                and(
-                  eq(goalRevisions.goalId, existing.id),
-                  eq(goalRevisions.version, 1),
-                ),
-              )
+              .where(and(eq(goalRevisions.goalId, existing.id), eq(goalRevisions.version, 1)))
               .get()!;
-            if (first.commandHash !== hash)
-              throw new GoalError("REQUEST_KEY_CONFLICT");
+            if (first.commandHash !== hash) throw new GoalError("REQUEST_KEY_CONFLICT");
             return { goal: first.snapshot, created: false };
           }
           const now = new Date();
@@ -115,23 +96,15 @@ export function createDrizzleGoalStore(
           const previous = tx
             .select()
             .from(goalRevisions)
-            .where(
-              and(
-                eq(goalRevisions.goalId, id),
-                eq(goalRevisions.requestKey, requestKey),
-              ),
-            )
+            .where(and(eq(goalRevisions.goalId, id), eq(goalRevisions.requestKey, requestKey)))
             .get();
           if (previous) {
-            if (previous.commandHash !== hash)
-              throw new GoalError("REQUEST_KEY_CONFLICT");
+            if (previous.commandHash !== hash) throw new GoalError("REQUEST_KEY_CONFLICT");
             return previous.snapshot;
           }
-          if (row.version !== expectedVersion)
-            throw new GoalError("GOAL_VERSION_CHANGED");
+          if (row.version !== expectedVersion) throw new GoalError("GOAL_VERSION_CHANGED");
           if (row.status === "completed") throw new GoalError("GOAL_COMPLETED");
-          const definition =
-            "definition" in normalized ? normalized.definition : row.definition;
+          const definition = "definition" in normalized ? normalized.definition : row.definition;
           const status =
             "action" in normalized
               ? normalized.action === "pause"
@@ -162,9 +135,29 @@ export function createDrizzleGoalStore(
             })
             .run();
           if (narrowsGoalScope(row.definition, definition)) {
-            const active = tx.select({ id: runs.id }).from(runs).innerJoin(tasks, eq(runs.taskId, tasks.id))
-              .where(and(eq(tasks.goalId, id), isNull(runs.stopReason), or(eq(runs.status, "running"), and(inArray(runs.status, ["interrupted", "blocked", "waiting_capacity"]), isNull(runs.terminationConfirmedAt))))).all();
-            for (const run of active) tx.update(runs).set({ stopReason: "scope_changed", stopRequestedAt: updated.updatedAt }).where(eq(runs.id, run.id)).run();
+            const active = tx
+              .select({ id: runs.id })
+              .from(runs)
+              .innerJoin(tasks, eq(runs.taskId, tasks.id))
+              .where(
+                and(
+                  eq(tasks.goalId, id),
+                  isNull(runs.stopReason),
+                  or(
+                    eq(runs.status, "running"),
+                    and(
+                      inArray(runs.status, ["interrupted", "blocked", "waiting_capacity"]),
+                      isNull(runs.terminationConfirmedAt),
+                    ),
+                  ),
+                ),
+              )
+              .all();
+            for (const run of active)
+              tx.update(runs)
+                .set({ stopReason: "scope_changed", stopRequestedAt: updated.updatedAt })
+                .where(eq(runs.id, run.id))
+                .run();
           }
           revalidateGoalWork(tx, id, updated.updatedAt);
           return goal;
@@ -188,9 +181,7 @@ export function createDrizzleGoalStore(
       return view(row);
     },
     history(id: string) {
-      if (
-        !db.select({ id: goals.id }).from(goals).where(eq(goals.id, id)).get()
-      )
+      if (!db.select({ id: goals.id }).from(goals).where(eq(goals.id, id)).get())
         throw new GoalError("GOAL_NOT_FOUND");
       return db
         .select()

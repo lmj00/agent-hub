@@ -74,9 +74,7 @@ test.each(["stdout", "stderr"] as const)(
     expect(result.verification?.status).toBe("failed");
     expect(result.output.includes("test startup")).toBe(true);
     expect(result.output.includes("stream end")).toBe(true);
-    expect(result.output.includes("final assertion failed [REDACTED]")).toBe(
-      true,
-    );
+    expect(result.output.includes("final assertion failed [REDACTED]")).toBe(true);
     expect(Buffer.byteLength(result.output)).toBeLessThanOrEqual(65536);
   },
 );
@@ -99,9 +97,7 @@ test("redacts and decodes each pipe before combining interleaved byte fragments"
 test("keeps the beginning and end of both busy pipes within the stored byte limit", async () => {
   const { child, pending } = execution();
   for (const stream of ["stdout", "stderr"] as const) {
-    child[stream].write(
-      `${stream} start\n${"한".repeat(30000)}\n${stream} end`,
-    );
+    child[stream].write(`${stream} start\n${"한".repeat(30000)}\n${stream} end`);
   }
   child.emit("close", 1);
   const result = await pending;

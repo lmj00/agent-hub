@@ -20,15 +20,9 @@ import {
   type VerificationResult,
 } from "../execution/verification-config.js";
 import { boundPlanningEvidence, parseGoalPlan, type PlanningInput } from "./goal-plan-policy.js";
-import {
-  planningSourceChanged,
-  preparedGoalChanged,
-} from "./prepared-input-store.js";
+import { planningSourceChanged, preparedGoalChanged } from "./prepared-input-store.js";
 
-type Db = Pick<
-  ReturnType<typeof openDatabase>["db"],
-  "select" | "update" | "insert"
->;
+type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update" | "insert">;
 type Run = typeof runs.$inferSelect;
 export type GoalVerification = {
   version: 1;
@@ -53,8 +47,7 @@ export type GoalVerificationUpdate =
   | { type: "tested"; result: VerificationResult }
   | { type: "reviewed" };
 
-const same = (a: unknown, b: unknown) =>
-  JSON.stringify(a) === JSON.stringify(b);
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const policy = { version: 1 as const, maxSteps: 2, maxEffortChanges: 1 };
 function invalid(): never {
   throw new AnalysisError("input_unavailable");
@@ -109,10 +102,7 @@ export function saveGoalVerification(
       test: null,
       review: null,
     };
-    db.update(runs)
-      .set({ workflowPolicy: policy })
-      .where(eq(runs.id, run.id))
-      .run();
+    db.update(runs).set({ workflowPolicy: policy }).where(eq(runs.id, run.id)).run();
     const plan = parseGoalPlan(planResult.proposal, input);
     saveWorkflowStep(
       db,
@@ -147,8 +137,7 @@ export function saveGoalVerification(
     )
       invalid();
     if (update.type === "tested") {
-      if (verification.test || verification.review || executions.length !== 2)
-        invalid();
+      if (verification.test || verification.review || executions.length !== 2) invalid();
       const result = parseVerificationResult(update.result);
       if (
         result.inputDigest !== input.digest ||
@@ -184,9 +173,7 @@ export function saveGoalVerification(
         review: {
           assessment: review.assessment,
           execution: executions[2]!.identity,
-          verificationDigest: verificationResultDigest(
-            verification.test.result,
-          ),
+          verificationDigest: verificationResultDigest(verification.test.result),
           recordedAt: now.toISOString(),
         },
       };
@@ -256,8 +243,7 @@ export function goalVerificationOutcome(
         executions.every((item) => item.terminationConfirmedAt) &&
         same(result.execution, executions[1]!.identity) &&
         same(verification.review.execution, executions[2]!.identity) &&
-        verification.review.verificationDigest ===
-          verificationResultDigest(result) &&
+        verification.review.verificationDigest === verificationResultDigest(result) &&
         history.length === 2 &&
         history.every((step) => step.status === "succeeded") &&
         history[0]!.sequence === 1 &&
@@ -278,10 +264,7 @@ export function goalVerificationOutcome(
   }
 }
 
-export function goalVerificationInstruction(
-  input: PlanningInput,
-  result: VerificationResult,
-) {
+export function goalVerificationInstruction(input: PlanningInput, result: VerificationResult) {
   const render = (snapshot: PlanningInput) => {
     const prompt = [
       "Independently review whether this entire finite Goal is satisfied by the prepared code. You cannot modify files. Evaluate every completion criterion, not only the last Task or the coordinator's claim.",

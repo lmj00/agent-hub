@@ -21,26 +21,17 @@ export const goalRoutes: FastifyPluginAsync<{
     reply.header("Cache-Control", "no-store");
     if (
       ["POST", "PATCH"].includes(request.method) &&
-      request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() !==
-        "application/json"
+      request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() !== "application/json"
     )
-      return reply
-        .code(415)
-        .send({
-          error: "INVALID_REQUEST",
-          message: "Content-Type must be application/json",
-        });
+      return reply.code(415).send({
+        error: "INVALID_REQUEST",
+        message: "Content-Type must be application/json",
+      });
   });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof GoalError)
       return reply
-        .code(
-          error.code.endsWith("NOT_FOUND")
-            ? 404
-            : error.code === "INVALID_GOAL"
-              ? 400
-              : 409,
-        )
+        .code(error.code.endsWith("NOT_FOUND") ? 404 : error.code === "INVALID_GOAL" ? 400 : 409)
         .send({ error: error.code, message: error.message });
     if (
       error instanceof Error &&
@@ -49,19 +40,15 @@ export const goalRoutes: FastifyPluginAsync<{
       error.statusCode >= 400 &&
       error.statusCode < 500
     )
-      return reply
-        .code(error.statusCode)
-        .send({
-          error: "INVALID_REQUEST",
-          message: "Goal request does not match the contract",
-        });
-    request.log.error({ code: "GOAL_STORAGE_ERROR" }, "Goal request failed");
-    return reply
-      .code(500)
-      .send({
-        error: "INTERNAL_ERROR",
-        message: "Unable to process goal request",
+      return reply.code(error.statusCode).send({
+        error: "INVALID_REQUEST",
+        message: "Goal request does not match the contract",
       });
+    request.log.error({ code: "GOAL_STORAGE_ERROR" }, "Goal request failed");
+    return reply.code(500).send({
+      error: "INTERNAL_ERROR",
+      message: "Unable to process goal request",
+    });
   });
   app.post<{
     Params: { projectId: string };
@@ -129,12 +116,9 @@ export const goalRoutes: FastifyPluginAsync<{
       },
     },
     async (request) =>
-      store.change(
-        request.params.id,
-        request.body.requestKey,
-        request.body.expectedVersion,
-        { definition: request.body.definition },
-      ),
+      store.change(request.params.id, request.body.requestKey, request.body.expectedVersion, {
+        definition: request.body.definition,
+      }),
   );
   app.post<{ Params: { id: string }; Body: Static<typeof controlGoalSchema> }>(
     "/goals/:id/control",
@@ -146,11 +130,8 @@ export const goalRoutes: FastifyPluginAsync<{
       },
     },
     async (request) =>
-      store.change(
-        request.params.id,
-        request.body.requestKey,
-        request.body.expectedVersion,
-        { action: request.body.action },
-      ),
+      store.change(request.params.id, request.body.requestKey, request.body.expectedVersion, {
+        action: request.body.action,
+      }),
   );
 };

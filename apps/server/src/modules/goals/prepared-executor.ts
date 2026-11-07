@@ -1,21 +1,11 @@
 import { join } from "node:path";
 import { and, eq, isNotNull } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  developmentRepositories,
-  projects,
-  runs,
-  steps,
-  tasks,
-} from "../../db/schema.js";
+import { developmentRepositories, projects, runs, steps, tasks } from "../../db/schema.js";
 import { AnalysisError, type AnalysisExecutor } from "../execution/analysis.js";
 import { assertDevelopmentBase } from "./development-workspace.js";
 import { planningSourceChanged } from "./prepared-input-store.js";
-import {
-  buildPlanningInput,
-  parseGoalPlan,
-  planningInstruction,
-} from "./goal-plan-policy.js";
+import { buildPlanningInput, parseGoalPlan, planningInstruction } from "./goal-plan-policy.js";
 import type { ExecutionConfig } from "../execution/execution-config.js";
 import type { Effort } from "@agent-hub/contracts";
 import {
@@ -102,10 +92,7 @@ export function createPreparedExecutor(
               .where(eq(developmentRepositories.projectId, task.projectId))
               .get();
             if (stored) {
-              if (
-                !stored.prepared ||
-                stored.prepared.source !== request.workspace
-              )
+              if (!stored.prepared || stored.prepared.source !== request.workspace)
                 throw new AnalysisError("input_unavailable");
               current.input.developmentRepository = stored.prepared;
             }
@@ -118,20 +105,13 @@ export function createPreparedExecutor(
           const repository = current.input.developmentRepository;
           if (repository) {
             await assertDevelopmentBase(repository, request.signal);
-            current.input = await prepareGitWorkspace(
-              current.input,
-              request.signal,
-              {
-                directory: join(repository.directory, "git"),
-                revision: repository.head,
-              },
-            );
+            current.input = await prepareGitWorkspace(current.input, request.signal, {
+              directory: join(repository.directory, "git"),
+              revision: repository.head,
+            });
             await assertPreparedSource(current.input, request.signal);
           } else {
-            current.input = await prepareWorkspace(
-              current.input,
-              request.signal,
-            );
+            current.input = await prepareWorkspace(current.input, request.signal);
           }
           await onEvent({ kind: "input.ready", preparedInput: current.input });
         } catch (error) {
@@ -142,11 +122,8 @@ export function createPreparedExecutor(
         }
         request.signal.throwIfAborted();
         const { scope: _scope, planning, workflow, ...rest } = request;
-        const input = planning
-          ? buildPlanningInput(planning, current.input)
-          : null;
-        if (input)
-          await onEvent({ kind: "planning.input_ready", planningInput: input });
+        const input = planning ? buildPlanningInput(planning, current.input) : null;
+        if (input) await onEvent({ kind: "planning.input_ready", planningInput: input });
         request.signal.throwIfAborted();
         const analysisRequest = {
           ...rest,
@@ -183,9 +160,7 @@ export function createPreparedExecutor(
             .innerJoin(runs, eq(runs.taskId, tasks.id))
             .where(eq(runs.id, request.runId!))
             .get();
-          const configuration = project
-            ? config.verification.get(project.workspaceKey)
-            : undefined;
+          const configuration = project ? config.verification.get(project.workspaceKey) : undefined;
           if (!configuration || !executor.confirmTermination)
             throw new AnalysisError("unsupported_settings");
           await assertPreparedSource(current.input, request.signal);
@@ -197,11 +172,8 @@ export function createPreparedExecutor(
               usage: result.usage,
             },
           });
-          const recorded = db
-            .select()
-            .from(runs)
-            .where(eq(runs.id, runId))
-            .get()?.planResult?.verification;
+          const recorded = db.select().from(runs).where(eq(runs.id, runId)).get()
+            ?.planResult?.verification;
           if (!recorded) throw new AnalysisError("input_unavailable");
           const tested = await executor.analyze(
             {
@@ -227,8 +199,7 @@ export function createPreparedExecutor(
             },
             onEvent,
           );
-          if (!tested.verification)
-            throw new AnalysisError("input_unavailable");
+          if (!tested.verification) throw new AnalysisError("input_unavailable");
           await onEvent({
             kind: "goal-verification.tested",
             goalVerification: { type: "tested", result: tested.verification },
@@ -258,10 +229,7 @@ export function createPreparedExecutor(
                     stepSequence: 2,
                   }
                 : {}),
-              instruction: goalVerificationInstruction(
-                input,
-                tested.verification,
-              ),
+              instruction: goalVerificationInstruction(input, tested.verification),
             },
             onEvent,
           );
@@ -286,13 +254,10 @@ export function createPreparedExecutor(
           result.usage =
             result.usage && reviewed.usage
               ? {
-                  inputTokens:
-                    result.usage.inputTokens + reviewed.usage.inputTokens,
+                  inputTokens: result.usage.inputTokens + reviewed.usage.inputTokens,
                   cachedInputTokens:
-                    result.usage.cachedInputTokens +
-                    reviewed.usage.cachedInputTokens,
-                  outputTokens:
-                    result.usage.outputTokens + reviewed.usage.outputTokens,
+                    result.usage.cachedInputTokens + reviewed.usage.cachedInputTokens,
+                  outputTokens: result.usage.outputTokens + reviewed.usage.outputTokens,
                 }
               : null;
         }
@@ -348,19 +313,11 @@ export function cleanupPreparedRun(
 }
 
 // Resume cleanup after a crash between committing termination proof and removing files.
-export function cleanupConfirmedInputs(
-  db: ReturnType<typeof openDatabase>["db"],
-  root: string,
-) {
+export function cleanupConfirmedInputs(db: ReturnType<typeof openDatabase>["db"], root: string) {
   const confirmed = db
     .select({ id: runs.id })
     .from(runs)
-    .where(
-      and(
-        isNotNull(runs.preparedInput),
-        isNotNull(runs.terminationConfirmedAt),
-      ),
-    )
+    .where(and(isNotNull(runs.preparedInput), isNotNull(runs.terminationConfirmedAt)))
     .all();
   for (const run of confirmed) cleanupPreparedRun(db, root, run.id);
   cleanupConfirmedDevelopmentInputs(db, root);
@@ -382,11 +339,7 @@ export async function verifyPreparedResult(
   runId: string,
 ) {
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
-  if (
-    !run?.preparedInput ||
-    run.preparedInput.phase !== "ready" ||
-    planningSourceChanged(db, run)
-  )
+  if (!run?.preparedInput || run.preparedInput.phase !== "ready" || planningSourceChanged(db, run))
     return false;
   try {
     await assertPreparedSource(run.preparedInput, AbortSignal.timeout(5000));

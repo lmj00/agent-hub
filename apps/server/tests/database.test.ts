@@ -6,7 +6,9 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
 import { authSessions, projects, tasks } from "../src/db/schema.js";
 
-const migrationCount = JSON.parse(readFileSync(join(migrationsDirectory, "meta", "_journal.json"), "utf8")).entries.length;
+const migrationCount = JSON.parse(
+  readFileSync(join(migrationsDirectory, "meta", "_journal.json"), "utf8"),
+).entries.length;
 
 let directory: string;
 let databasePath: string;
@@ -44,7 +46,13 @@ function withNextMigration(sql: string) {
   const journal = JSON.parse(readFileSync(journalPath, "utf8"));
   const last = journal.entries.at(-1);
   const tag = `${String(last.idx + 1).padStart(4, "0")}_test_change`;
-  journal.entries.push({ idx: last.idx + 1, version: last.version, when: last.when + 1, tag, breakpoints: true });
+  journal.entries.push({
+    idx: last.idx + 1,
+    version: last.version,
+    when: last.when + 1,
+    tag,
+    breakpoints: true,
+  });
   writeFileSync(journalPath, JSON.stringify(journal));
   writeFileSync(join(folder, `${tag}.sql`), sql);
   return folder;
@@ -69,16 +77,20 @@ test("keeps data after reopening and does not apply the initial migration twice"
 
   const second = connect();
   expect(second.db.select().from(projects).all()).toEqual([project]);
-  expect(second.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: migrationCount });
+  expect(second.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual(
+    { count: migrationCount },
+  );
 });
 
 test("rolls back all writes in a transaction when a duplicate project id is inserted", () => {
   const { db } = connect();
 
-  expect(() => db.transaction((tx) => {
-    tx.insert(projects).values(project).run();
-    tx.insert(projects).values(project).run();
-  })).toThrow();
+  expect(() =>
+    db.transaction((tx) => {
+      tx.insert(projects).values(project).run();
+      tx.insert(projects).values(project).run();
+    }),
+  ).toThrow();
   expect(db.select().from(projects).all()).toEqual([]);
 });
 
@@ -94,7 +106,9 @@ test("upgrades an existing database without losing records or repeating the upgr
   upgraded.close();
 
   const reopened = connect(folder);
-  expect(reopened.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: migrationCount + 1 });
+  expect(
+    reopened.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get(),
+  ).toEqual({ count: migrationCount + 1 });
 });
 
 test("rolls back a failed migration and leaves the existing data and migration history intact", () => {
@@ -111,7 +125,9 @@ test("rolls back a failed migration and leaves the existing data and migration h
   try {
     expect(client.prepare("SELECT name FROM projects").get()).toEqual({ name: project.name });
     expect(() => client.prepare("SELECT note FROM projects")).toThrow();
-    expect(client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: migrationCount });
+    expect(client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({
+      count: migrationCount,
+    });
   } finally {
     client.close();
   }
@@ -122,19 +138,54 @@ test("rejects a migration folder with missing history", () => {
 });
 
 test("adds service observations to the authenticated task database without losing task or session records", () => {
-  const folder = join(directory, "before-services"); cpSync(migrationsDirectory, folder, { recursive: true });
-  const journalPath = join(folder, "meta", "_journal.json"); const journal = JSON.parse(readFileSync(journalPath, "utf8"));
-  journal.entries = journal.entries.slice(0, 10); writeFileSync(journalPath, JSON.stringify(journal));
-  const old = connect(folder); old.db.insert(projects).values(project).run();
-  old.client.prepare("INSERT INTO tasks (id, project_id, instruction, request_key, created_at) VALUES (?, ?, ?, ?, ?)").run("retained-task", project.id, "Preserve me", "retained", Date.now());
-  old.client.prepare("INSERT INTO runs (id, task_id, instance_id, status, model, effort, started_at, last_activity_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run("retained-run", "retained-task", "old-owner", "succeeded", "fixture", "medium", Date.now(), Date.now());
-  const session = { id: "retained-session", generation: "generation", data: "{}", expiresAt: new Date(2000000000000) }; old.db.insert(authSessions).values(session).run(); old.close();
+  const folder = join(directory, "before-services");
+  cpSync(migrationsDirectory, folder, { recursive: true });
+  const journalPath = join(folder, "meta", "_journal.json");
+  const journal = JSON.parse(readFileSync(journalPath, "utf8"));
+  journal.entries = journal.entries.slice(0, 10);
+  writeFileSync(journalPath, JSON.stringify(journal));
+  const old = connect(folder);
+  old.db.insert(projects).values(project).run();
+  old.client
+    .prepare(
+      "INSERT INTO tasks (id, project_id, instruction, request_key, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .run("retained-task", project.id, "Preserve me", "retained", Date.now());
+  old.client
+    .prepare(
+      "INSERT INTO runs (id, task_id, instance_id, status, model, effort, started_at, last_activity_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .run(
+      "retained-run",
+      "retained-task",
+      "old-owner",
+      "succeeded",
+      "fixture",
+      "medium",
+      Date.now(),
+      Date.now(),
+    );
+  const session = {
+    id: "retained-session",
+    generation: "generation",
+    data: "{}",
+    expiresAt: new Date(2000000000000),
+  };
+  old.db.insert(authSessions).values(session).run();
+  old.close();
   const upgraded = connect();
-  expect(upgraded.client.prepare("SELECT accounted_duration_ms FROM runs WHERE id = ?").get("retained-run")).toEqual({ accounted_duration_ms: 0 });
+  expect(
+    upgraded.client
+      .prepare("SELECT accounted_duration_ms FROM runs WHERE id = ?")
+      .get("retained-run"),
+  ).toEqual({ accounted_duration_ms: 0 });
   expect(upgraded.db.select().from(tasks).get()?.retryState).toBeNull();
-  expect(upgraded.db.select().from(tasks).get()?.instruction).toBe("Preserve me"); expect(upgraded.db.select().from(authSessions).get()).toEqual(session);
-  expect(upgraded.client.prepare("SELECT * FROM service_targets").all()).toEqual([]); expect(upgraded.client.prepare("SELECT * FROM service_observations").all()).toEqual([]);
-  expect(upgraded.client.pragma("foreign_key_check")).toEqual([]); expect(() => upgraded.checkReady()).not.toThrow();
+  expect(upgraded.db.select().from(tasks).get()?.instruction).toBe("Preserve me");
+  expect(upgraded.db.select().from(authSessions).get()).toEqual(session);
+  expect(upgraded.client.prepare("SELECT * FROM service_targets").all()).toEqual([]);
+  expect(upgraded.client.prepare("SELECT * FROM service_observations").all()).toEqual([]);
+  expect(upgraded.client.pragma("foreign_key_check")).toEqual([]);
+  expect(() => upgraded.checkReady()).not.toThrow();
 });
 
 test("adds tasks to a projects-only database and preserves existing projects", () => {
@@ -154,28 +205,67 @@ test("adds tasks to a projects-only database and preserves existing projects", (
   expect(upgraded.db.select().from(projects).all()).toEqual([project]);
   expect(upgraded.db.select().from(tasks).all()).toEqual([]);
   const task = {
-    id: "example-task", projectId: project.id, instruction: "Inspect the project", requestKey: "first-request",
-    status: "queued" as const, createdAt: new Date("2026-11-01T00:00:00Z"),
+    id: "example-task",
+    projectId: project.id,
+    instruction: "Inspect the project",
+    requestKey: "first-request",
+    status: "queued" as const,
+    createdAt: new Date("2026-11-01T00:00:00Z"),
   };
   upgraded.db.insert(tasks).values(task).run();
   upgraded.close();
 
   const reopened = connect();
-  expect(reopened.db.select().from(tasks).all()).toEqual([{ ...task, kind: "work", goalId: null, goalVersion: null, goalReview: null, plannedWork: null, budgetWait: null, cancelRequestedAt: null, retryState: null }]);
-  expect(reopened.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: migrationCount });
+  expect(reopened.db.select().from(tasks).all()).toEqual([
+    {
+      ...task,
+      kind: "work",
+      goalId: null,
+      goalVersion: null,
+      goalReview: null,
+      plannedWork: null,
+      budgetWait: null,
+      cancelRequestedAt: null,
+      retryState: null,
+    },
+  ]);
+  expect(
+    reopened.client.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get(),
+  ).toEqual({ count: migrationCount });
 });
 
 test("enforces task foreign keys, request uniqueness, and status in SQLite", () => {
   const { db, client } = connect();
   const task = {
-    id: "example-task", projectId: project.id, instruction: "Inspect the project", requestKey: "first-request",
+    id: "example-task",
+    projectId: project.id,
+    instruction: "Inspect the project",
+    requestKey: "first-request",
     createdAt: new Date("2026-11-01T00:00:00Z"),
   };
   expect(() => db.insert(tasks).values(task).run()).toThrow();
   db.insert(projects).values(project).run();
   db.insert(tasks).values(task).run();
-  expect(() => db.insert(tasks).values({ ...task, id: "duplicate-task" }).run()).toThrow();
+  expect(() =>
+    db
+      .insert(tasks)
+      .values({ ...task, id: "duplicate-task" })
+      .run(),
+  ).toThrow();
   expect(() => client.prepare("UPDATE tasks SET status = ?").run("invalid")).toThrow();
   expect(() => client.prepare("DELETE FROM projects WHERE id = ?").run(project.id)).toThrow();
-  expect(db.select().from(tasks).all()).toEqual([{ ...task, kind: "work", goalId: null, goalVersion: null, goalReview: null, plannedWork: null, budgetWait: null, status: "queued", cancelRequestedAt: null, retryState: null }]);
+  expect(db.select().from(tasks).all()).toEqual([
+    {
+      ...task,
+      kind: "work",
+      goalId: null,
+      goalVersion: null,
+      goalReview: null,
+      plannedWork: null,
+      budgetWait: null,
+      status: "queued",
+      cancelRequestedAt: null,
+      retryState: null,
+    },
+  ]);
 });
