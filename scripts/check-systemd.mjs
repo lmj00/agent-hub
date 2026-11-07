@@ -17,6 +17,7 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { cgroupDirectory, cgroupUsage, hostMemory, treeSize } from "./linux-resource-snapshot.mjs";
 
 const source = fileURLToPath(new URL("../", import.meta.url));
 const root = "/opt/agent-hub";
@@ -34,6 +35,10 @@ let unitInstalled = false;
 let headers = {};
 let origin;
 let stage = "preflight";
+let journalPaths = [];
+let scenarioDeadline = Infinity;
+const scenarioStarted = performance.now();
+const repeatedTasks = 10;
 
 function command(file, args, options = {}) {
   return execFileSync(file, args, {
@@ -65,7 +70,7 @@ function makeOwned(path, mode = 0o755) {
   owned.push(path);
 }
 async function waitFor(probe, description, timeout = 30000) {
-  const deadline = Date.now() + timeout;
+  const deadline = Math.min(Date.now() + timeout, scenarioDeadline);
   while (Date.now() < deadline) {
     const result = await probe();
     if (result) return result;
@@ -117,6 +122,57 @@ function containers(runId) {
   ])
     .split("\n")
     .filter(Boolean);
+}
+function snapshot(phase) {
+  const started = performance.now();
+  const pid = Number(property("MainPID"));
+  const service = pid ? { pid, ...cgroupUsage(cgroupDirectory(pid)) } : null;
+  // Listing labels is read-only; inspect only executions owned by this invocation.
+  const known = new Set(runIds);
+  const ownedContainers = command("docker", [
+    "ps", "--all", "--no-trunc", "--filter", "label=io.agent-hub.run",
+    "--format", '{{.ID}} {{.Label "io.agent-hub.run"}}',
+  ]).split("\n").filter(Boolean).map((line) => line.split(" "))
+    .filter(([, runId]) => known.has(runId));
+  const executions = ownedContainers.map(([id]) => {
+    const containerPid = Number(command("docker", ["inspect", "--format", "{{.State.Pid}}", id]));
+    assert.ok(containerPid > 0, "Stopped owned container was not removed");
+    return cgroupUsage(cgroupDirectory(containerPid));
+  });
+  for (const usage of [service, ...executions].filter(Boolean)) {
+    assert.equal(usage.oom, 0, "Owned cgroup recorded OOM");
+    assert.equal(usage.oomKill, 0, "Owned cgroup recorded OOM kill");
+  }
+  const sample = {
+    kind: "resource-sample", phase,
+    elapsedMs: Math.round(started - scenarioStarted),
+    host: hostMemory(), service, executions,
+    // Metadata only. Opening/closing SQLite files here could invalidate its locks.
+    state: treeSize(state),
+    database: treeSize(join(state, "hub.sqlite")),
+    wal: treeSize(join(state, "hub.sqlite-wal")),
+    journals: journalPaths.map((path) => treeSize(path)),
+    durationMs: Math.round(performance.now() - started),
+  };
+  console.log(JSON.stringify(sample));
+  return sample;
+}
+
+async function completeTask(projectId) {
+  const task = (await api(`/projects/${projectId}/tasks`, {
+    instruction: "resource-cycle", requestKey: `systemd-${taskIds.length}`,
+  }, 201)).value;
+  taskIds.push(task.id);
+  const run = await waitFor(async () => {
+    const { runs } = (await api(`/tasks/${task.id}/runs`)).value;
+    assert.ok(runs.length <= 1, "Unexpected retry during repeat workload");
+    if (runs[0]?.status !== "succeeded") return false;
+    if (containers(runs[0].id).length) return false;
+    return (await api(`/runs/${runs[0].id}`)).value;
+  }, "repeat task completion and container removal");
+  runIds.push(run.id);
+  assert.ok(run.terminationConfirmedAt);
+  assert.equal(run.result, "fixture report");
 }
 async function startTask(projectId) {
   const task = (
@@ -235,6 +291,12 @@ try {
     "This check requires an explicitly opted-in disposable GitHub-hosted Linux runner as root",
   );
   assert.equal(readFileSync("/proc/1/comm", "utf8").trim(), "systemd");
+  assert.ok(existsSync("/sys/fs/cgroup/cgroup.controllers"), "cgroup v2 is required");
+  const machineId = readFileSync("/etc/machine-id", "utf8").trim();
+  assert.match(machineId, /^[a-f0-9]{32}$/);
+  journalPaths = ["/var/log/journal", "/run/log/journal"]
+    .map((path) => join(path, `${machineId}.agent-hub`));
+  for (const path of journalPaths) absent(path);
   for (const path of [
     root,
     config,
@@ -370,6 +432,8 @@ try {
   );
   unitInstalled = true;
   systemctl("daemon-reload");
+  snapshot("before-service-start");
+  scenarioDeadline = Date.now() + 300000;
   systemctl("start", unit);
   await ready();
   const initial = await api("/auth/session");
@@ -383,9 +447,11 @@ try {
       201,
     )
   ).value;
+  snapshot("idle-baseline");
 
   stage = "SIGKILL and systemd restart";
   const crash = await startTask(project.id);
+  assert.equal(snapshot("crash-active").executions.length, 1);
   const previousPid = property("MainPID");
   assert.notEqual(previousPid, "0");
   assert.equal(property("NRestarts"), "0");
@@ -399,11 +465,14 @@ try {
   await ready();
   assert.equal(property("NRestarts"), "1");
   const crashResult = await recovered(crash, "owner_lost");
+  assert.equal(snapshot("crash-recovered").executions.length, 0);
 
   stage = "graceful stop during execution";
   rmSync(join(state, "codex/attempted"));
   const graceful = await startTask(project.id);
+  assert.equal(snapshot("graceful-active").executions.length, 1);
   systemctl("stop", unit);
+  assert.equal(snapshot("graceful-stopped").executions.length, 0);
   const stopped = inspectStoppedDatabase().find(
     (run) => run.id === graceful.run.id,
   );
@@ -418,19 +487,29 @@ try {
   systemctl("start", unit);
   await ready();
   const gracefulResult = await recovered(graceful, "server_shutdown");
+  assert.equal(snapshot("graceful-recovered").executions.length, 0);
+
+  stage = "bounded repeat workload";
+  for (let cycle = 1; cycle <= repeatedTasks; cycle++) {
+    await completeTask(project.id);
+    await delay(1000);
+    assert.equal(snapshot(`repeat-idle-${cycle}`).executions.length, 0);
+  }
 
   stage = "completed-state restart";
   systemctl("restart", unit);
   await ready();
   await api("/health/ready"); // The original login session must survive every restart.
   await delay(3000);
-  for (const id of taskIds) {
+  for (const [index, id] of taskIds.entries()) {
     const { runs } = (await api(`/tasks/${id}/runs`)).value;
-    assert.equal(runs.length, 2, "Completed task executed again after restart");
+    assert.equal(runs.length, index < 2 ? 2 : 1, "Completed task executed again after restart");
     assert.equal(runs[0].status, "succeeded");
   }
+  assert.equal(snapshot("completed-restart").executions.length, 0);
   systemctl("stop", unit);
-  assert.equal(inspectStoppedDatabase().length, 4);
+  assert.equal(inspectStoppedDatabase().length, 4 + repeatedTasks);
+  assert.equal(snapshot("final-stopped").executions.length, 0);
   console.log(
     JSON.stringify({
       status: "passed",
@@ -438,8 +517,11 @@ try {
       node: process.version,
       productionUnitWithNodePathOverride: true,
       modelCalls: 0,
-      tasks: 2,
-      attempts: 4,
+      tasks: 2 + repeatedTasks,
+      attempts: 4 + repeatedTasks,
+      repeatedTasks,
+      measurement: "lifecycle-checkpoints-cgroup-v2",
+      elapsedMs: Math.round(performance.now() - scenarioStarted),
       crash: crashResult,
       graceful: gracefulResult,
       completedRestartDuplicates: 0,
@@ -510,5 +592,6 @@ try {
       rmSync(path, { recursive: true, force: true });
     if (unitInstalled) systemctl("daemon-reload");
     if (accountCreated) command("userdel", ["agent-hub"]);
+    if (unitInstalled) console.log(JSON.stringify({ kind: "fixture-cleanup", completed: true }));
   }
 }

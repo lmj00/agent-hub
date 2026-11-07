@@ -230,7 +230,8 @@
       "apps/server/tests/development-executor.test.ts"
     ],
     "apps/server/tests/fixtures/database-lock-probe.mjs": [
-      "apps/server/tests/database-security.test.ts"
+      "apps/server/tests/database-security.test.ts",
+      "apps/server/tests/linux-resource-snapshot.test.ts"
     ],
     "apps/server/tests/fixtures/legacy-*": [
       "apps/server/tests/legacy-runner.test.ts"
@@ -255,7 +256,8 @@
     ],
     ".github/workflows/ci.yml": [
       "apps/server/tests/operations.test.ts",
-      "apps/server/tests/systemd-guard.test.ts"
+      "apps/server/tests/systemd-guard.test.ts",
+      "apps/server/tests/linux-resource-snapshot.test.ts"
     ],
     "apps/server/package.json": [
       "apps/server/tests/state-backup.test.ts",
@@ -266,7 +268,11 @@
       "apps/server/tests/health-monitor.test.ts"
     ],
     "scripts/check-systemd.mjs": [
-      "apps/server/tests/systemd-guard.test.ts"
+      "apps/server/tests/systemd-guard.test.ts",
+      "apps/server/tests/linux-resource-snapshot.test.ts"
+    ],
+    "scripts/linux-resource-snapshot.mjs": [
+      "apps/server/tests/linux-resource-snapshot.test.ts"
     ]
   }
 }

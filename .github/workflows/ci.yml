@@ -91,6 +91,14 @@ jobs:
             process.stdout.write(`::error title=systemd lifecycle::${text}\n`);
           }
           JS
+      - name: Retain synthetic Linux lifecycle and resource measurements
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: linux-lifecycle-${{ matrix.os }}
+          path: ${{ runner.temp }}/systemd-tests.log
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Test browser flows with the fake AI executor
         run: pnpm --filter @agent-hub/web test:browser
       - name: Retain browser failure evidence
