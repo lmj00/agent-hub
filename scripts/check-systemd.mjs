@@ -151,7 +151,12 @@ async function recovered(fixture, errorCode) {
   const attempts = await waitFor(async () => {
     const { runs } = (await api(`/tasks/${fixture.task.id}/runs`)).value;
     assert.ok(runs.length <= 2, "Duplicate retry");
-    return runs.length === 2 && runs[0].status === "succeeded" ? runs : false;
+    if (runs.length !== 2 || runs[0].status !== "succeeded") return false;
+    // runTask saves success after termination, then awaits removal. Observe both
+    // within this same deadline; a saved result alone is not finished cleanup.
+    if (containers(fixture.run.id).length || containers(runs[0].id).length)
+      return false;
+    return runs;
   }, "automatic recovery and single replacement");
   const old = (await api(`/runs/${fixture.run.id}`)).value;
   const replacement = (await api(`/runs/${attempts[0].id}`)).value;
