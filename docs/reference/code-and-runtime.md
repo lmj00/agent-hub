@@ -82,6 +82,10 @@ agent-hub/
 
 현재 `apps/web`·`apps/server`·`packages/contracts`를 사용합니다. `goals`에는 목표 등록·수정·버전 이력과 자동 계획이 연결되어 있습니다. 개발·검증·변경 반영 후 다음 작업으로 이어지는 실행도 구현되어 있습니다. 공유 코드는 화면과 서버가 주고받을 요청·응답 형식(API 계약)이며, 서버의 DB 코드나 에이전트 인증 정보를 화면 패키지에서 가져오지 않습니다. TypeScript 타입 검사와 별개로, 프로그램 실행 중 실제 API 입력·SDK 출력이 정한 형식에 맞는지도 검사합니다. 이를 런타임 검증이라고 합니다.
 
+공통 자료형은 `packages/contracts/src`에서 `projects.ts`, `goals.ts`, `tasks.ts`, `execution.ts`, `budgets.ts`, `services.ts` 등 기능별 파일로 관리합니다. 실행 근거는 `evidence.ts`, AI 평가 출력은 `assessments.ts`, 공통 상태 값은 `states.ts`에 둡니다. `schema.ts`는 내부 스키마 작성 도구, `validation.ts`는 응답 검사와 형식 등록을 담당합니다.
+
+서버와 화면은 기존처럼 `@agent-hub/contracts`에서 가져옵니다. `index.ts`는 공개 이름을 내보내는 입구이며, 계약 패키지 내부 파일은 서로 필요한 파일을 직접 참조합니다. 내부에서 `index.ts`를 다시 가져와 순환 참조를 만들지 않습니다.
+
 ## 코드를 나누고 연결하는 기준
 
 프로그램 하나 안에서 프로젝트·목표 관리, 작업 관리, 실행 기능을 나눕니다. 각 기능 안에서는 작업 등록·취소·재시도처럼 실제로 하는 일에 따라 관련 코드를 모읍니다. 이렇게 변경할 기능을 중심으로 코드를 구성하는 방식을 Vertical Slice라고 합니다.
