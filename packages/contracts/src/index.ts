@@ -346,6 +346,16 @@ export const developmentEvidenceSchema = object({
   })),
 });
 export type DevelopmentEvidence = Static<typeof developmentEvidenceSchema>;
+export const goalVerificationEvidenceSchema = object({
+  sourceRevision: text,
+  inputDigest: text,
+  startedAt: date,
+  phase: enumeration(["testing", "reviewing", "verified", "needs_changes"] as const),
+  completionApplied: Type.Boolean(),
+  test: developmentRoundSchema.properties.test,
+  review: developmentRoundSchema.properties.review,
+});
+export type GoalVerificationEvidence = Static<typeof goalVerificationEvidenceSchema>;
 export const runtimeSkillRoles = ["planner", "developer", "reviewer", "analyst"] as const;
 export type RuntimeSkillRole = (typeof runtimeSkillRoles)[number];
 // Historical descriptors remain readable after the installed bundle changes.
@@ -371,6 +381,7 @@ export const runDetailsSchema = object({
   ...runSchema.properties,
   planningEvidence: nullable(planningEvidenceSchema),
   developmentEvidence: nullable(developmentEvidenceSchema),
+  goalVerification: nullable(goalVerificationEvidenceSchema),
   runtimeSkillVersion: nullable(Type.Integer({ minimum: 1 })),
   lastActivityAt: date,
   result: nullable(text),

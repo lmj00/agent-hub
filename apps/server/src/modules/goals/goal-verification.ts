@@ -10,6 +10,7 @@ import {
 import { readExecutions } from "../execution/execution-record-store.js";
 import { requireRuntimeSkillEvidence } from "../execution/runtime-skill-store.js";
 import { saveWorkflowStep } from "../execution/workflow-step-store.js";
+import { parseAssessment } from "../execution/analysis-workflow.js";
 import { verificationFeedback } from "../execution/development-workflow.js";
 import {
   parseVerificationConfig,
@@ -204,6 +205,15 @@ export function saveGoalVerification(
 // Validates the independent proof without treating it as Goal completion.
 // Current Goal/source and unfinished-work checks belong to plan application.
 export function goalVerificationPassed(db: Pick<Db, "select">, run: Run) {
+  return goalVerificationOutcome(db, run) === "passed";
+}
+
+// A valid negative review is actionable feedback. Missing or inconsistent
+// evidence is different: it must never authorize completion or another cycle.
+export function goalVerificationOutcome(
+  db: Pick<Db, "select">,
+  run: Run,
+): "passed" | "incomplete" | null {
   try {
     const verification = run.planResult?.verification;
     const input = run.preparedInput;
@@ -218,7 +228,7 @@ export function goalVerificationPassed(db: Pick<Db, "select">, run: Run) {
       !verification.test ||
       !verification.review
     )
-      return false;
+      return null;
     const result = parseVerificationResult(verification.test.result);
     if (
       requireRuntimeSkillEvidence(db, run, {
@@ -229,7 +239,7 @@ export function goalVerificationPassed(db: Pick<Db, "select">, run: Run) {
         terminationConfirmedAt: new Date(),
       }).status !== "succeeded"
     )
-      return false;
+      return null;
     const history = db
       .select()
       .from(steps)
@@ -237,28 +247,34 @@ export function goalVerificationPassed(db: Pick<Db, "select">, run: Run) {
       .orderBy(asc(steps.sequence))
       .all();
     const executions = readExecutions(db, run.id);
-    return (
-      result.status === "passed" &&
-      result.inputDigest === input.digest &&
-      result.candidateDigest === input.digest &&
-      same(result.configuration, verification.configuration) &&
-      executions.length === 3 &&
-      executions.every((item) => item.terminationConfirmedAt) &&
-      same(result.execution, executions[1]!.identity) &&
-      same(verification.review.execution, executions[2]!.identity) &&
-      verification.review.verificationDigest ===
-        verificationResultDigest(result) &&
-      history.length === 2 &&
-      history.every((step) => step.status === "succeeded") &&
-      history[0]!.sequence === 1 &&
-      history[1]!.sequence === 2 &&
-      same(history[1]!.assessment, verification.review.assessment) &&
-      verification.review.assessment.complete &&
-      verification.review.assessment.unresolved.length === 0 &&
-      verification.review.assessment.next === null
-    );
+    if (
+      !(
+        result.inputDigest === input.digest &&
+        result.candidateDigest === input.digest &&
+        same(result.configuration, verification.configuration) &&
+        executions.length === 3 &&
+        executions.every((item) => item.terminationConfirmedAt) &&
+        same(result.execution, executions[1]!.identity) &&
+        same(verification.review.execution, executions[2]!.identity) &&
+        verification.review.verificationDigest ===
+          verificationResultDigest(result) &&
+        history.length === 2 &&
+        history.every((step) => step.status === "succeeded") &&
+        history[0]!.sequence === 1 &&
+        history[1]!.sequence === 2 &&
+        same(history[1]!.assessment, verification.review.assessment)
+      )
+    )
+      return null;
+    const assessment = parseAssessment(verification.review.assessment);
+    return result.status === "passed" &&
+      assessment.complete &&
+      assessment.unresolved.length === 0 &&
+      assessment.next === null
+      ? "passed"
+      : "incomplete";
   } catch {
-    return false;
+    return null;
   }
 }
 

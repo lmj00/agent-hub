@@ -18,6 +18,7 @@ import { saveRunCompletion } from "./run-completion-store.js";
 import { preparedGoalChanged, readGoalScope, savePreparedInput, savePlanningProposal, savePlanningInput } from "../goals/prepared-input-store.js";
 import { readPlanningContext } from "../goals/planning-store.js";
 import { applyPlanningCompletion } from "../goals/plan-application.js";
+import { readGoalVerificationEvidence } from "./goal-verification-evidence.js";
 import { saveGoalVerification } from "../goals/goal-verification.js";
 import { pauseCancelledPlan } from "../goals/planning-cancellation.js";
 import { revalidateGoalWork } from "../goals/revalidate-goal-work.js";
@@ -241,8 +242,8 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         completion = settleStoppedCompletion(completion, run.stopReason, task.cancelRequestedAt !== null);
         const now = new Date();
         completion = requireRuntimeSkillEvidence(tx, run, completion);
-        completion = applyPlanningCompletion(tx, run, completion, now);
         if (completion.status === "succeeded" && preparedGoalChanged(tx, run)) completion = { ...completion, status: "blocked", result: null, errorCode: "goal_changed" };
+        completion = applyPlanningCompletion(tx, run, completion, now);
         saveRunCompletion(tx, run, completion, now);
         recordProviderOutcome(tx, run, completion, now, policies.capacityRecovery);
         return completion;
@@ -261,6 +262,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         result: run.result, errorCode: run.errorCode,
         planningEvidence: run.planningInput ? { capturedAt: run.planningInput.capturedAt, services: run.planningInput.services, counts: run.planningInput.counts } : null,
         developmentEvidence: readDevelopmentEvidence(db, run),
+        goalVerification: readGoalVerificationEvidence(run),
         runtimeSkillVersion: run.runtimeSkillVersion,
         stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt, terminationConfirmedAt: run.terminationConfirmedAt, retryAt: run.retryAt,
         steps: db.select({ sequence: steps.sequence, status: steps.status, sessionId: steps.sessionId, effort: steps.effort, effortReason: steps.effortReason, effortPolicyVersion: steps.effortPolicyVersion, proposedEffort: steps.proposedEffort, purpose: steps.purpose, model: steps.model, assessment: steps.assessment, usage: steps.usage, startedAt: steps.startedAt, finishedAt: steps.finishedAt, runtimeSkill: steps.runtimeSkill, runtimeSkillSelectedAt: steps.runtimeSkillSelectedAt, runtimeSkillLoadedAt: steps.runtimeSkillLoadedAt })

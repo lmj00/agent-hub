@@ -19,7 +19,7 @@ import { createServer } from "node:http";
 import { openDatabase } from "../../server/dist/db/connection.js";
 import { createDrizzleProjectStore } from "../../server/dist/modules/projects/drizzle-project-store.js";
 import { createDrizzleGoalStore } from "../../server/dist/modules/goals/drizzle-goal-store.js";
-import { tasks, runs, steps, developmentRepositories, developmentRounds, changeApplications } from "../../server/dist/db/schema.js";
+import { tasks, runs, steps, goalRevisions, developmentRepositories, developmentRounds, changeApplications } from "../../server/dist/db/schema.js";
 import { loadRuntimeSkill } from "../../server/dist/modules/execution/runtime-skills.js";
 import { preparedInputRoot } from "../../server/dist/modules/goals/prepared-workspace.js";
 import { buildPlanningInput } from "../../server/dist/modules/goals/goal-plan-policy.js";
@@ -207,6 +207,27 @@ for (const [title, status, outcome] of [["반영 완료 기록", "applied", "suc
   database.db.insert(tasks).values({ id: taskId, projectId: developmentProjectId, instruction: title, requestKey: taskId, status: outcome, cancelRequestedAt: outcome === "cancelled" ? timestamp : null, createdAt: timestamp }).run();
   database.db.insert(runs).values({ id: runId, taskId, instanceId: "fixture", status: outcome, developmentVersion: 1, model: "fixture", effort: "medium", startedAt: timestamp, lastActivityAt: timestamp, finishedAt: timestamp, terminationConfirmedAt: timestamp, stopReason: outcome === "cancelled" ? "user_cancel" : null, errorCode: outcome === "blocked" ? "development_incomplete" : null }).run();
   database.db.insert(changeApplications).values({ id: randomUUID(), taskId, runId, repositoryId, roundSequence: 2, goalVersion: 1, baseRevision: "a".repeat(40), tree: "b".repeat(40), candidateDigest: "c".repeat(64), evidenceDigest: "d".repeat(64), resultCommit: "e".repeat(40), targetRef: "refs/heads/development", status, createdAt: timestamp, appliedAt: status === "applied" ? timestamp : null }).run();
+}
+// Historical display fixtures only; real completion is covered by SQLite/Git
+// integration tests, not by these inserted read-side examples.
+const verificationProjectId = randomUUID();
+createDrizzleProjectStore(database.db).save({ id: verificationProjectId, name: "목표 완료 검증 예제", workspaceKey: "example", createdAt: timestamp });
+for (const [title, state] of [["목표 완료 이력", "completed"], ["목표 보완 검토 기록", "incomplete"], ["검토만 통과한 기록", "verified"]]) {
+  const goal = createDrizzleGoalStore(database.db).register(verificationProjectId, title, { ...reviewGoal.definition, description: title }).goal;
+  if (state === "completed") {
+    database.client.prepare("UPDATE goals SET status = 'completed', version = 2, next_check_at = NULL WHERE id = ?").run(goal.id);
+    database.db.insert(goalRevisions).values({ goalId: goal.id, version: 2, requestKey: `fixture:${goal.id}`, commandHash: "a".repeat(64), snapshot: { ...goal, status: "completed", version: 2, nextCheckAt: null } }).run();
+  }
+  const taskId = randomUUID(), runId = randomUUID();
+  const status = state === "verified" ? "blocked" : "succeeded";
+  database.db.insert(tasks).values({ id: taskId, projectId: verificationProjectId, goalId: goal.id, goalVersion: 1, kind: "planning", instruction: title, requestKey: taskId, status, createdAt: timestamp }).run();
+  const configuration = { image: "fixture:local", command: ["node", "tests/check.mjs"], timeoutMs: 1000 };
+  const execution = { kind: "docker", containerId: "9".repeat(64), engineId: "fixture", token: randomUUID() };
+  const verification = { version: 1, sourceRevision: "a".repeat(40), inputDigest: "b".repeat(64), configuration, startedAt: timestamp.toISOString(),
+    test: { result: { inputDigest: "b".repeat(64), candidateDigest: "b".repeat(64), configurationDigest: "c".repeat(64), configuration, execution, imageId: `sha256:${"d".repeat(64)}`, status: state === "incomplete" ? "failed" : "passed", exitCode: state === "incomplete" ? 1 : 0, oomKilled: false, elapsedMs: 24, output: state === "incomplete" ? "AssertionError: 목표 기준 부족\n<script>window.goalUnwanted=true</script>" : "2 tests passed" }, recordedAt: timestamp.toISOString() },
+    review: { execution, verificationDigest: "e".repeat(64), assessment: { report: state === "incomplete" ? "아직 확인하지 못한 목표 기준이 있습니다." : "전체 목표의 코드와 실제 테스트를 확인했습니다.", evidence: ["src/main.ts와 고정 테스트 결과"], unresolved: state === "incomplete" ? ["오류 입력 처리 확인 필요"] : [], complete: state !== "incomplete", next: null }, recordedAt: timestamp.toISOString() },
+  };
+  database.db.insert(runs).values({ id: runId, taskId, instanceId: "fixture", status, goalVersion: 1, model: "fixture", effort: "medium", startedAt: timestamp, lastActivityAt: timestamp, finishedAt: timestamp, terminationConfirmedAt: timestamp, errorCode: state === "verified" ? "input_changed" : null, result: state === "completed" ? "목표 전체 검증을 통과해 완료했습니다." : "목표 완료 여부를 검토했습니다.", planResult: { status: state === "verified" ? "rejected" : "applied", reason: state === "completed" ? "complete" : state === "incomplete" ? "goal_incomplete" : "input_changed", proposal: "fixture", createdTaskIds: [], verification } }).run();
 }
 database.close();
 let serviceMode = "waiting";

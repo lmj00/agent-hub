@@ -17,18 +17,27 @@ import type { GoalDefinition } from "@agent-hub/contracts";
 import { openDatabase } from "../src/db/connection.js";
 import {
   budgetPeriods,
+  goalRevisions,
   goals,
+  planningCycles,
   projects,
+  recoveryRequests,
   runs,
   runExecutions,
   steps,
+  tasks,
 } from "../src/db/schema.js";
 import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
 import { createPlanningStore } from "../src/modules/goals/planning-store.js";
-import { createPreparedExecutor } from "../src/modules/goals/prepared-executor.js";
+import {
+  createPreparedExecutor,
+  verifyPreparedResult,
+} from "../src/modules/goals/prepared-executor.js";
 import { preparedInputRoot } from "../src/modules/goals/prepared-workspace.js";
 import { goalVerificationPassed } from "../src/modules/goals/goal-verification.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
+import { createDrizzleRecoveryStore } from "../src/modules/execution/drizzle-recovery-store.js";
+import { createRecoveryProcessor } from "../src/modules/execution/recover-task.js";
 import { runTask } from "../src/modules/execution/run-task.js";
 import { loadRuntimeSkill } from "../src/modules/execution/runtime-skills.js";
 import {
@@ -67,7 +76,8 @@ const approval = {
   complete: true,
   next: null,
 };
-const row = () => database.db.select().from(runs).get()!;
+const row = () =>
+  database.db.select().from(runs).where(eq(runs.taskId, taskId)).get()!;
 beforeEach(() => {
   directory = realpathSync(
     mkdtempSync(join(tmpdir(), "hub-goal-verification-")),
@@ -282,6 +292,22 @@ test("complete proposal stores fresh tests and an independently budgeted goal-wi
     review: { assessment: approval },
   });
   expect(goalVerificationPassed(database.db, stored)).toBe(true);
+  expect(stored).toMatchObject({
+    status: "succeeded",
+    errorCode: null,
+    planResult: { status: "applied", reason: "complete" },
+  });
+  expect(database.db.select().from(goals).get()).toMatchObject({
+    status: "completed",
+    version: 2,
+    nextCheckAt: null,
+  });
+  expect(database.db.select().from(goalRevisions).all()).toHaveLength(2);
+  expect(
+    database.db.select().from(goalRevisions).all()[1]!.snapshot,
+  ).toMatchObject({ status: "completed", version: 2 });
+  expect(database.db.select().from(tasks).all()).toHaveLength(1);
+  expect(createPlanningStore(database.db).reserveNext(["fixture"])).toBeNull();
   expect(
     database.db
       .select()
@@ -330,6 +356,17 @@ test.each(["test failure", "review rejection"])(
       false,
     );
     expect(database.db.select().from(goals).get()!.status).toBe("active");
+    expect(row()).toMatchObject({
+      status: "succeeded",
+      planResult: { status: "applied", reason: "goal_incomplete" },
+    });
+    expect(row().result).toContain(
+      reason === "test failure" ? "실제 테스트 실패" : "목표 기준 부족",
+    );
+    expect(
+      database.db.select().from(goals).get()!.nextCheckAt!.getTime(),
+    ).toBeGreaterThan(Date.now());
+    expect(database.db.select().from(goalRevisions).all()).toHaveLength(1);
   },
 );
 
@@ -445,6 +482,15 @@ test.each(["wait", "continuous"])(
     await execute(executor);
     expect(calls).toHaveLength(1);
     expect(row().planResult?.verification).toBeUndefined();
+    expect(row()).toMatchObject({
+      status: "succeeded",
+      planResult: { reason: "wait" },
+    });
+    expect(database.db.select().from(goals).get()).toMatchObject({
+      status: "active",
+      version: 1,
+      nextCheckAt: expect.any(Date),
+    });
   },
 );
 
@@ -521,3 +567,317 @@ test("termination during fixed tests prevents the reviewer from starting", async
   expect(calls).toHaveLength(2);
   expect(row().planResult?.verification?.review).toBeNull();
 });
+
+test("final Run write failure rolls back Goal completion and recovers exactly once after reopen", async () => {
+  database.client.exec(
+    "CREATE TRIGGER fail_completed_run BEFORE UPDATE OF status ON runs WHEN NEW.status = 'succeeded' BEGIN SELECT RAISE(ABORT, 'completion storage failure'); END",
+  );
+  const { executor, calls } = fixture();
+  await expect(execute(executor)).rejects.toThrow("completion storage failure");
+  const runId = row().id;
+  expect(row()).toMatchObject({
+    status: "running",
+    planResult: { status: "proposed" },
+  });
+  expect(goalVerificationPassed(database.db, row())).toBe(true);
+  expect(database.db.select().from(goals).get()).toMatchObject({
+    status: "active",
+    version: 1,
+  });
+  expect(database.db.select().from(goalRevisions).all()).toHaveLength(1);
+  expect(database.db.select().from(planningCycles).get()!.status).toBe(
+    "reserved",
+  );
+  database.client.exec("DROP TRIGGER fail_completed_run");
+  database.close();
+  database = openDatabase(join(directory, "hub.sqlite"));
+  const recovery = createDrizzleRecoveryStore(database.db);
+  const input = {
+    taskId,
+    runId,
+    action: "reconcile" as const,
+    requestKey: "recover-completion",
+    providerGateVersion: null,
+  };
+  const request = recovery.request(input, null, true).request;
+  const processor = createRecoveryProcessor(
+    recovery,
+    {
+      confirm: async () => {
+        throw new Error("durable execution termination must be reused");
+      },
+      cleanup: async () => {},
+    },
+    undefined,
+    (id) => verifyPreparedResult(database.db, id),
+  );
+  await processor.process(request.id);
+  await processor.process(request.id);
+  expect(recovery.request(input, null, true).created).toBe(false);
+  expect(row()).toMatchObject({
+    status: "succeeded",
+    errorCode: null,
+    planResult: { status: "applied", reason: "complete" },
+  });
+  expect(database.db.select().from(goals).get()).toMatchObject({
+    status: "completed",
+    version: 2,
+    nextCheckAt: null,
+  });
+  expect(database.db.select().from(goalRevisions).all()).toHaveLength(2);
+  expect(database.db.select().from(planningCycles).get()).toMatchObject({
+    status: "applied",
+    resultRunId: runId,
+  });
+  expect(database.db.select().from(tasks).get()!.status).toBe("succeeded");
+  expect(calls).toHaveLength(3);
+  expect(database.client.pragma("foreign_key_check")).toEqual([]);
+});
+
+test.each(["goal change", "cancel", "proof changed"])(
+  "%s between verification and final storage cannot complete the Goal",
+  async (change) => {
+    const { executor } = fixture();
+    const result = await execute(executor, {
+      ...store,
+      finish(id, completion) {
+        if (change === "goal change")
+          createDrizzleGoalStore(database.db).change(
+            goalId,
+            "pause-after-review",
+            1,
+            { action: "pause" },
+          );
+        else if (change === "cancel") store.requestStop(id, "user_cancel");
+        else {
+          const saved = row();
+          saved.planResult!.verification!.review!.verificationDigest =
+            "0".repeat(64);
+          database.db
+            .update(runs)
+            .set({ planResult: saved.planResult })
+            .where(eq(runs.id, id))
+            .run();
+        }
+        return store.finish(id, completion);
+      },
+    });
+    expect(result.status).toBe(change === "cancel" ? "cancelled" : "blocked");
+    expect(database.db.select().from(goals).get()!.status).not.toBe(
+      "completed",
+    );
+    expect(
+      database.db
+        .select()
+        .from(goalRevisions)
+        .all()
+        .some((revision) => revision.snapshot.status === "completed"),
+    ).toBe(false);
+  },
+);
+
+test.each(["source", "Goal"])(
+  "recovery rechecks the current %s before applying a stored successful review",
+  async (changed) => {
+    const { executor, calls } = fixture();
+    await expect(
+      execute(executor, {
+        ...store,
+        finish() {
+          throw new Error("owner ended before completion");
+        },
+      }),
+    ).rejects.toThrow("owner ended before completion");
+    const runId = row().id;
+    if (changed === "source")
+      writeFileSync(join(source, "src/main.mjs"), "export const answer = 0;\n");
+    else
+      createDrizzleGoalStore(database.db).change(
+        goalId,
+        "pause-before-recovery",
+        1,
+        { action: "pause" },
+      );
+    const recovery = createDrizzleRecoveryStore(database.db);
+    const request = recovery.request(
+      {
+        taskId,
+        runId,
+        action: "reconcile",
+        requestKey: "recover-stale",
+        providerGateVersion: null,
+      },
+      null,
+      true,
+    ).request;
+    const processor = createRecoveryProcessor(
+      recovery,
+      { confirm: async () => new Date(), cleanup: async () => {} },
+      undefined,
+      (id) => verifyPreparedResult(database.db, id),
+    );
+    await processor.process(request.id);
+    expect(row()).toMatchObject({
+      status: "blocked",
+      errorCode: changed === "source" ? "input_changed" : "goal_changed",
+    });
+    expect(database.db.select().from(goals).get()!.status).not.toBe(
+      "completed",
+    );
+    expect(
+      database.db
+        .select()
+        .from(goalRevisions)
+        .all()
+        .some((revision) => revision.snapshot.status === "completed"),
+    ).toBe(false);
+    expect(calls).toHaveLength(3);
+  },
+);
+
+test("repeated incomplete Goal checks feed the next plan and stop after three without progress", async () => {
+  for (let index = 0; index < 3; index++) {
+    if (index) {
+      const due = database.db.select().from(goals).get()!.nextCheckAt!;
+      taskId = createPlanningStore(database.db).reserveNext(
+        ["fixture"],
+        due,
+      )!.taskId;
+    }
+    const { executor, calls } = fixture({ reject: true });
+    const result = await execute(executor);
+    if (index) {
+      const input = JSON.parse(calls[0]!.instruction.split("\n").at(-1)!);
+      expect(
+        input.history.some((item: { lastRun?: { result?: string } }) =>
+          item.lastRun?.result?.includes("목표 기준 부족"),
+        ),
+      ).toBe(true);
+    }
+    expect(result.status).toBe(index === 2 ? "blocked" : "succeeded");
+    if (index === 2) expect(result.errorCode).toBe("planning_no_progress");
+  }
+  expect(database.db.select().from(goals).get()!.status).toBe("active");
+  expect(database.db.select().from(goalRevisions).all()).toHaveLength(1);
+  expect(
+    createPlanningStore(database.db).reserveNext(
+      ["fixture"],
+      new Date(Date.now() + 3600000),
+    ),
+  ).toBeNull();
+});
+
+test.each([
+  "suppressed old work",
+  "unfinished old Run",
+  "unfinished container",
+  "pending recovery",
+])(
+  "%s outside the prompt history prevents completion despite passing Goal proof",
+  async (condition) => {
+    const { executor } = fixture();
+    const result = await execute(executor, {
+      ...store,
+      finish(id, completion) {
+        const goal = database.db.select().from(goals).get()!;
+        const oldTask = randomUUID(),
+          oldRun = randomUUID();
+        const at = new Date("2020-01-01T00:00:00Z");
+        database.db
+          .insert(tasks)
+          .values({
+            id: oldTask,
+            projectId: goal.projectId,
+            goalId,
+            goalVersion: 1,
+            kind: "work",
+            instruction: "Older unresolved work",
+            requestKey: oldTask,
+            status:
+              condition === "suppressed old work" ? "blocked" : "succeeded",
+            createdAt: at,
+            plannedWork: {
+              planningTaskId: taskId,
+              problemKey: "old",
+              sourceRevision: row().preparedInput!.revision!,
+              sourceDigest: row().preparedInput!.digest!,
+              title: "Old work",
+              paths: ["src"],
+              acceptanceCriteria: "Older criterion",
+              evidence: [],
+            },
+          })
+          .run();
+        database.db
+          .insert(runs)
+          .values({
+            id: oldRun,
+            taskId: oldTask,
+            instanceId: "old-fixture",
+            model: "fixture",
+            effort: "medium",
+            status: "succeeded",
+            startedAt: at,
+            lastActivityAt: at,
+            finishedAt: at,
+            terminationConfirmedAt:
+              condition === "unfinished old Run" ? null : at,
+          })
+          .run();
+        if (condition === "unfinished container")
+          database.db
+            .insert(runExecutions)
+            .values({
+              runId: oldRun,
+              sequence: 1,
+              containerId: "d".repeat(64),
+              token: randomUUID(),
+              engineId: "fixture-engine",
+              createdAt: at,
+            })
+            .run();
+        if (condition === "pending recovery")
+          database.db
+            .insert(recoveryRequests)
+            .values({
+              id: randomUUID(),
+              taskId: oldTask,
+              runId: oldRun,
+              requestKey: "pending",
+              action: "reconcile",
+              status: "pending",
+              createdAt: at,
+            })
+            .run();
+        // Bounded prompts cannot be used to decide whether older work exists.
+        for (let n = 0; n < 21; n++) {
+          const newer = randomUUID();
+          database.db
+            .insert(tasks)
+            .values({
+              id: newer,
+              projectId: goal.projectId,
+              goalId,
+              goalVersion: 1,
+              kind: "work",
+              instruction: "Finished newer work",
+              requestKey: newer,
+              status: "succeeded",
+              createdAt: new Date(at.getTime() + n + 1),
+            })
+            .run();
+        }
+        return store.finish(id, completion);
+      },
+    });
+    expect(result).toMatchObject({
+      status: "blocked",
+      errorCode: "work_unresolved",
+    });
+    expect(database.db.select().from(goals).get()).toMatchObject({
+      status: "active",
+      version: 1,
+    });
+    expect(database.db.select().from(goalRevisions).all()).toHaveLength(1);
+  },
+);

@@ -1,7 +1,13 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { goals, planningCycles, runs, tasks } from "../../db/schema.js";
+import {
+  goalRevisions,
+  goals,
+  planningCycles,
+  runs,
+  tasks,
+} from "../../db/schema.js";
 import type { RunCompletion } from "../execution/run-task.js";
 import {
   parseGoalPlan,
@@ -9,7 +15,11 @@ import {
   type PlannedWork,
   type PlanResult,
 } from "./goal-plan-policy.js";
-import { preparedGoalChanged, planningSourceChanged } from "./prepared-input-store.js";
+import {
+  preparedGoalChanged,
+  planningSourceChanged,
+} from "./prepared-input-store.js";
+import { goalVerificationOutcome } from "./goal-verification.js";
 import {
   overlappingWorkPaths,
   readPlanningWork,
@@ -108,11 +118,18 @@ export function applyPlanningCompletion(
   } catch {
     return reject("invalid_plan");
   }
-  // Completion requires independent code/test evidence, supplied by the development stage.
-  if (plan.outcome === "complete") return reject("verification_required");
   const work = readPlanningWork(db, goal.id);
   const previous = work.previous;
   if (work.unresolved) return reject("work_unresolved");
+  let completedGoal = false;
+  let incompleteGoal = false;
+  if (plan.outcome === "complete" && goal.definition.kind === "finite") {
+    if (work.suppressed.length) return reject("work_unresolved");
+    const verification = goalVerificationOutcome(db, run);
+    if (!verification) return reject("verification_required");
+    completedGoal = verification === "passed";
+    incompleteGoal = verification === "incomplete";
+  }
   const createdTaskIds: string[] = [];
   const suppressed: NonNullable<PlanResult["suppressed"]> = [];
   for (const [proposalIndex, proposed] of plan.tasks.entries()) {
@@ -165,7 +182,7 @@ export function applyPlanningCompletion(
     createdTaskIds.push(id);
   }
   const duplicate = plan.outcome === "work" && createdTaskIds.length === 0;
-  if (duplicate) {
+  if (duplicate || incompleteGoal) {
     const recent = db
       .select()
       .from(planningCycles)
@@ -183,18 +200,26 @@ export function applyPlanningCompletion(
       recent.length === 2 &&
       recent.every(
         (item) =>
-          item.reason === "duplicate_work" || item.reason === "suppressed_work",
+          item.reason === "duplicate_work" ||
+          item.reason === "suppressed_work" ||
+          item.reason === "goal_incomplete",
       )
     )
       return reject("planning_no_progress", suppressed);
   }
-  const reason = duplicate
-    ? suppressed.length
-      ? "suppressed_work"
-      : "duplicate_work"
-    : suppressed.length
-      ? "work_with_suppression"
-      : plan.outcome;
+  const reason = incompleteGoal
+    ? "goal_incomplete"
+    : duplicate
+      ? suppressed.length
+        ? "suppressed_work"
+        : "duplicate_work"
+      : suppressed.length
+        ? "work_with_suppression"
+        : completedGoal
+          ? "complete"
+          : plan.outcome === "complete"
+            ? "wait"
+            : plan.outcome;
   db.update(planningCycles)
     .set({ status: "applied", resultRunId: run.id, reason, finishedAt: now })
     .where(eq(planningCycles.taskId, run.taskId))
@@ -211,25 +236,71 @@ export function applyPlanningCompletion(
     })
     .where(eq(runs.id, run.id))
     .run();
-  db.update(goals)
-    .set({
-      nextCheckAt: createdTaskIds.length
-        ? null
-        : new Date(now.getTime() + goal.definition.checkIntervalMs),
-    })
-    .where(eq(goals.id, goal.id))
-    .run();
+  if (completedGoal) {
+    const version = goal.version + 1;
+    db.update(goals)
+      .set({ status: "completed", version, nextCheckAt: null, updatedAt: now })
+      .where(eq(goals.id, goal.id))
+      .run();
+    db.insert(goalRevisions)
+      .values({
+        goalId: goal.id,
+        version,
+        requestKey: `complete-plan:${run.taskId}`,
+        commandHash: createHash("sha256")
+          .update(
+            JSON.stringify([
+              "complete-plan",
+              run.id,
+              run.preparedInput.digest,
+              run.planResult.verification!.review!.verificationDigest,
+            ]),
+          )
+          .digest("hex"),
+        snapshot: {
+          id: goal.id,
+          projectId: goal.projectId,
+          definition: goal.definition,
+          status: "completed",
+          version,
+          nextCheckAt: null,
+          createdAt: goal.createdAt.toISOString(),
+          updatedAt: now.toISOString(),
+        },
+      })
+      .run();
+  } else
+    db.update(goals)
+      .set({
+        nextCheckAt: createdTaskIds.length
+          ? null
+          : new Date(now.getTime() + goal.definition.checkIntervalMs),
+      })
+      .where(eq(goals.id, goal.id))
+      .run();
   return {
     ...completion,
     result: [
+      ...(incompleteGoal
+        ? [
+            "목표 전체 검증에서 미완료 항목을 발견했습니다.",
+            ...run.planResult.verification!.review!.assessment.unresolved.map(
+              (item) => `- ${item}`,
+            ),
+            `실제 테스트: ${run.planResult.verification!.test!.result.status}`,
+            run.planResult.verification!.review!.assessment.report,
+          ]
+        : []),
       plan.summary,
       ...plan.tasks.map(
         (item, index) =>
           `- ${suppressed.some((held) => held.proposalIndex === index) ? "[기존 문제로 생성 제외] " : ""}${item.title}: ${item.acceptanceCriteria}`,
       ),
-      createdTaskIds.length
-        ? `생성한 작업: ${createdTaskIds.length}개`
-        : "새 작업 없이 다음 점검 시각까지 기다립니다.",
+      completedGoal
+        ? "목표의 모든 완료 기준을 검증해 완료했습니다."
+        : createdTaskIds.length
+          ? `생성한 작업: ${createdTaskIds.length}개`
+          : "새 작업 없이 다음 점검 시각까지 기다립니다.",
     ].join("\n"),
   };
 }

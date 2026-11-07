@@ -141,8 +141,8 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
             completion = settleDevelopmentCompletion(tx, run, completion);
             completion = settleStoppedCompletion(completion, run.stopReason, task.cancelRequestedAt !== null || task.status === "cancelled");
             completion = requireRuntimeSkillEvidence(tx, run, completion);
-            completion = applyPlanningCompletion(tx, run, completion, now);
             if (completion.status === "succeeded" && preparedGoalChanged(tx, run)) completion = { ...completion, status: "blocked", result: null, errorCode: "goal_changed" };
+            completion = applyPlanningCompletion(tx, run, completion, now);
             saveRunCompletion(tx, run, completion, now);
             finalStatus = completion.status;
             // 종료가 확인된 옛 확인 실행만 예약을 정리합니다. 일반 과거 오류를 새 차단으로 기록하지 않습니다.

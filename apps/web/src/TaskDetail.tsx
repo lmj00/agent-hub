@@ -18,6 +18,7 @@ import { dateTime, elapsed, Status, statusLabels } from "./format.js";
 import { PlanningEvidencePanel } from "./PlanningEvidencePanel.js";
 import { RuntimeSkillPanel } from "./RuntimeSkillPanel.js";
 import { DevelopmentEvidencePanel, developmentPhaseLabels } from "./DevelopmentEvidencePanel.js";
+import { GoalVerificationPanel, goalVerificationPhaseLabels } from "./GoalVerificationPanel.js";
 import { usePolling } from "./use-polling.js";
 
 const actions: Record<RecoveryAction, string> = {
@@ -62,7 +63,7 @@ const runErrors: Record<string, string> = {
   scope_changed: "목표에서 허용한 경로가 줄어 실행 중단을 요청했습니다. 종료 확인 후 범위 변경에 따른 취소로 기록합니다.",
   verification_required: "목표 완료 제안은 받았지만 실제 코드와 테스트의 검증 근거가 없어 완료로 반영하지 않았습니다.",
   work_unresolved: "진행·종료 확인·복구 중인 작업이 있거나 기존 작업의 범위를 확인할 수 없어 새 계획을 보류했습니다.",
-  planning_no_progress: "이미 처리했거나 재생성을 막은 작업만 반복 제안해 계획을 보류했습니다.",
+  planning_no_progress: "중복·재생성이 차단된 작업 또는 미완료인 목표의 완료 제안이 세 번 이어져 계획을 보류했습니다.",
   input_unavailable: "분석 자료를 준비하지 못했습니다. 원본 저장소의 미커밋 변경, 허용 경로와 파일·목표 입력의 크기 제한을 확인해 주세요.",
   input_changed: "분석 중 원본 코드가 바뀌어 결과를 반영하지 않았습니다. 최신 코드를 기준으로 다시 확인해야 합니다.",
   goal_changed: "목표의 상태나 버전이 바뀌어 이전 기준의 실행을 보류했습니다.",
@@ -519,9 +520,9 @@ function RunRecord({
           </dd>
         </div>
         <div>
-          <dt>{run.developmentEvidence && run.finishedAt ? "마지막 단계" : "현재 단계"}</dt>
+          <dt>{(run.developmentEvidence || run.goalVerification) && run.finishedAt ? "마지막 단계" : "현재 단계"}</dt>
           <dd>
-            {run.developmentEvidence ? developmentPhaseLabels[run.developmentEvidence.phase] : run.steps.length
+            {run.goalVerification ? goalVerificationPhaseLabels[run.goalVerification.phase] : run.developmentEvidence ? developmentPhaseLabels[run.developmentEvidence.phase] : run.steps.length
               ? `분석 · 단계 ${run.steps.at(-1)!.sequence}`
               : "실행 준비"}
           </dd>
@@ -576,11 +577,12 @@ function RunRecord({
         </div>
       ) : null}
       <div className="section-heading report-heading">
-        <h3>{run.developmentEvidence ? "개발 결과" : "분석 결과"}</h3>
+        <h3>{run.goalVerification ? "목표 검토 결과" : run.developmentEvidence ? "개발 결과" : "분석 결과"}</h3>
         {run.finishedAt ? <small>{dateTime(run.finishedAt)}</small> : null}
       </div>
       {run.planningEvidence ? <PlanningEvidencePanel evidence={run.planningEvidence} /> : null}
       {run.developmentEvidence ? <DevelopmentEvidencePanel evidence={run.developmentEvidence} /> : null}
+      {run.goalVerification ? <GoalVerificationPanel evidence={run.goalVerification} /> : null}
       {run.result ? (
         <pre className="analysis-result">{run.result}</pre>
       ) : (

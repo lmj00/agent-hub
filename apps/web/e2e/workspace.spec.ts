@@ -53,6 +53,37 @@ async function createTask(page: Page, instruction: string) {
   await expect(page.locator("#detail-heading")).toHaveText(instruction);
 }
 
+test("distinguishes Goal completion from successful review and incomplete checks on desktop and mobile", async ({ page }, testInfo) => {
+  await login(page);
+  await page.getByRole("button", { name: /목표 완료 검증 예제 example/ }).click();
+  await page.getByRole("button", { name: /목표 완료 이력/ }).click();
+  const panel = page.getByRole("region", { name: "목표 전체 검증 기록", exact: true });
+  await expect(panel).toContainText("목표 완료 기록됨");
+  await expect(panel).toContainText("목표 완료와 이력을 함께 저장했습니다");
+  await panel.getByText("테스트 출력 보기", { exact: true }).click();
+  await expect(panel).toContainText("2 tests passed");
+  await panel.getByText("검증한 코드 버전 보기", { exact: true }).click();
+  await expect(panel.locator("code")).toHaveCount(2);
+  await page.screenshot({ path: testInfo.outputPath("goal-verification-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("goal-verification-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: /검토만 통과한 기록/ }).click();
+  await expect(panel).toContainText("목표 검증 통과");
+  await expect(panel).toContainText("목표 완료가 저장된 기록은 아직 없습니다");
+  await expect(panel).not.toContainText("목표 완료 기록됨");
+  await page.getByRole("button", { name: /목표 보완 검토 기록/ }).click();
+  await expect(panel).toContainText("목표 보완 필요");
+  await expect(panel).toContainText("오류 입력 처리 확인 필요");
+  await panel.getByText("테스트 출력 보기", { exact: true }).click();
+  await expect(panel.locator("pre")).toContainText("<script>");
+  expect(await page.evaluate(() => "goalUnwanted" in window)).toBe(false);
+  await page.reload();
+  await page.getByRole("button", { name: /목표 완료 검증 예제 example/ }).click();
+  await page.getByRole("button", { name: /목표 완료 이력/ }).click();
+  await expect(panel).toContainText("목표 완료 기록됨");
+});
+
 test("distinguishes selected, loaded and unknown runtime skills across attempts on desktop and mobile", async ({ page }, testInfo) => {
   await login(page);
   await page.getByRole("button", { name: /지침 기록 예제 example/ }).click();

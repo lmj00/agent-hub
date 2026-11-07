@@ -1,6 +1,12 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { recoveryRequests, runs, taskReleases, tasks } from "../../db/schema.js";
+import {
+  recoveryRequests,
+  runExecutions,
+  runs,
+  taskReleases,
+  tasks,
+} from "../../db/schema.js";
 import { allowedGoalPath, privateInputPath } from "./prepared-workspace.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select">;
@@ -33,7 +39,41 @@ export function readPlanningWork(db: Db, goalId: string) {
     .orderBy(asc(tasks.createdAt), asc(tasks.id))
     .all();
   const suppressed: SuppressedWork[] = [];
-  let unresolved = false;
+  // A successful Task label cannot hide an uncertain older execution. These
+  // full-history queries also cover work omitted from the bounded AI prompt.
+  const uncertain = db
+    .select({ id: runs.id })
+    .from(runs)
+    .innerJoin(tasks, eq(tasks.id, runs.taskId))
+    .leftJoin(runExecutions, eq(runExecutions.runId, runs.id))
+    .where(
+      and(
+        eq(tasks.goalId, goalId),
+        eq(tasks.kind, "work"),
+        or(
+          eq(runs.status, "running"),
+          isNull(runs.terminationConfirmedAt),
+          and(
+            isNotNull(runExecutions.runId),
+            isNull(runExecutions.terminationConfirmedAt),
+          ),
+        ),
+      ),
+    )
+    .get();
+  const pendingRecovery = db
+    .select({ id: recoveryRequests.id })
+    .from(recoveryRequests)
+    .innerJoin(tasks, eq(tasks.id, recoveryRequests.taskId))
+    .where(
+      and(
+        eq(tasks.goalId, goalId),
+        eq(tasks.kind, "work"),
+        eq(recoveryRequests.status, "pending"),
+      ),
+    )
+    .get();
+  let unresolved = !!uncertain || !!pendingRecovery;
   for (const task of previous) {
     if (task.status === "succeeded" && !task.cancelRequestedAt) continue;
     const history = db
@@ -60,7 +100,15 @@ export function readPlanningWork(db: Db, goalId: string) {
       unresolved = true;
       continue;
     }
-    if (task.status === "cancelled" && db.select({ id: taskReleases.newTaskId }).from(taskReleases).where(eq(taskReleases.sourceTaskId, task.id)).get()) continue;
+    if (
+      task.status === "cancelled" &&
+      db
+        .select({ id: taskReleases.newTaskId })
+        .from(taskReleases)
+        .where(eq(taskReleases.sourceTaskId, task.id))
+        .get()
+    )
+      continue;
     // Scope exclusion before any attempt consumes no task retry budget. The
     // current Goal can be planned afresh without reviving the old Task.
     if (

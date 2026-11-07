@@ -35,6 +35,7 @@ export const executionRoutes: FastifyPluginAsync<{
     return {
       planningEvidence: run.planningEvidence ?? null,
       developmentEvidence: run.developmentEvidence ?? null,
+      goalVerification: run.goalVerification ?? null,
       ...summary(run), result: run.result, errorCode: run.errorCode, lastActivityAt: run.lastActivityAt.toISOString(),
       runtimeSkillVersion: run.runtimeSkillVersion ?? null,
       stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt?.toISOString() ?? null,
