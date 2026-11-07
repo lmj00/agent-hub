@@ -541,9 +541,11 @@ const runCli = (args: string[]) =>
     },
   );
 
-test("actual CLI creates and inspects a private bundle, previews without writes, then restores only with --apply", async () => {
-  const database = connect(),
-    ids = completedRun(database);
+// Keep one process startup per case: these check command contracts, not the
+// combined startup time of several independent CLI invocations.
+test("actual CLI creates a private, inspectable bundle", async () => {
+  const database = connect();
+  const ids = completedRun(database);
   database.close();
   const created = JSON.parse(
     (
@@ -563,23 +565,60 @@ test("actual CLI creates and inspects a private bundle, previews without writes,
   expect(created.files).toBeGreaterThan(0);
   expect(statSync(backup).mode & 0o777).toBe(0o700);
   expect(statSync(join(backup, "manifest.json")).mode & 0o777).toBe(0o600);
+  expect((await inspectStateBackup(backup, signal())).schemaDigest).toBe(
+    created.schemaDigest,
+  );
+  renameSync(join(directory, "state"), join(directory, "old-state"));
+  await restoreStateBackup(backup, databasePath, signal());
+  expect(connect().db.select().from(runs).get()?.id).toBe(ids.runId);
+});
+
+async function stoppedCliBackup() {
+  const database = connect();
+  const ids = completedRun(database);
+  database.close();
+  const manifest = await createStateBackup(databasePath, backup, signal());
+  return { ids, manifest };
+}
+
+test("actual CLI inspects the saved bundle schema", async () => {
+  const { manifest } = await stoppedCliBackup();
   expect(
-    JSON.parse((await runCli(["inspect", "--backup", backup])).stdout)
-      .schemaDigest,
-  ).toBe(created.schemaDigest);
+    JSON.parse((await runCli(["inspect", "--backup", backup])).stdout),
+  ).toMatchObject({ action: "inspect", schemaDigest: manifest.schemaDigest });
+});
+
+test("actual CLI previews restoration without writing state", async () => {
+  await stoppedCliBackup();
   renameSync(join(directory, "state"), join(directory, "old-state"));
   const args = ["restore", "--backup", backup, "--database", databasePath];
   expect(JSON.parse((await runCli(args)).stdout).action).toBe(
     "restore-preview",
   );
   expect(existsSync(join(directory, "state"))).toBe(false);
-  expect(JSON.parse((await runCli([...args, "--apply"])).stdout).action).toBe(
-    "restore",
-  );
+});
+
+test("actual CLI restores the saved records with --apply", async () => {
+  const { ids } = await stoppedCliBackup();
+  renameSync(join(directory, "state"), join(directory, "old-state"));
+  expect(
+    JSON.parse(
+      (
+        await runCli([
+          "restore",
+          "--backup",
+          backup,
+          "--database",
+          databasePath,
+          "--apply",
+        ])
+      ).stdout,
+    ).action,
+  ).toBe("restore");
   expect(connect().db.select().from(runs).get()?.id).toBe(ids.runId);
 });
 
-test("CLI failure has a nonzero exit and does not expose native errors or private record contents", async () => {
+test("CLI creation failure has a nonzero exit and does not expose private record contents", async () => {
   const database = connect();
   database.close();
   const privateText = "private-fixture-record-never-print";
@@ -591,6 +630,11 @@ test("CLI failure has a nonzero exit and does not expose native errors or privat
     stdout: "",
     stderr: expect.stringContaining("Backup operation failed."),
   });
+  expect(existsSync(backup)).toBe(false);
+});
+
+test("CLI inspection failure has a nonzero exit and does not expose private paths", async () => {
+  const privateText = "private-fixture-record-never-print";
   await expect(
     runCli(["inspect", "--backup", join(directory, privateText)]),
   ).rejects.toMatchObject({
