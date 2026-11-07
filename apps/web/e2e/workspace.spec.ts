@@ -238,6 +238,7 @@ test("releases cancelled planned work once after a lost response and preserves b
   await page.getByRole("button", { name: /취소 기록을 이어받을 개선 작업/ }).click();
   await expect(page.locator(".detail-top .status-cancelled")).toBeVisible();
   const commands: unknown[] = [];
+  let holdRefresh = true;
   await page.route("**/tasks/*/release", async (route) => {
     commands.push(route.request().postDataJSON());
     const result = await route.fetch();
@@ -246,20 +247,25 @@ test("releases cancelled planned work once after a lost response and preserves b
       await route.abort("failed");
     } else {
       expect(result.status()).toBe(200);
+      holdRefresh = false;
       await route.fulfill({ response: result });
     }
   });
   // Keep the original detail visible while retrying an uncertain response.
-  let holdRefresh = true;
+  let blockedRefreshes = 0;
   await page.route("**/projects/*/tasks", async (route) => {
-    if (holdRefresh && route.request().method() === "GET") await route.abort("failed");
-    else await route.continue();
+    if (holdRefresh && route.request().method() === "GET") {
+      blockedRefreshes++;
+      await route.abort("failed");
+    } else await route.continue();
   });
   await page.getByRole("button", { name: "취소한 작업 다시 허용", exact: true }).click();
   await expect(page.locator(".task-detail [role=alert]")).toContainText(
     "서버에 연결하지 못했습니다",
   );
-  holdRefresh = false;
+  // Exercise a polling turn before retrying; a refresh must not consume the lost-response scenario.
+  const beforeRetry = blockedRefreshes;
+  await expect.poll(() => blockedRefreshes).toBeGreaterThan(beforeRetry);
   await page.getByRole("button", { name: "취소한 작업 다시 허용", exact: true }).click();
   await expect(page.locator(".detail-top .status-queued")).toBeVisible();
   expect(commands).toHaveLength(2);
