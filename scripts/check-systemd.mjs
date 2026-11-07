@@ -293,6 +293,7 @@ try {
     "apps/server/skills",
     "apps/web/dist",
     "packages/contracts/package.json",
+    "packages/contracts/node_modules",
     "packages/contracts/dist",
   ]) {
     cpSync(join(source, path), join(root, path), {
