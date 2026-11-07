@@ -11,7 +11,9 @@ export const developmentPhaseLabels: Record<
   testing: "실제 테스트",
   reviewing: "독립 검토",
   needs_changes: "보완 필요",
-  verified: "검증 완료 · 변경 반영 대기",
+  verified: "검증 완료",
+  applying: "변경 반영 확인",
+  applied: "변경 반영 완료",
 };
 const testLabels = {
   passed: "통과",
@@ -38,6 +40,21 @@ export function DevelopmentEvidencePanel({
         각 수정 버전의 실제 테스트와 독립 검토를 기록합니다. 검증을 통과해도
         변경 반영이 확인되기 전에는 작업이 완료되지 않습니다.
       </p>
+      <div className="development-check" aria-label="변경 반영 기록">
+        <strong>{evidence.application?.status === "applied" ? "개발용 브랜치에 반영됨" : evidence.application ? "반영 완료 확인 필요" : "변경 반영 기록 없음"}</strong>
+        {evidence.application ? <>
+          <p>{evidence.application.roundSequence}차 수정 · 반영 예약 {dateTime(evidence.application.createdAt)}
+            {evidence.application.appliedAt ? ` · 반영 확인 ${dateTime(evidence.application.appliedAt)}` : ""}</p>
+          <p>{evidence.application.status === "applied"
+            ? "이 코드가 다음 작업의 기준이 됩니다. 작업이 취소돼도 이미 반영된 코드는 자동으로 되돌리지 않습니다."
+            : "완료 여부가 아직 확인되지 않았습니다. 상태 확인으로 저장된 기록과 실제 코드를 대조할 수 있습니다."}</p>
+          <details><summary>반영 버전 보기</summary>
+            <p>기준 커밋 <code className="application-revision">{evidence.application.baseRevision}</code></p>
+            <p>{evidence.application.status === "applied" ? "결과 커밋" : "반영 예정 커밋"} <code className="application-revision">{evidence.application.resultCommit}</code></p>
+            <p>검증한 후보 <code className="application-revision">{evidence.application.candidateDigest}</code></p>
+          </details>
+        </> : <p>테스트와 검토를 통과했더라도 반영 기록 없이는 작업 완료로 처리하지 않습니다.</p>}
+      </div>
       {!evidence.rounds.length ? <p>저장된 개발 회차가 없습니다.</p> : null}
       {evidence.rounds.map((round, index) => (
         <details

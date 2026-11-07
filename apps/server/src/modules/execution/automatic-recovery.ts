@@ -1,6 +1,6 @@
 import { readGoalExecutionBlock } from "../goals/goal-execution-store.js";
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import {
   events,
@@ -8,7 +8,9 @@ import {
   recoveryRequests,
   runs,
   tasks,
+  changeApplications,
 } from "../../db/schema.js";
+import { readChangeApplication } from "../goals/change-application.js";
 import { assertExecutionOwner } from "./execution-owner.js";
 import { unresolvedRun } from "./drizzle-run-store.js";
 import { readProviderGate } from "./provider-gate.js";
@@ -47,14 +49,14 @@ export function createAutomaticRecovery(options: {
             .where(
               and(
                 inArray(projects.workspaceKey, options.workspaceKeys),
-                inArray(tasks.status, [
+                or(inArray(tasks.status, [
                   "running",
                   "interrupted",
                   "waiting_retry",
                   "waiting_capacity",
                   "failed",
                   "blocked",
-                ]),
+                ]), sql`EXISTS (SELECT 1 FROM ${changeApplications} WHERE ${changeApplications.taskId} = ${tasks.id} AND ${changeApplications.status} = 'pending')`),
               ),
             )
             .orderBy(asc(tasks.createdAt), asc(tasks.id))
@@ -67,6 +69,7 @@ export function createAutomaticRecovery(options: {
               .orderBy(desc(runs.attempt))
               .get();
             if (!run) continue;
+            const application = readChangeApplication(tx, run.id);
             if (
               tx
                 .select({ id: recoveryRequests.id })
@@ -109,9 +112,9 @@ export function createAutomaticRecovery(options: {
               }
             };
             // 서버가 현재 실행 중이면 이 함수는 호출되지 않습니다. 새 소유자만 옛 실행을 대조합니다.
-            if (!run.terminationConfirmedAt) {
-              const action = task.cancelRequestedAt ? "cancel" : "reconcile";
-              const requestKey = `auto-${action}-${run.id}`;
+            if (!run.terminationConfirmedAt || application?.status === "pending") {
+              const action = task.cancelRequestedAt || task.status === "cancelled" ? "cancel" : "reconcile";
+              const requestKey = application?.status === "pending" ? `auto-application-${application.id}` : `auto-${action}-${run.id}`;
               const previous = tx
                 .select()
                 .from(recoveryRequests)
@@ -130,24 +133,28 @@ export function createAutomaticRecovery(options: {
                   requestKey,
                   providerGateVersion: null,
                 } satisfies RecoveryInput;
+              const reason = application?.status === "pending" ? "change_application_unconfirmed" : "termination_unconfirmed";
               if (
                 state.decisionRunId !== run.id ||
-                state.reason !== "termination_unconfirmed"
+                state.reason !== reason
               ) {
                 save(
                   {
                     ...state,
                     decisionRunId: run.id,
                     nextAttemptAt: null,
-                    reason: "termination_unconfirmed",
+                    reason,
                   },
                   task.status,
-                  "recovery.held.termination_unconfirmed",
+                  `recovery.held.${reason}`,
                 );
                 return true;
               }
               continue;
             }
+            // An applied effect is never a new AI attempt, even if a timeout or
+            // cancellation kept the Task from becoming successful.
+            if (application) continue;
             if (task.cancelRequestedAt) {
               if (state.reason !== "user_cancelled") {
                 save(

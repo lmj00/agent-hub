@@ -31,7 +31,8 @@ import { goalRoutes } from "./modules/goals/routes.js";
 import { budgetRoutes } from "./modules/budgets/routes.js";
 import { createProjectBudgetStore } from "./modules/budgets/project-budget-store.js";
 import { cleanupConfirmedInputs, cleanupPreparedRun, createPreparedExecutor, verifyPreparedResult } from "./modules/goals/prepared-executor.js";
-import { createDevelopmentExecutor } from "./modules/goals/development-executor.js";
+import { configuredDevelopmentWorkspaces, createDevelopmentExecutor } from "./modules/goals/development-executor.js";
+import { applyChangeApplication } from "./modules/goals/change-application.js";
 import { developmentRoot } from "./modules/goals/development-workspace.js";
 import { preparedInputRoot } from "./modules/goals/prepared-workspace.js";
 import { createWorkReleaseStore } from "./modules/goals/work-release-store.js";
@@ -86,17 +87,17 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
           const inputRoot = preparedInputRoot(databasePath);
           cleanupConfirmedInputs(database.db, inputRoot);
           const baseExecutor = execution.executor ?? createConfiguredExecutor(execution.config);
-          const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot), development: baseExecutor, config: execution.config, inputRoot, repositoryRoot: developmentRoot(databasePath) });
+          const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot), development: baseExecutor, config: execution.config, inputRoot, repositoryRoot: developmentRoot(databasePath), ownerToken: owner.token });
           canTrackTermination = typeof executor.confirmTermination === "function";
           if (execution.config.automaticRecovery && !canTrackTermination) throw new Error("Automatic recovery requires execution termination tracking");
           recovery = createDrizzleRecoveryStore(database.db, owner.token);
           queue = createExecutionQueue({
             ...execution,
-            store: createDrizzleRunStore(database.db, owner.token, execution.config, { getObserverStatus: () => serviceObserver?.getStatus() ?? { enabledKeys: new Set(), errors: new Set(), nextChecks: new Map() } }),
+            store: createDrizzleRunStore(database.db, owner.token, execution.config, { developmentWorkspaceKeys: configuredDevelopmentWorkspaces(execution.config, baseExecutor), getObserverStatus: () => serviceObserver?.getStatus() ?? { enabledKeys: new Set(), errors: new Set(), nextChecks: new Map() } }),
             executor,
             ...(execution.config.automaticRecovery ? { automaticRecovery: createAutomaticRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()], recovery }) } : {}),
             ...(execution.config.automaticRecovery && execution.config.capacityRecovery ? { capacityRecovery: createCapacityRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.capacityRecovery, retryPolicy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()] }) } : {}),
-            recovery: createRecoveryProcessor(recovery, execution.observer ?? { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }, runId => cleanupPreparedRun(database.db, inputRoot, runId), runId => verifyPreparedResult(database.db, runId)),
+            recovery: createRecoveryProcessor(recovery, execution.observer ?? { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }, runId => cleanupPreparedRun(database.db, inputRoot, runId), runId => verifyPreparedResult(database.db, runId), async (runId, signal) => { await applyChangeApplication(database.db, runId, signal, owner!.token); }),
             validate: () => validateExecutionEnvironment(execution.config, databasePath, protectedFiles),
             reportDiagnostic: (diagnostic) => {
               if (diagnostic.event === "execution_queue.error") scope.log.error(diagnostic, "Execution queue check failed");

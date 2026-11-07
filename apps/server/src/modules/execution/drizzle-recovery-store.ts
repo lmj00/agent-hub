@@ -16,6 +16,8 @@ import { applyPlanningCompletion } from "../goals/plan-application.js";
 import { pauseCancelledPlan } from "../goals/planning-cancellation.js";
 import { confirmExecutions, readExecutions } from "./execution-record-store.js";
 import { requireRuntimeSkillEvidence, runtimeSkillNotStarted } from "./runtime-skill-store.js";
+import { readChangeApplication, settleDevelopmentCompletion } from "../goals/change-application.js";
+import { settleStoppedCompletion } from "./run-task.js";
 
 type Db = ReturnType<typeof openDatabase>["db"];
 type Transaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -46,10 +48,12 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         const run = latestRun(tx, task.id);
         if ((run?.id ?? null) !== input.runId) throw new RecoveryError("STALE_RUN");
         if (task.status === "succeeded") throw new RecoveryError("TASK_ALREADY_COMPLETED");
-        if (input.action !== "cancel" && (task.cancelRequestedAt || task.status === "cancelled")) throw new RecoveryError("TASK_CANCELLED");
+        const hasApplication = !!run && !!readChangeApplication(tx, run.id);
+        if (input.action !== "cancel" && (task.cancelRequestedAt || task.status === "cancelled") && !(input.action === "reconcile" && hasApplication)) throw new RecoveryError("TASK_CANCELLED");
         if (input.action !== "cancel" && run && run.id === activeRunId) throw new RecoveryError("RUN_ACTIVE");
         if (input.action === "reconcile" && !run) throw new RecoveryError("NO_RUN");
         if (input.action === "resume") {
+          if (run && readChangeApplication(tx, run.id)) throw new RecoveryError("CHANGE_APPLICATION_EXISTS");
           const goalBlock = readGoalExecutionBlock(tx, task);
           if (goalBlock) throw new RecoveryError(goalBlock);
           if ((!run || run.terminationConfirmedAt) && readBudgetWait(tx, task, new Date())) throw new RecoveryError("PERIOD_BUDGET_EXHAUSTED");
@@ -101,7 +105,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         const request = tx.select().from(recoveryRequests).where(eq(recoveryRequests.id, id)).get();
         if (!request || request.status !== "pending") return undefined;
         const run = latestRun(tx, request.taskId);
-        return { request, run: run?.id === request.runId ? { ...run, runtimeSkillNotStarted: runtimeSkillNotStarted(tx, run), executions: readExecutions(tx, run.id) } : null };
+        return { request, run: run?.id === request.runId ? { ...run, changeApplication: readChangeApplication(tx, run.id) ?? null, runtimeSkillNotStarted: runtimeSkillNotStarted(tx, run), executions: readExecutions(tx, run.id) } : null };
       });
     },
     complete(id, confirmedAt, inputVerified = false, observedExecutions = []) {
@@ -120,22 +124,24 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
           return { proofSaved };
         };
         if ((run?.id ?? null) !== request.runId) return finish("STALE_RUN");
-        if (request.action !== "cancel" && (task.cancelRequestedAt || task.status === "cancelled")) return finish("TASK_CANCELLED");
+        const application = run ? readChangeApplication(tx, run.id) : undefined;
+        if (request.action !== "cancel" && (task.cancelRequestedAt || task.status === "cancelled") && !(request.action === "reconcile" && application)) return finish("TASK_CANCELLED");
         if (run) {
           const executions = readExecutions(tx, run.id);
           if (confirmedAt && !run.terminationConfirmedAt && !executions.length && run.runtimeSkillVersion !== null &&
               run.developmentVersion !== 1 && !runtimeSkillNotStarted(tx, run)) return finish("TERMINATION_UNCONFIRMED");
           if (confirmedAt && !run.terminationConfirmedAt && JSON.stringify(executions.map(row => [row.sequence, row.identity])) !== JSON.stringify(observedExecutions.map(row => [row.sequence, row.identity]))) return finish("TERMINATION_UNCONFIRMED");
           const proof = run.terminationConfirmedAt ?? confirmedAt;
-          if (run.status === "running" || run.status === "interrupted" || (run.stopReason === "scope_changed" && !run.terminationConfirmedAt)) {
+          if (run.status === "running" || run.status === "interrupted" || application || (run.stopReason === "scope_changed" && !run.terminationConfirmedAt)) {
             const usage = tx.select({ usage: steps.usage }).from(steps).where(eq(steps.runId, run.id)).orderBy(asc(steps.sequence)).get()?.usage ?? null;
             let completion = reconcileCompletion(run, usage, proof, task.cancelRequestedAt !== null);
             if (proof && run.planResult?.status === "proposed" && !run.stopReason && !task.cancelRequestedAt && [null, "owner_lost", "termination_unconfirmed"].includes(run.errorCode)) {
               completion = { ...completion, status: inputVerified ? "succeeded" : "blocked", result: inputVerified ? run.planResult.proposal : null, errorCode: inputVerified ? null : "input_changed" };
             }
+            completion = settleDevelopmentCompletion(tx, run, completion);
+            completion = settleStoppedCompletion(completion, run.stopReason, task.cancelRequestedAt !== null || task.status === "cancelled");
             completion = requireRuntimeSkillEvidence(tx, run, completion);
             completion = applyPlanningCompletion(tx, run, completion, now);
-            if (task.plannedWork && completion.status === "succeeded") completion = { ...completion, status: "blocked", result: null, errorCode: "development_incomplete" };
             if (completion.status === "succeeded" && preparedGoalChanged(tx, run)) completion = { ...completion, status: "blocked", result: null, errorCode: "goal_changed" };
             saveRunCompletion(tx, run, completion, now);
             finalStatus = completion.status;
@@ -150,6 +156,13 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
           settleRunBudget(tx, run.id, proof);
           proofSaved = proof !== null;
           if (!proof) return finish("TERMINATION_UNCONFIRMED");
+          if (application?.status === "pending") return finish("CHANGE_APPLICATION_UNCONFIRMED");
+          if (application?.status === "applied") {
+            const state = tx.select({ retryState: tasks.retryState }).from(tasks).where(eq(tasks.id, task.id)).get()?.retryState;
+            if (state?.reason === "change_application_unconfirmed") {
+              tx.update(tasks).set({ retryState: { ...state, reason: null, nextAttemptAt: null } }).where(eq(tasks.id, task.id)).run();
+            }
+          }
         }
         if (request.action === "cancel") {
           if (finalStatus === "succeeded") return finish("TASK_ALREADY_COMPLETED");
@@ -160,6 +173,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         }
         if (request.action === "reconcile" || finalStatus === "succeeded") return finish(null);
         if (finalStatus === "cancelled") return finish("TASK_CANCELLED");
+        if (run && readChangeApplication(tx, run.id)) return finish("CHANGE_APPLICATION_EXISTS");
         const goalBlock = readGoalExecutionBlock(tx, task);
         if (goalBlock) return finish(goalBlock);
         if (readBudgetWait(tx, task, now)) return finish("PERIOD_BUDGET_EXHAUSTED");

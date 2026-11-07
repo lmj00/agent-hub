@@ -146,10 +146,10 @@ export function Workspace({
           ) : null}
           <div className="sidebar-note">
             <span className="eyebrow">현재 지원 범위</span>
-            <p>읽기 전용 분석</p>
+            <p>분석과 개발 작업</p>
             <small>
-              작업 폴더를 읽고 결과를 기록합니다. 코드 변경과 자율 작업 생성은
-              이후에 연결됩니다.
+              분석 결과를 기록하고, 설정이 준비된 개발 작업은 수정·검증 후
+              개발용 브랜치에 반영합니다. 목표의 자동 계획 시작은 준비 중입니다.
             </small>
           </div>
         </aside>
@@ -257,7 +257,9 @@ function ExecutionBar({ queue, gate }: { queue: Queue; gate: ProviderGate }) {
             : queue.reason === "period_budget"
               ? "실행 예산이 있는 작업을 기다립니다. 각 작업에서 대기 이유와 다음 확인 시각을 볼 수 있습니다."
             : queue.reason === "development_pending"
-              ? "계획에서 개발 작업을 생성했습니다. 코드 수정·검증 실행기가 연결돼야 시작할 수 있습니다."
+              ? "개발 작업을 시작하려면 해당 작업 공간의 컨테이너 실행과 테스트 설정이 필요합니다."
+            : queue.reason === "change_application_pending"
+              ? "이전 코드 반영 결과를 확인해야 합니다. 해당 작업에서 상태 확인을 요청해 주세요."
             : queue.state === "held"
               ? "종료가 확인되지 않은 실행을 먼저 확인해 주세요."
               : queue.state === "error"

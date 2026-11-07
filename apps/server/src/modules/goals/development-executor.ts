@@ -37,6 +37,7 @@ import {
 import { readDevelopmentRounds } from "./development-journal.js";
 import { readGoalScope } from "./prepared-input-store.js";
 import type { DevelopmentInput } from "./development-workspace.js";
+import { applyChangeApplication, prepareChangeApplication } from "./change-application.js";
 
 type Db = ReturnType<typeof openDatabase>["db"];
 const manifest = (input: DevelopmentInput) => ({
@@ -58,6 +59,15 @@ const addUsage = (
       }
     : null;
 
+export function configuredDevelopmentWorkspaces(
+  config: Pick<ExecutionConfig, "workspaces" | "verification" | "containerImage">,
+  executor: AnalysisExecutor,
+) {
+  return config.containerImage && executor.confirmTermination
+    ? [...(config.verification?.keys() ?? [])].filter(key => config.workspaces.has(key))
+    : [];
+}
+
 export function createDevelopmentExecutor(options: {
   db: Db;
   analysis: AnalysisExecutor;
@@ -68,6 +78,7 @@ export function createDevelopmentExecutor(options: {
   >;
   inputRoot: string;
   repositoryRoot: string;
+  ownerToken?: string;
 }): AnalysisExecutor {
   const { db, analysis, development, config, inputRoot, repositoryRoot } =
     options;
@@ -314,7 +325,11 @@ export function createDevelopmentExecutor(options: {
               },
             },
           });
-          if (assessment.complete) return { output: assessment.report, usage };
+          if (assessment.complete) {
+            await prepareChangeApplication(db, run.id, signal, options.ownerToken);
+            await applyChangeApplication(db, run.id, signal, options.ownerToken);
+            return { output: assessment.report, usage };
+          }
           if (!assessment.next) throw new AnalysisError("analysis_incomplete");
           previous = candidate;
           previousReview = assessment;

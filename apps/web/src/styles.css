@@ -1244,6 +1244,7 @@ a {
 .development-check { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 16px; font-size: 13px; }
 .development-check > .status { margin-left: 10px; }
 .development-check details { margin-top: 12px; }
+.application-revision { display: block; overflow-wrap: anywhere; margin: 4px 0 12px; }
 .development-output { margin-top: 10px; max-height: 24rem; overflow: auto; }
 .development-failure { color: var(--amber); }
 

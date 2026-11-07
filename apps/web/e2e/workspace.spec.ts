@@ -99,7 +99,8 @@ test("shows failed development feedback and the later verified candidate without
   await expect(evidence).toContainText("검증을 통과해도 변경 반영이 확인되기 전에는 작업이 완료되지 않습니다");
   const latest = evidence.locator(".development-round").last();
   await expect(latest).toHaveAttribute("open", "");
-  await expect(latest).toContainText("검증 완료 · 변경 반영 대기");
+  await expect(latest).toContainText("검증 완료");
+  await expect(evidence).toContainText("변경 반영 기록 없음");
   await expect(latest).toContainText("종료 코드 0");
   await expect(latest.getByText("승인", { exact: true })).toBeVisible();
   await latest.getByText("변경 파일 1개", { exact: true }).click();
@@ -120,6 +121,31 @@ test("shows failed development feedback and the later verified candidate without
   await page.getByRole("button", { name: /계산 오류 수정 기록/ }).click();
   await expect(evidence).toContainText("2 / 3회 수정");
   await expect(page.locator(".detail-top .status-blocked")).toBeVisible();
+});
+
+test("distinguishes applied, uncertain and cancelled application records, including on mobile", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: /개발 검증 예제 example/ }).click();
+  const panel = page.getByRole("region", { name: "개발·검증 기록", exact: true });
+  await page.getByRole("button", { name: /반영 완료 기록/ }).click();
+  await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
+  await expect(panel).toContainText("개발용 브랜치에 반영됨");
+  await expect(page.getByRole("button", { name: "상태 확인", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "작업 재개", exact: true })).toBeDisabled();
+  await panel.getByText("반영 버전 보기", { exact: true }).click();
+  await expect(panel).toContainText("e".repeat(40));
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("button", { name: /반영 확인 대기 기록/ }).click();
+  await expect(page.locator(".detail-top .status-blocked")).toBeVisible();
+  await expect(panel).toContainText("반영 완료 확인 필요");
+  await expect(page.getByRole("button", { name: "상태 확인", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "작업 재개", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: /반영 후 취소 기록/ }).click();
+  await expect(page.locator(".detail-top .status-cancelled")).toBeVisible();
+  await expect(panel).toContainText("개발용 브랜치에 반영됨");
+  await expect(panel).toContainText("되돌리지 않습니다");
+  await expect(page.getByRole("button", { name: "작업 재개", exact: true })).toBeDisabled();
 });
 
 test("does not describe a cancelled development preparation as still in progress", async ({ page }) => {

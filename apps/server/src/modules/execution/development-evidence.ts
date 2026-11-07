@@ -1,7 +1,7 @@
 import { asc, eq, sql } from "drizzle-orm";
 import type { DevelopmentEvidence } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
-import { developmentRounds, runs } from "../../db/schema.js";
+import { changeApplications, developmentRounds, runs } from "../../db/schema.js";
 import { redactOutput } from "./analysis.js";
 import { parseAssessment } from "./analysis-workflow.js";
 
@@ -83,5 +83,19 @@ export function readDevelopmentEvidence(
           }
         : null,
   }));
-  return { phase: rounds.at(-1)?.phase ?? "preparing", maxRounds: 3, rounds };
+  const application = db.select({
+    id: changeApplications.id,
+    status: changeApplications.status,
+    roundSequence: changeApplications.roundSequence,
+    baseRevision: changeApplications.baseRevision,
+    resultCommit: changeApplications.resultCommit,
+    candidateDigest: changeApplications.candidateDigest,
+    createdAt: changeApplications.createdAt,
+    appliedAt: changeApplications.appliedAt,
+  }).from(changeApplications).where(eq(changeApplications.runId, run.id)).get();
+  return {
+    phase: application ? application.status === "applied" ? "applied" : "applying" : rounds.at(-1)?.phase ?? "preparing",
+    maxRounds: 3, rounds,
+    application: application ? { ...application, createdAt: application.createdAt.toISOString(), appliedAt: application.appliedAt?.toISOString() ?? null } : null,
+  };
 }

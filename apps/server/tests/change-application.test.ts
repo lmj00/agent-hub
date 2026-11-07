@@ -45,6 +45,11 @@ import {
 } from "../src/modules/goals/change-application.js";
 import { applicationCommit } from "../src/modules/goals/change-application-git.js";
 import { prepareRecordedDevelopment } from "../src/modules/goals/recorded-development.js";
+import { createDrizzleRecoveryStore } from "../src/modules/execution/drizzle-recovery-store.js";
+import { createRecoveryProcessor } from "../src/modules/execution/recover-task.js";
+import { createAutomaticRecovery } from "../src/modules/execution/automatic-recovery.js";
+import { acquireExecutionOwner } from "../src/modules/execution/execution-owner.js";
+import { defaultRetryPolicy } from "../src/modules/execution/retry-policy.js";
 
 let directory: string,
   source: string,
@@ -147,8 +152,8 @@ beforeEach(() => {
     .run();
   store = createDrizzleRunStore(database.db);
   run = store.claim(taskId, "fixture");
-  // Public development dispatch is connected in the next unit. Only the model
-  // and test-container boundary is synthetic here; Git, SQLite and journals run.
+  // Only the model and test-container boundary is synthetic here; Git, SQLite
+  // and journals run. The fixture pauses after review to exercise each boundary.
   database.db
     .update(tasks)
     .set({
@@ -246,7 +251,8 @@ async function approvedRound() {
     repositoryRoot: developmentRoot(join(directory, "hub.sqlite")),
     inputRoot: preparedInputRoot(join(directory, "hub.sqlite")),
   });
-  await development.analyze(
+  const reviewSaved = new Error("fixture interruption after durable review");
+  await expect(development.analyze(
     {
       runId: run.id,
       instruction: "Fix calculation",
@@ -254,8 +260,11 @@ async function approvedRound() {
       model: "fixture",
       signal: signal(),
     },
-    (event) => store.record(run.id, event),
-  );
+    (event) => {
+      store.record(run.id, event);
+      if (event.development?.type === "review.complete") throw reviewSaved;
+    },
+  )).rejects.toBe(reviewSaved);
 }
 
 test("records the exact future commit before Git writes, then applies once across reopen without modifying the source", async () => {
@@ -678,4 +687,149 @@ test("commit bytes encode the saved parent and tree without local identity or cl
   expect(() =>
     applicationCommit({ ...application, tree: "invalid\nparent forged" }),
   ).toThrow();
+});
+
+function recoveryHarness(ownerToken?: string, reconcile = (id: string, bounded: AbortSignal) =>
+  applyChangeApplication(database.db, id, bounded, ownerToken).then(() => undefined)) {
+  const recovery = createDrizzleRecoveryStore(database.db, ownerToken);
+  const processor = createRecoveryProcessor(recovery, {
+    confirm: async () => { throw new Error("saved container proof should be reused"); },
+    cleanup: async () => {},
+  }, undefined, undefined, reconcile);
+  const request = (key: string) => recovery.request({ taskId, runId: run.id, requestKey: key, action: "reconcile", providerGateVersion: null }, null, true).request;
+  return { recovery, processor, request };
+}
+
+test.each(["intent", "git", "database"])("restart after %s resumes the recorded application and finalizes one Task without another AI attempt", async (boundary) => {
+  await approvedRound();
+  const application = await prepared();
+  if (boundary === "git") {
+    database.client.exec("CREATE TRIGGER fail_finalize BEFORE UPDATE ON change_applications BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END");
+    await expect(apply()).rejects.toThrow("injected storage failure");
+  }
+  if (boundary === "database") await apply();
+  reopen();
+  if (boundary === "git") database.client.exec("DROP TRIGGER fail_finalize");
+  const { recovery, processor, request } = recoveryHarness();
+  const receipt = request("restart");
+  await processor.process(receipt.id);
+  expect(recovery.findById(receipt.id)).toMatchObject({ status: "completed", resultStatus: "succeeded", errorCode: null });
+  expect(database.db.select().from(runs).all()).toHaveLength(1);
+  expect(database.db.select().from(runs).get()).toMatchObject({ status: "succeeded", result: "Candidate inspected", terminationConfirmedAt: expect.any(Date) });
+  expect(database.db.select().from(tasks).get()?.status).toBe("succeeded");
+  expect(readChangeApplication(database.db, run.id)).toMatchObject({ status: "applied", resultCommit: application.resultCommit });
+  await processor.process(receipt.id);
+  expect(head()).toBe(application.resultCommit);
+  expect(git(join(repository().directory, "git"), "rev-list", "--count", "refs/heads/development")).toBe("2");
+  expect(readFileSync(join(source, "src/main.mjs"), "utf8")).toBe("export const answer = 1;\n");
+});
+
+test("pending application blocks new work in the same project even after all containers terminated", async () => {
+  await approvedRound();
+  await prepared();
+  store.finish(run.id, { status: "interrupted", errorCode: "execution_error", result: null, usage: null, retryAt: null, terminationConfirmedAt: new Date() });
+  const next = randomUUID();
+  database.db.insert(tasks).values({ id: next, projectId, instruction: "Next analysis", requestKey: next, createdAt: new Date() }).run();
+  expect(store.claimNext("fixture", ["fixture"])).toEqual({ kind: "held", runId: run.id, reason: "change_application_pending" });
+  expect(() => store.claim(next, "fixture")).toThrow("CHANGE_APPLICATION_EXISTS");
+  const { recovery, processor, request } = recoveryHarness();
+  expect(() => recovery.request({ taskId, runId: run.id, requestKey: "resume", action: "resume", providerGateVersion: null }, null, true)).toThrow("CHANGE_APPLICATION_EXISTS");
+  await processor.process(request("reconcile").id);
+  expect(store.claimNext("fixture", ["fixture"])).toMatchObject({ kind: "claimed", run: { taskId: next } });
+});
+
+test.each(["cancel", "scope_changed", "timeout", "budget_limit", "server_shutdown"])("recovery preserves %s semantics while reconciling an already authorized change", async (reason) => {
+  await approvedRound();
+  const application = await prepared();
+  if (reason === "cancel") {
+    database.db.update(tasks).set({ status: "cancelled", cancelRequestedAt: new Date() }).where(eq(tasks.id, taskId)).run();
+  } else store.requestStop(run.id, reason as "scope_changed" | "timeout" | "budget_limit" | "server_shutdown");
+  const { recovery, processor, request } = recoveryHarness();
+  const receipt = request("stopped");
+  await processor.process(receipt.id);
+  const expected = { cancel: "cancelled", scope_changed: "cancelled", timeout: "failed", budget_limit: "waiting_capacity", server_shutdown: "succeeded" }[reason];
+  expect(recovery.findById(receipt.id)).toMatchObject({ status: "completed", resultStatus: expected });
+  expect(database.db.select().from(tasks).get()?.status).toBe(expected);
+  expect(head()).toBe(application.resultCommit);
+  expect(readChangeApplication(database.db, run.id)?.status).toBe("applied");
+  expect(() => recovery.request({ taskId, runId: run.id, requestKey: "no-second-run", action: "resume", providerGateVersion: null }, null, true)).toThrow();
+  expect(database.db.select().from(runs).all()).toHaveLength(1);
+});
+
+test("automatic reconciliation retains a pending request across shutdown and completes it under the next owner", async () => {
+  await approvedRound();
+  await prepared();
+  store.finish(run.id, { status: "interrupted", errorCode: "execution_error", result: null, usage: null, retryAt: null, terminationConfirmedAt: new Date() });
+  const owner = acquireExecutionOwner(database.db);
+  const stopped = new AbortController();
+  const first = recoveryHarness(owner.token, async (_id, bounded) => { stopped.abort(); bounded.throwIfAborted(); });
+  const automatic = createAutomaticRecovery({ db: database.db, ownerToken: owner.token, recovery: first.recovery, policy: defaultRetryPolicy, workspaceKeys: ["fixture"] });
+  expect(automatic.tick()).toBe(true);
+  const receipt = first.processor.next()!;
+  expect(receipt.requestKey).toBe(`auto-application-${readChangeApplication(database.db, run.id)!.id}`);
+  await first.processor.process(receipt.id, stopped.signal);
+  expect(first.recovery.findById(receipt.id)?.status).toBe("pending");
+  owner.release();
+  reopen();
+  const secondOwner = acquireExecutionOwner(database.db);
+  try {
+    const second = recoveryHarness(secondOwner.token);
+    await second.processor.process(receipt.id);
+    expect(second.recovery.findById(receipt.id)).toMatchObject({ status: "completed", resultStatus: "succeeded" });
+    expect(database.db.select().from(runs).all()).toHaveLength(1);
+  } finally { secondOwner.release(); }
+});
+
+test("unconfirmed application records one automatic failure and can be manually reconciled after the conflict is resolved", async () => {
+  await approvedRound();
+  const application = await prepared();
+  store.finish(run.id, { status: "interrupted", errorCode: "execution_error", result: null, usage: null, retryAt: null, terminationConfirmedAt: new Date() });
+  const owner = acquireExecutionOwner(database.db);
+  try {
+    const { recovery, processor, request } = recoveryHarness(owner.token);
+    const automatic = createAutomaticRecovery({ db: database.db, ownerToken: owner.token, recovery, policy: defaultRetryPolicy, workspaceKeys: ["fixture"] });
+    writeFileSync(join(source, "src/main.mjs"), "uncommitted source conflict\n");
+    expect(automatic.tick()).toBe(true);
+    const receipt = processor.next()!;
+    await processor.process(receipt.id);
+    expect(recovery.findById(receipt.id)).toMatchObject({ status: "rejected", errorCode: "CHANGE_APPLICATION_UNCONFIRMED" });
+    expect(head()).toBe(application.baseRevision);
+    expect(automatic.tick()).toBe(true);
+    expect(automatic.tick()).toBe(false);
+    expect(database.db.select().from(tasks).get()?.retryState?.reason).toBe("change_application_unconfirmed");
+    expect(processor.next()).toBeUndefined();
+    writeFileSync(join(source, "src/main.mjs"), "export const answer = 1;\n");
+    await processor.process(request("manual-after-conflict").id);
+    expect(database.db.select().from(tasks).get()?.status).toBe("succeeded");
+    expect(database.db.select().from(tasks).get()?.retryState?.reason).toBeNull();
+    expect(head()).toBe(application.resultCommit);
+  } finally { owner.release(); }
+});
+
+test("a lost reconciliation response after a durable application still completes from saved evidence", async () => {
+  await approvedRound();
+  await prepared();
+  const { recovery, processor, request } = recoveryHarness(undefined, async (id, bounded) => {
+    await applyChangeApplication(database.db, id, bounded);
+    throw new Error("lost response");
+  });
+  const receipt = request("lost-response");
+  await processor.process(receipt.id);
+  expect(recovery.findById(receipt.id)).toMatchObject({ status: "completed", resultStatus: "succeeded" });
+});
+
+test.each(["timeout", "budget_limit"] as const)("preserves %s when normal completion is saved before application recovery", async (reason) => {
+  await approvedRound();
+  await prepared();
+  store.requestStop(run.id, reason);
+  const expected = reason === "timeout" ? "failed" : "waiting_capacity";
+  const result = store.finish(run.id, { status: "interrupted", errorCode: reason, result: null, usage: null, retryAt: null, terminationConfirmedAt: new Date() });
+  expect(result).toMatchObject({ status: expected, errorCode: reason });
+  reopen();
+  const { recovery, processor, request } = recoveryHarness();
+  const receipt = request("finish-then-recover");
+  await processor.process(receipt.id);
+  expect(recovery.findById(receipt.id)).toMatchObject({ status: "completed", resultStatus: expected });
+  expect(database.db.select().from(runs).get()).toMatchObject({ status: expected, errorCode: reason });
+  expect(readChangeApplication(database.db, run.id)?.status).toBe("applied");
 });

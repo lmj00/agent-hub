@@ -19,7 +19,7 @@ import { createServer } from "node:http";
 import { openDatabase } from "../../server/dist/db/connection.js";
 import { createDrizzleProjectStore } from "../../server/dist/modules/projects/drizzle-project-store.js";
 import { createDrizzleGoalStore } from "../../server/dist/modules/goals/drizzle-goal-store.js";
-import { tasks, runs, steps, developmentRepositories, developmentRounds } from "../../server/dist/db/schema.js";
+import { tasks, runs, steps, developmentRepositories, developmentRounds, changeApplications } from "../../server/dist/db/schema.js";
 import { loadRuntimeSkill } from "../../server/dist/modules/execution/runtime-skills.js";
 import { preparedInputRoot } from "../../server/dist/modules/goals/prepared-workspace.js";
 import { buildPlanningInput } from "../../server/dist/modules/goals/goal-plan-policy.js";
@@ -200,6 +200,13 @@ for (const sequence of [1, 2]) {
     verificationResult: { candidateDigest: candidate.digest, inputDigest: "f".repeat(64), configurationDigest: "2".repeat(64), configuration, execution, imageId: `sha256:${"3".repeat(64)}`, status: sequence === 1 ? "failed" : "passed", exitCode: sequence === 1 ? 1 : 0, oomKilled: false, elapsedMs: 280, output: sequence === 1 ? "AssertionError: expected 6, received -1\n<script>window.developmentUnwanted=true</script>" : "1 test passed" }, verifiedAt: timestamp,
     review: { candidateDigest: candidate.digest, verificationDigest: "4".repeat(64), execution, stepSequence: sequence * 2, assessment: { report: sequence === 1 ? "계산식이 기대 결과와 다릅니다." : "수정된 계산식과 실제 테스트 결과를 확인했습니다.", evidence: ["src/calculate.ts"], unresolved: sequence === 1 ? ["곱셈 결과 확인 필요"] : [], complete: sequence === 2, next: sequence === 1 ? { purpose: "곱셈으로 계산식을 수정하세요.", effort: "medium", reason: "테스트 실패" } : null } }, reviewedAt: timestamp,
   }).run();
+}
+// Separate read-side examples distinguish applied code from the Task outcome.
+for (const [title, status, outcome] of [["반영 완료 기록", "applied", "succeeded"], ["반영 확인 대기 기록", "pending", "blocked"], ["반영 후 취소 기록", "applied", "cancelled"]]) {
+  const taskId = randomUUID(), runId = randomUUID();
+  database.db.insert(tasks).values({ id: taskId, projectId: developmentProjectId, instruction: title, requestKey: taskId, status: outcome, cancelRequestedAt: outcome === "cancelled" ? timestamp : null, createdAt: timestamp }).run();
+  database.db.insert(runs).values({ id: runId, taskId, instanceId: "fixture", status: outcome, developmentVersion: 1, model: "fixture", effort: "medium", startedAt: timestamp, lastActivityAt: timestamp, finishedAt: timestamp, terminationConfirmedAt: timestamp, stopReason: outcome === "cancelled" ? "user_cancel" : null, errorCode: outcome === "blocked" ? "development_incomplete" : null }).run();
+  database.db.insert(changeApplications).values({ id: randomUUID(), taskId, runId, repositoryId, roundSequence: 2, goalVersion: 1, baseRevision: "a".repeat(40), tree: "b".repeat(40), candidateDigest: "c".repeat(64), evidenceDigest: "d".repeat(64), resultCommit: "e".repeat(40), targetRef: "refs/heads/development", status, createdAt: timestamp, appliedAt: status === "applied" ? timestamp : null }).run();
 }
 database.close();
 let serviceMode = "waiting";

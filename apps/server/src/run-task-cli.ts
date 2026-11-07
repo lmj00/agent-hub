@@ -10,7 +10,7 @@ import { acquireExecutionOwner } from "./modules/execution/execution-owner.js";
 import { runTask } from "./modules/execution/run-task.js";
 import { cleanupConfirmedInputs, createPreparedExecutor } from "./modules/goals/prepared-executor.js";
 import { preparedInputRoot } from "./modules/goals/prepared-workspace.js";
-import { createDevelopmentExecutor } from "./modules/goals/development-executor.js";
+import { configuredDevelopmentWorkspaces, createDevelopmentExecutor } from "./modules/goals/development-executor.js";
 import { developmentRoot } from "./modules/goals/development-workspace.js";
 
 async function main() {
@@ -36,9 +36,9 @@ async function main() {
     const inputRoot = preparedInputRoot(databasePath);
     cleanupConfirmedInputs(database.db, inputRoot);
     const baseExecutor = createConfiguredExecutor(config);
-    const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot), development: baseExecutor, config, inputRoot, repositoryRoot: developmentRoot(databasePath) });
+    const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot), development: baseExecutor, config, inputRoot, repositoryRoot: developmentRoot(databasePath), ownerToken: owner.token });
     if (config.automaticRecovery && !executor.confirmTermination) throw new Error("Automatic recovery requires execution termination tracking");
-    const store = createDrizzleRunStore(database.db, owner.token, config);
+    const store = createDrizzleRunStore(database.db, owner.token, config, { developmentWorkspaceKeys: configuredDevelopmentWorkspaces(config, baseExecutor) });
     const outcome = await runTask({
       taskId: task.id, workspace, model: config.model, timeoutMs: config.timeoutMs, signal: controller.signal,
     }, store, executor);

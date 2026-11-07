@@ -7,9 +7,9 @@ import { defaultEffortPolicy, selectInitialEffort } from "./effort-policy.js";
 import { ensureRetryState, readRetryBaseline } from "./retry-state-store.js";
 import { retryLimitReason } from "./retry-policy.js";
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, notInArray, or, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { events, projects, providerGates, runs, steps, tasks } from "../../db/schema.js";
+import { changeApplications, developmentRepositories, events, projects, providerGates, runs, steps, tasks } from "../../db/schema.js";
 import type { AnalysisEvent, StopReason } from "./analysis.js";
 import { requireTermination, settleStoppedCompletion, type QueueClaim, type RunCompletion } from "./run-task.js";
 import { providerGateView, providerScope, readProviderGate, recordProviderOutcome, reserveProviderCheck } from "./provider-gate.js";
@@ -25,12 +25,14 @@ import { readDevelopmentEvidence } from "./development-evidence.js";
 import { readRuntimeSkillEvidence } from "./runtime-skill-evidence.js";
 import { runtimeSkillPolicyVersion } from "./runtime-skills.js";
 import { requireRuntimeSkillEvidence, saveRuntimeSkillUpdate } from "./runtime-skill-store.js";
+import { settleDevelopmentCompletion } from "../goals/change-application.js";
+import { developmentWorkflowPolicy } from "./development-workflow.js";
 
 import type { ObserverStatus } from "../services/drizzle-service-store.js";
 
 export const unresolvedRun = sql`${runs.status} = 'running' OR (${runs.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${runs.terminationConfirmedAt} IS NULL)`;
 
-export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string, policies: Partial<Pick<ExecutionConfig, "automaticRecovery" | "capacityRecovery" | "effortPolicy" | "analysisWorkflow" | "timeoutMs">> = {}, runtime: { getObserverStatus?: () => ObserverStatus } = {}) {
+export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"], ownerToken?: string, policies: Partial<Pick<ExecutionConfig, "automaticRecovery" | "capacityRecovery" | "effortPolicy" | "analysisWorkflow" | "timeoutMs">> = {}, runtime: { getObserverStatus?: () => ObserverStatus; developmentWorkspaceKeys?: string[] } = {}) {
   const instanceId = ownerToken ?? randomUUID();
   type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -62,13 +64,20 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
       }
       const selectedId = probing ? gate.probeTaskId! : "taskId" in selection ? selection.taskId : undefined;
       const now = new Date();
+      const pendingApplications = tx.select({ projectId: developmentRepositories.projectId, runId: changeApplications.runId })
+        .from(changeApplications).innerJoin(developmentRepositories, eq(developmentRepositories.id, changeApplications.repositoryId))
+        .where(eq(changeApplications.status, "pending")).all();
+      const developmentKeys = runtime.developmentWorkspaceKeys ?? [];
+      const unappliedTask = sql`NOT EXISTS (SELECT 1 FROM ${changeApplications} WHERE ${changeApplications.taskId} = ${tasks.id})`;
+      const availableProject = pendingApplications.length ? notInArray(tasks.projectId, pendingApplications.map(row => row.projectId)) : undefined;
       const candidates = tx.select({ plannedWork: tasks.plannedWork, budgetWait: tasks.budgetWait, id: tasks.id, projectId: tasks.projectId, kind: tasks.kind, goalId: tasks.goalId, goalVersion: tasks.goalVersion, instruction: tasks.instruction, status: tasks.status, cancelRequestedAt: tasks.cancelRequestedAt, workspaceKey: projects.workspaceKey })
         .from(tasks).innerJoin(projects, eq(tasks.projectId, projects.id))
         .where(selectedId ? eq(tasks.id, selectedId)
-          : and(sql`(${tasks.status} = 'queued' OR (${tasks.status} = 'waiting_capacity' AND ${tasks.budgetWait} IS NOT NULL AND json_extract(${tasks.budgetWait}, '$.retryAt') <= ${now.toISOString()}))`, sql`${tasks.cancelRequestedAt} IS NULL AND ${tasks.plannedWork} IS NULL`, assignableGoal, inArray(projects.workspaceKey, "workspaceKeys" in selection ? selection.workspaceKeys : [])))
+          : and(sql`(${tasks.status} = 'queued' OR (${tasks.status} = 'waiting_capacity' AND ${tasks.budgetWait} IS NOT NULL AND json_extract(${tasks.budgetWait}, '$.retryAt') <= ${now.toISOString()}))`, sql`${tasks.cancelRequestedAt} IS NULL`, or(sql`${tasks.plannedWork} IS NULL`, inArray(projects.workspaceKey, developmentKeys)), unappliedTask, availableProject, assignableGoal, inArray(projects.workspaceKey, "workspaceKeys" in selection ? selection.workspaceKeys : [])))
         .orderBy(asc(tasks.createdAt), asc(tasks.id)).all();
       if (!candidates.length) {
         if ("taskId" in selection) throw new Error("Task not found");
+        if (pendingApplications.length) return { kind: "held", runId: pendingApplications[0]!.runId, reason: "change_application_pending" };
         const waiting = tx.select({ id: tasks.id }).from(tasks).innerJoin(projects, eq(tasks.projectId, projects.id))
           .where(and(eq(tasks.status, "waiting_capacity"), sql`${tasks.budgetWait} IS NOT NULL AND ${tasks.cancelRequestedAt} IS NULL`, assignableGoal, inArray(projects.workspaceKey, "workspaceKeys" in selection ? selection.workspaceKeys : []))).get();
         if (waiting) return { kind: "idle", reason: "period_budget" };
@@ -90,7 +99,13 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         }
         if (task.status !== "queued" && !budgetReady) throw new Error("Only queued tasks can be started");
         if (task.cancelRequestedAt) throw new Error("Cancelled tasks cannot be started");
-        if (task.plannedWork) {
+        const application = tx.select().from(changeApplications).where(eq(changeApplications.taskId, task.id)).get();
+        const pending = pendingApplications.find(row => row.projectId === task.projectId);
+        if (application || pending) {
+          if (probing) return { kind: "held", runId: application?.runId ?? pending!.runId, reason: "change_application_pending" };
+          throw new Error("CHANGE_APPLICATION_EXISTS");
+        }
+        if (task.plannedWork && !developmentKeys.includes(task.workspaceKey)) {
           if (probing) return { kind: "held", runId: gate.sourceRunId!, reason: "development_pending" };
           throw new Error("DEVELOPMENT_EXECUTOR_UNAVAILABLE");
         }
@@ -120,7 +135,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         tx.update(tasks).set({ status: "running", budgetWait: null }).where(eq(tasks.id, task.id)).run();
         const effortPolicy = policies.effortPolicy ?? defaultEffortPolicy;
         const effortSelection = selectInitialEffort(task.instruction, effortPolicy);
-        tx.insert(runs).values({ id, taskId: task.id, attempt, goalVersion: task.goalVersion, instanceId, status: "running", model, effort: effortSelection.effort, effortPolicy, workflowPolicy: planning ? null : policies.analysisWorkflow, startedAt: now, lastActivityAt: now,
+        tx.insert(runs).values({ id, taskId: task.id, attempt, goalVersion: task.goalVersion, instanceId, status: "running", model, effort: effortSelection.effort, effortPolicy, workflowPolicy: task.plannedWork ? developmentWorkflowPolicy : planning ? null : policies.analysisWorkflow, developmentVersion: task.plannedWork ? 1 : null, startedAt: now, lastActivityAt: now,
           runtimeSkillVersion: skillVersion ?? null,
           providerGateVersion: probing ? gate.version : null }).run();
         reserveRunBudget(tx, id, budget.periods, Math.min(budget.remainingRunMs, policies.timeoutMs ?? 600000, retryState ? retryState.policy.maxTotalRunMs - retryState.totalRunMs : Infinity), now);
@@ -135,7 +150,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
           JSON.stringify({ previousRunId: previousRun!.id, goalVersion: previousRun!.goalVersion, report: previousStep.assessment.report.slice(0, 2500), evidence: previousStep.assessment.evidence.slice(0, 4).map(v => v.slice(0, 200)), unresolved: previousStep.assessment.unresolved.slice(0, 4).map(v => v.slice(0, 200)) }),
         ].join("\n") : task.instruction;
         const scope = readGoalScope(tx, task.goalId);
-        return { kind: "claimed", run: { id, ...(skillVersion !== undefined ? { runtimeSkillVersion: skillVersion } : {}), budgetDeadlineAt: now.getTime() + budget.remainingRunMs, budgetRunMs: budget.remainingRunMs, taskId: task.id, instruction, effort: effortSelection.effort, effortPolicy, ...(scope ? { scope } : {}), ...(planning ? { planning } : policies.analysisWorkflow ? { workflow: policies.analysisWorkflow } : {}), ...(retryState ? { remainingRunMs: Math.max(1, retryState.policy.maxTotalRunMs - retryState.totalRunMs) } : {}), ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
+        return { kind: "claimed", run: { id, ...(skillVersion !== undefined ? { runtimeSkillVersion: skillVersion } : {}), budgetDeadlineAt: now.getTime() + budget.remainingRunMs, budgetRunMs: budget.remainingRunMs, taskId: task.id, instruction, effort: effortSelection.effort, effortPolicy, ...(scope ? { scope } : {}), ...(planning ? { planning } : !task.plannedWork && policies.analysisWorkflow ? { workflow: policies.analysisWorkflow } : {}), ...(retryState ? { remainingRunMs: Math.max(1, retryState.policy.maxTotalRunMs - retryState.totalRunMs) } : {}), ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
       }
       return budgetWaiting ? { kind: "idle", reason: "period_budget" } : { kind: "idle" };
     }, { behavior: "immediate" });
@@ -214,10 +229,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         assertOwner(tx);
         const run = tx.select().from(runs).where(and(eq(runs.id, runId), eq(runs.instanceId, instanceId), eq(runs.status, "running"))).get();
         if (!run) throw new Error("Cannot finish a run not owned by this executor");
-        // Development candidates are not completion evidence. T4 will replace
-        // this hold with the verified ChangeApplication completion check.
-        if (completion.status === "succeeded" && tx.select().from(tasks).where(eq(tasks.id, run.taskId)).get()?.plannedWork)
-          completion = { ...completion, status: "blocked", result: null, errorCode: "development_incomplete" };
+        completion = settleDevelopmentCompletion(tx, run, completion);
         if (run.workflowPolicy && completion.status === "succeeded") {
           const lastStep = tx.select().from(steps).where(eq(steps.runId, runId)).orderBy(desc(steps.sequence)).get();
           if (!lastStep?.assessment?.complete || lastStep.assessment.report !== completion.result) completion = { ...completion, status: "blocked", result: null, errorCode: "invalid_plan" };

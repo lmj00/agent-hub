@@ -44,7 +44,7 @@ export function createExecutionQueue(options: {
         if (pending) {
           runId = pending.runId; taskId = pending.taskId;
           status = { ...status, state: "recovering", runId, taskId, reason: pending.action };
-          await options.recovery!.process(pending.id);
+          await options.recovery!.process(pending.id, controller.signal);
           diagnostics.recovered("recovery");
           continue;
         }

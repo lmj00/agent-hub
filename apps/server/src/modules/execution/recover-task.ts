@@ -18,7 +18,7 @@ export type RecoveryStore = {
   request(input: RecoveryInput, activeRunId: string | null, canTrackTermination: boolean): { request: RecoveryRequest; created: boolean };
   findById(id: string): RecoveryRequest | undefined;
   nextPending(): RecoveryRequest | undefined;
-  candidate(id: string): { request: RecoveryRequest; run: { executions: ExecutionRecord[]; terminationConfirmedAt: Date | null; planResult?: PlanResult | null; developmentVersion?: number | null; runtimeSkillNotStarted?: boolean } | null } | undefined;
+  candidate(id: string): { request: RecoveryRequest; run: { executions: ExecutionRecord[]; terminationConfirmedAt: Date | null; planResult?: PlanResult | null; developmentVersion?: number | null; runtimeSkillNotStarted?: boolean; changeApplication?: { id: string; status: "pending" | "applied" } | null } | null } | undefined;
   complete(id: string, terminationConfirmedAt: Date | null, inputVerified?: boolean, observedExecutions?: ExecutionRecord[]): { proofSaved: boolean };
 };
 export type ExecutionObserver = {
@@ -46,10 +46,10 @@ export function reconcileCompletion(
   return { ...completion, status: "blocked" };
 }
 
-export function createRecoveryProcessor(store: RecoveryStore, observer: ExecutionObserver, cleanupRun?: (runId: string) => void, verifyInput?: (runId: string) => Promise<boolean>) {
+export function createRecoveryProcessor(store: RecoveryStore, observer: ExecutionObserver, cleanupRun?: (runId: string) => void, verifyInput?: (runId: string) => Promise<boolean>, reconcileChange?: (runId: string, signal: AbortSignal) => Promise<void>) {
   return {
     next: () => store.nextPending(),
-    async process(id: string) {
+    async process(id: string, signal?: AbortSignal) {
       const candidate = store.candidate(id);
       if (!candidate) return;
       let confirmedAt = candidate.run?.terminationConfirmedAt ?? null;
@@ -79,6 +79,16 @@ export function createRecoveryProcessor(store: RecoveryStore, observer: Executio
       // DB 저장에 실패하면 종료된 컨테이너도 보존하여 재시작 뒤 다시 관측할 수 있게 합니다.
       const inputVerified = confirmedAt && candidate.run?.planResult?.status === "proposed" && candidate.request.runId
         ? await verifyInput?.(candidate.request.runId) ?? false : false;
+      if (confirmedAt && candidate.run?.changeApplication?.status === "pending" && candidate.request.runId) {
+        // A lost Git/DB response is uncertain, not failure or permission to retry
+        // development. complete() re-reads the durable application and rejects a
+        // still-pending result while preserving observed termination evidence.
+        const bounded = AbortSignal.any([AbortSignal.timeout(30000), ...(signal ? [signal] : [])]);
+        await reconcileChange?.(candidate.request.runId, bounded).catch(() => undefined);
+      }
+      // Keep the request pending across shutdown so the next owner can resume
+      // this same reconciliation rather than consuming its one automatic attempt.
+      if (signal?.aborted) return;
       const result = store.complete(id, confirmedAt, inputVerified, executions);
       if (result.proofSaved) for (const execution of executions) await observer.cleanup(execution.identity);
       if (result.proofSaved && candidate.request.runId) cleanupRun?.(candidate.request.runId);

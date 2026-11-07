@@ -8,6 +8,7 @@ import { parseResponse, runDetailsSchema } from "@agent-hub/contracts";
 import { buildApp } from "../src/app.js";
 import { openDatabase } from "../src/db/connection.js";
 import {
+  changeApplications,
   developmentRepositories,
   developmentRounds,
   projects,
@@ -204,6 +205,19 @@ async function detail(id = runId) {
   expect(response.statusCode).toBe(200);
   return { response, body: parseResponse(runDetailsSchema, response.json()) };
 }
+test.each(["pending", "applied"] as const)("projects %s application evidence without private storage details or changing a cancelled Task", async (status) => {
+  database.db.insert(developmentRounds).values(round).run();
+  database.db.update(tasks).set({ status: "cancelled", cancelRequestedAt: now }).where(eq(tasks.id, taskId)).run();
+  database.db.update(runs).set({ status: "cancelled", stopReason: "user_cancel" }).where(eq(runs.id, runId)).run();
+  const id = randomUUID();
+  database.db.insert(changeApplications).values({ id, taskId, runId, repositoryId: round.repositoryId, roundSequence: 1, goalVersion: 1, baseRevision: "a".repeat(40), tree: "b".repeat(40), candidateDigest: "c".repeat(64), evidenceDigest: "private-evidence-sentinel", resultCommit: "d".repeat(40), targetRef: "refs/heads/development", status, createdAt: now, appliedAt: status === "applied" ? now : null }).run();
+  const { response, body } = await detail();
+  expect(body.status).toBe("cancelled");
+  expect(body.developmentEvidence).toMatchObject({ phase: status === "applied" ? "applied" : "applying", application: { id, status, roundSequence: 1, baseRevision: "a".repeat(40), resultCommit: "d".repeat(40), candidateDigest: "c".repeat(64), createdAt: now.toISOString(), appliedAt: status === "applied" ? now.toISOString() : null } });
+  expect(Object.keys(body.developmentEvidence!.application!).sort()).toEqual(["id", "status", "roundSequence", "baseRevision", "resultCommit", "candidateDigest", "createdAt", "appliedAt"].sort());
+  expect(response.body).not.toContain("private-");
+  expect(response.body).not.toContain("refs/heads");
+});
 test("projects durable test and review evidence without private execution metadata or changing completion", async () => {
   database.db.insert(developmentRounds).values(round).run();
   const before = database.db.select().from(developmentRounds).all();
@@ -254,6 +268,7 @@ test("reports persisted phase boundaries without treating absent test or review 
     phase: "preparing",
     maxRounds: 3,
     rounds: [],
+    application: null,
   });
   database.db
     .insert(developmentRounds)

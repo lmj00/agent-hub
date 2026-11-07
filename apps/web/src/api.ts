@@ -120,6 +120,8 @@ const messages: Record<string, string> = {
   TASK_CANCELLED:
     "취소한 작업은 재개할 수 없습니다. 필요하면 새 작업을 등록해 주세요.",
   TASK_ALREADY_COMPLETED: "이미 완료된 작업입니다.",
+  CHANGE_APPLICATION_EXISTS: "코드 반영 기록이 있는 작업입니다. 새로 실행하지 말고 상태 확인으로 기존 결과를 대조해 주세요.",
+  CHANGE_APPLICATION_UNCONFIRMED: "코드 반영 결과를 확인하지 못했습니다. 원본과 개발 저장소 상태를 확인한 뒤 다시 상태 확인을 요청해 주세요.",
   TASK_ALREADY_QUEUED: "이미 실행 대기 중입니다.",
   RUN_ACTIVE: "현재 실행 중입니다. 중단하려면 취소를 요청해 주세요.",
   RECOVERY_IN_PROGRESS:

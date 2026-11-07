@@ -12,6 +12,7 @@ import { AnalysisError } from "../execution/analysis.js";
 import { assertExecutionOwner } from "../execution/execution-owner.js";
 import { readExecutions } from "../execution/execution-record-store.js";
 import { requireRuntimeSkillEvidence } from "../execution/runtime-skill-store.js";
+import { requireTermination, type RunCompletion } from "../execution/run-task.js";
 import {
   parseVerificationResult,
   verificationResultDigest,
@@ -47,6 +48,42 @@ export function readChangeApplication(db: Reader, runId: string) {
     .from(changeApplications)
     .where(eq(changeApplications.runId, runId))
     .get();
+}
+
+// Both normal completion and restart recovery use this gate. A saved developer
+// report, approved review or termination proof alone cannot complete code work.
+export function settleDevelopmentCompletion(
+  db: Reader,
+  run: typeof runs.$inferSelect,
+  completion: RunCompletion,
+): RunCompletion {
+  if (!db.select().from(tasks).where(eq(tasks.id, run.taskId)).get()?.plannedWork)
+    return completion;
+  const application = readChangeApplication(db, run.id);
+  if (!application || application.status !== "applied") {
+    // Pending Git work prevents success, but does not erase a timeout, budget
+    // stop or interrupted completion. Its record independently blocks dispatch.
+    return completion.status === "succeeded"
+      ? { ...completion, status: "blocked", result: null, errorCode: "development_incomplete" }
+      : application ? { ...completion, result: null } : completion;
+  }
+  const current = evidence(db, run.id);
+  if (!matches(application, current)) fail();
+  if (!completion.terminationConfirmedAt)
+    return requireTermination({ ...completion, result: null });
+  // Cancellation/scope/timeout/budget stops keep their normal terminal behavior.
+  // A server shutdown can leave a fully applied change without a final Run write.
+  if (run.stopReason && run.stopReason !== "server_shutdown") return completion;
+  const result = current.round.review!.assessment.report;
+  if (completion.status === "succeeded" && completion.result !== result)
+    return { ...completion, status: "blocked", result: null, errorCode: "invalid_plan" };
+  const history = db.select({ usage: steps.usage }).from(steps).where(eq(steps.runId, run.id)).all();
+  const usage = history.some(step => !step.usage) ? null : history.reduce((total, step) => ({
+    inputTokens: total.inputTokens + step.usage!.inputTokens,
+    cachedInputTokens: total.cachedInputTokens + step.usage!.cachedInputTokens,
+    outputTokens: total.outputTokens + step.usage!.outputTokens,
+  }), { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 });
+  return { ...completion, status: "succeeded", result, errorCode: null, retryAt: null, usage };
 }
 
 // Only persisted parent-owned evidence is accepted, never an agent's success

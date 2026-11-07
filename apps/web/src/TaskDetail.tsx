@@ -22,7 +22,7 @@ import { usePolling } from "./use-polling.js";
 
 const actions: Record<RecoveryAction, string> = {
   cancel: "취소",
-  reconcile: "종료 확인",
+  reconcile: "상태 확인",
   resume: "재개",
 };
 const stopReasons = {
@@ -49,6 +49,7 @@ const retryReasons: Record<string, string> = {
   task_time_limit: "작업의 누적 실행 시간 상한에 도달했습니다.",
   termination_unconfirmed:
     "이전 실행의 종료 근거가 부족합니다. 종료 확인이 필요합니다.",
+  change_application_unconfirmed: "코드 반영 결과를 대조하지 못했습니다. 원본과 개발 저장소 상태를 확인한 뒤 상태 확인을 요청해 주세요.",
   capacity_manual_check:
     "사용량 제한으로 보류했습니다. 현재 단계에서는 수동 확인 실행이 필요합니다.",
   authentication_required: "AI 계정 로그인을 복구한 뒤 재개해 주세요.",
@@ -352,6 +353,7 @@ export function TaskDetail({
             pending ||
             active ||
             terminal ||
+            (viewingLatest && !!run?.developmentEvidence?.application) ||
             retryLimited ||
             capacityLimited ||
             (!!task.budgetWait && Date.parse(task.budgetWait.retryAt) > Date.now()) ||
@@ -370,11 +372,12 @@ export function TaskDetail({
             pending ||
             active ||
             !latest ||
-            (!!run?.terminationConfirmedAt && viewingLatest)
+            task.status === "succeeded" ||
+            (!!run?.terminationConfirmedAt && viewingLatest && !run.developmentEvidence?.application)
           }
           onClick={() => void requestAction("reconcile")}
         >
-          종료 확인
+          상태 확인
         </button>
         <button
           className="danger-button"
@@ -393,7 +396,7 @@ export function TaskDetail({
       <p className="action-help">
         {terminal
           ? task.status === "succeeded"
-            ? "분석이 완료됐습니다. 아래 결과를 확인하거나 새 작업을 등록하세요."
+            ? "작업이 완료됐습니다. 아래 결과와 기록을 확인할 수 있습니다."
             : task.planningTaskId
               ? "취소가 완료됐습니다. 명시적으로 다시 허용하기 전에는 이 작업을 실행하지 않습니다."
               : "취소가 완료됐습니다. 다시 분석하려면 새 작업을 등록하세요."

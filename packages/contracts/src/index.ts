@@ -331,9 +331,19 @@ const developmentRoundSchema = object({
   review: nullable(object({ assessment: analysisAssessmentSchema, recordedAt: date })),
 });
 export const developmentEvidenceSchema = object({
-  phase: enumeration(developmentPhases),
+  phase: enumeration([...developmentPhases, "applying", "applied"] as const),
   maxRounds: Type.Literal(3),
   rounds: Type.Array(developmentRoundSchema, { maxItems: 3 }),
+  application: nullable(object({
+    id,
+    status: enumeration(["pending", "applied"] as const),
+    roundSequence: Type.Integer({ minimum: 1, maximum: 3 }),
+    baseRevision: text,
+    resultCommit: text,
+    candidateDigest: text,
+    createdAt: date,
+    appliedAt: nullable(date),
+  })),
 });
 export type DevelopmentEvidence = Static<typeof developmentEvidenceSchema>;
 export const runtimeSkillRoles = ["planner", "developer", "reviewer", "analyst"] as const;

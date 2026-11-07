@@ -175,7 +175,7 @@ beforeEach(() => {
   repositoryRoot = developmentRoot(join(directory, "hub.sqlite"));
   store = createDrizzleRunStore(database.db, undefined, {
     effortPolicy: { version: 1, mode: "adaptive", maxEffort: "xhigh" },
-  });
+  }, { developmentWorkspaceKeys: ["fixture"] });
   calls = [];
 });
 afterEach(() => {
@@ -183,13 +183,12 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true });
 });
 function claim() {
-  // Public development dispatch stays held until ChangeApplication is connected.
-  run = store.claim(taskId, "fixture");
   database.db
     .update(tasks)
     .set({ plannedWork: work })
     .where(eq(tasks.id, taskId))
     .run();
+  run = store.claim(taskId, "fixture");
 }
 function wrap(base: AnalysisExecutor, verification = true) {
   return createDevelopmentExecutor({
@@ -359,8 +358,8 @@ test("runs developer/test/reviewer and feeds the real failure into bounded rewor
     ),
   );
   expect(result).toMatchObject({
-    status: "blocked",
-    errorCode: "development_incomplete",
+    status: "succeeded",
+    errorCode: null,
     terminationConfirmedAt: expect.any(Date),
   });
   expect(
@@ -520,6 +519,10 @@ test("missing test configuration is held before files or model calls", async () 
 
 test("managed no-start recovery is versioned and cannot be inferred for legacy unidentified Runs", async () => {
   claim();
+  expect(database.db.select().from(runs).get()!.developmentVersion).toBe(1);
+  // Public claiming now saves the marker before entering the executor. Remove
+  // it explicitly to represent an older unidentified Run, not a new claim.
+  database.db.update(runs).set({ developmentVersion: null }).where(eq(runs.id, run.id)).run();
   const recovery = createDrizzleRecoveryStore(database.db);
   let observed = 0;
   const processor = createRecoveryProcessor(recovery, {
@@ -610,8 +613,8 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
     const base = createContainerExecutor("agent-hub-workflow-test:local", home);
     const result = await runWith(wrap(base));
     expect(result).toMatchObject({
-      status: "blocked",
-      errorCode: "development_incomplete",
+      status: "succeeded",
+      errorCode: null,
       terminationConfirmedAt: expect.any(Date),
     });
     const rounds = readDevelopmentRounds(database.db, run.id);
