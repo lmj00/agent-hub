@@ -78,6 +78,11 @@ export const analysisAssessmentSchema = object({
   ),
 });
 export type AnalysisAssessment = Static<typeof analysisAssessmentSchema>;
+// A developer only produces a candidate. Independent verification owns approval.
+export const developmentAssessmentSchema = object({
+  ...analysisAssessmentSchema.properties,
+  complete: Type.Literal(false),
+});
 export const periodBudgetPolicySchema = object({
   windowMs: Type.Integer({ minimum: 600000, maximum: 86400000 }),
   maxCalls: Type.Integer({ minimum: 1, maximum: 1000 }),

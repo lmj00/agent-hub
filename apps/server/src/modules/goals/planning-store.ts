@@ -15,6 +15,7 @@ import type { openDatabase } from "../../db/connection.js";
 import {
   changeApplications,
   developmentRepositories,
+  developmentRounds,
   goals,
   planningCycles,
   projects,
@@ -27,6 +28,7 @@ import { redactOutput } from "../execution/analysis.js";
 import type { PlanningContext } from "./goal-plan-policy.js";
 import { revalidateGoalWork } from "./revalidate-goal-work.js";
 import { readPlanningWork } from "./planning-work-state.js";
+import { allowedGoalPath, privateInputPath } from "./prepared-workspace.js";
 
 import {
   readServiceViews,
@@ -111,12 +113,36 @@ export function readPlanningContext(
         .where(eq(runs.taskId, task.id))
         .orderBy(desc(runs.attempt))
         .get();
+      const application = db.select().from(changeApplications)
+        .where(eq(changeApplications.taskId, task.id)).get();
+      const candidate = application ? db.select({ candidate: developmentRounds.candidate })
+        .from(developmentRounds).where(and(
+          eq(developmentRounds.runId, application.runId),
+          eq(developmentRounds.sequence, application.roundSequence),
+          eq(developmentRounds.repositoryId, application.repositoryId),
+        )).get()?.candidate : null;
+      const changes = candidate?.digest === application?.candidateDigest &&
+        candidate?.baseRevision === application?.baseRevision ? candidate?.changes : undefined;
       return {
         id: task.id,
         kind: task.kind,
         status: task.status,
         instruction: redactOutput(task.instruction.slice(0, 500)),
         problemKey: task.plannedWork?.problemKey ?? null,
+        changeApplication: application ? {
+          runId: application.runId,
+          goalVersion: application.goalVersion,
+          status: application.status,
+          baseRevision: application.baseRevision,
+          resultCommit: application.resultCommit,
+          appliedAt: application.appliedAt?.toISOString() ?? null,
+          changedFiles: (changes ?? []).filter(change => !privateInputPath(change.path) &&
+            allowedGoalPath(change.path, goal.definition))
+            .slice(0, 40).map(change => ({ path: change.path,
+              action: change.after === null ? "deleted" as const :
+                change.before === null ? "added" as const : "modified" as const })),
+          changedFileCount: changes?.length ?? null,
+        } : null,
         lastRun: last
           ? {
               status: last.status,

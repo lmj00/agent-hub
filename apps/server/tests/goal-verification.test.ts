@@ -34,7 +34,7 @@ import {
   verifyPreparedResult,
 } from "../src/modules/goals/prepared-executor.js";
 import { preparedInputRoot } from "../src/modules/goals/prepared-workspace.js";
-import { goalVerificationPassed } from "../src/modules/goals/goal-verification.js";
+import { goalVerificationInstruction, goalVerificationPassed } from "../src/modules/goals/goal-verification.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { createDrizzleRecoveryStore } from "../src/modules/execution/drizzle-recovery-store.js";
 import { createRecoveryProcessor } from "../src/modules/execution/recover-task.js";
@@ -284,6 +284,10 @@ test("complete proposal stores fresh tests and an independently budgeted goal-wi
   expect(reviewInput).toMatchObject({
     inputDigest: stored.preparedInput!.digest,
     sourceRevision: stored.preparedInput!.revision,
+    capturedAt: stored.planningInput!.capturedAt,
+    history: stored.planningInput!.history,
+    services: stored.planningInput!.services,
+    counts: stored.planningInput!.counts,
     actualTest: { status: "passed" },
   });
   expect(stored.planResult?.verification).toMatchObject({
@@ -753,6 +757,9 @@ test("repeated incomplete Goal checks feed the next plan and stop after three wi
           item.lastRun?.result?.includes("목표 기준 부족"),
         ),
       ).toBe(true);
+      const reviewed = JSON.parse(calls[2]!.instruction.split("\n").at(-1)!);
+      expect(reviewed.history).toEqual(input.history);
+      expect(reviewed.capturedAt).toBe(input.capturedAt);
     }
     expect(result.status).toBe(index === 2 ? "blocked" : "succeeded");
     if (index === 2) expect(result.errorCode).toBe("planning_no_progress");
@@ -765,6 +772,34 @@ test("repeated incomplete Goal checks feed the next plan and stop after three wi
       new Date(Date.now() + 3600000),
     ),
   ).toBeNull();
+});
+
+test("whole-Goal review bounds saved evidence and escaped test output without losing criteria or hiding omissions", async () => {
+  await execute(fixture().executor);
+  const input = structuredClone(row().planningInput!);
+  input.history = Array.from({ length: 20 }, (_, index) => ({
+    id: `past-${index}`, kind: "work", status: "succeeded",
+    instruction: '한글\\"'.repeat(100), problemKey: null, lastRun: null,
+  }));
+  input.historyCount = 300;
+  input.counts.history = { total: 300, included: 20 };
+  input.files = Array.from({ length: 500 }, (_, index) => `src/${index}-${"한글".repeat(90)}.ts`);
+  input.counts.files = { total: 1000, included: 500 };
+  const result = { ...row().planResult!.verification!.test!.result, output: '\\"'.repeat(6000) };
+  const before = structuredClone(input);
+  const prompt = goalVerificationInstruction(input, result);
+  const reviewed = JSON.parse(prompt.split("\n").at(-1)!);
+  expect(Buffer.byteLength(JSON.stringify({ instruction: prompt }))).toBeLessThanOrEqual(60000);
+  expect(reviewed.definition).toEqual(input.definition);
+  expect(reviewed.actualTest.output).toBe(result.output);
+  expect(reviewed.history.length).toBeGreaterThan(0);
+  expect(reviewed.counts.history).toEqual({ total: 300, included: reviewed.history.length });
+  expect(reviewed.counts.files).toEqual({ total: 1000, included: reviewed.files.length });
+  expect(reviewed.files.length).toBeLessThan(500);
+  expect(prompt).toContain("omitted evidence is unknown");
+  expect(input).toEqual(before);
+  input.definition.completionCriteria = "🧪".repeat(20000);
+  expect(() => goalVerificationInstruction(input, result)).toThrow("workflow_limit");
 });
 
 test.each([

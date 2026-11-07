@@ -50,7 +50,7 @@ import { createDrizzleRecoveryStore } from "../src/modules/execution/drizzle-rec
 import { createRecoveryProcessor } from "../src/modules/execution/recover-task.js";
 import { createAutomaticRecovery } from "../src/modules/execution/automatic-recovery.js";
 import { acquireExecutionOwner } from "../src/modules/execution/execution-owner.js";
-import { createPlanningStore } from "../src/modules/goals/planning-store.js";
+import { createPlanningStore, readPlanningContext } from "../src/modules/goals/planning-store.js";
 import { createPreparedExecutor, verifyPreparedResult } from "../src/modules/goals/prepared-executor.js";
 import { runTask } from "../src/modules/execution/run-task.js";
 import { defaultRetryPolicy } from "../src/modules/execution/retry-policy.js";
@@ -874,6 +874,21 @@ test("the next plan reads the accepted code and records that revision on its new
   const planned = database.db.select().from(runs).where(eq(runs.taskId, plan.taskId)).get()!;
   expect(planned.preparedInput).toMatchObject({ source, revision: application.resultCommit, developmentRepository: repository() });
   expect(planned.planningInput?.sourceRevision).toBe(application.resultCommit);
+  expect(planned.planningInput?.history.find(item => item.id === taskId)).toMatchObject({
+    changeApplication: {
+      runId: run.id,
+      status: "applied",
+      baseRevision: application.baseRevision,
+      resultCommit: application.resultCommit,
+      appliedAt: expect.any(String),
+      changedFiles: [{ path: "src/main.mjs", action: "modified" }],
+      changedFileCount: 1,
+    },
+  });
+  const historyJson = JSON.stringify(planned.planningInput!.history);
+  expect(historyJson).not.toContain(directory);
+  expect(historyJson).not.toContain("executionOffset");
+  expect(historyJson).not.toContain("evidenceDigest");
   const nextTask = database.db.select().from(tasks).where(eq(tasks.id, planned.planResult!.createdTaskIds[0]!)).get()!;
   expect(nextTask.plannedWork?.sourceRevision).toBe(application.resultCommit);
   expect(readFileSync(join(source, "src/main.mjs"), "utf8")).toContain("answer = 1");
@@ -891,6 +906,36 @@ test.each(["source", "branch", "record"])("planning rejects an accepted %s that 
   const planned = database.db.select().from(runs).where(eq(runs.taskId, plan.taskId)).get()!;
   expect(planned.planResult?.createdTaskIds).toEqual([]);
   expect(database.db.select().from(tasks).all()).toHaveLength(2);
+});
+
+test("application excerpts distinguish pending and unavailable evidence and exclude private or out-of-scope paths", async () => {
+  const { application, plan } = await prepareFollowingPlan();
+  const read = () => readPlanningContext(database.db, plan.taskId)!.history
+    .find(item => item.id === taskId)!.changeApplication!;
+  database.db.update(changeApplications).set({ status: "pending", appliedAt: null })
+    .where(eq(changeApplications.id, application.id)).run();
+  expect(read()).toMatchObject({ status: "pending", appliedAt: null });
+  const round = readDevelopmentRounds(database.db, run.id)[0]!;
+  const candidate = round.candidate!;
+  database.db.update(developmentRounds).set({ candidate: { ...candidate, digest: "0".repeat(64) } })
+    .where(eq(developmentRounds.runId, run.id)).run();
+  expect(read()).toMatchObject({ changedFileCount: null, changedFiles: [] });
+  const change = candidate.changes[0]!;
+  database.db.update(developmentRounds).set({ candidate: { ...candidate, changes: [
+    { ...change, path: "src/new.mjs", before: null },
+    { ...change, path: "src/old.mjs", after: null },
+    { ...change, path: "src/.env" },
+    { ...change, path: "outside/private.mjs" },
+    ...Array.from({ length: 50 }, (_, i) => ({ ...change, path: `src/${i}.mjs` })),
+  ] } }).where(eq(developmentRounds.runId, run.id)).run();
+  const projected = read();
+  expect(projected.changedFileCount).toBe(54);
+  expect(projected.changedFiles).toHaveLength(40);
+  expect(projected.changedFiles.slice(0, 2)).toEqual([
+    { path: "src/new.mjs", action: "added" },
+    { path: "src/old.mjs", action: "deleted" },
+  ]);
+  expect(JSON.stringify(projected)).not.toMatch(/\.env|outside\/|inputDigest|directory|before|after/);
 });
 
 test.each([false, true])("planning recovery rechecks the recorded development snapshot, moved=%s", async moved => {

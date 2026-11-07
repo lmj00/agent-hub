@@ -11,7 +11,7 @@ vi.mock("@openai/codex-sdk", () => ({ Codex: class {
 } }));
 import { codexOptions, createCodexExecutor, threadOptions } from "../src/modules/execution/codex-executor.js";
 import { type AnalysisEvent, classifyCodexError } from "../src/modules/execution/analysis.js";
-import { analysisAssessmentSchema, goalPlanSchema } from "@agent-hub/contracts";
+import { analysisAssessmentSchema, goalPlanSchema, parseResponse } from "@agent-hub/contracts";
 import { loadRuntimeSkill } from "../src/modules/execution/runtime-skills.js";
 
 const request = { instruction: "Analyze", workspace: "/tmp/prepared", model: "test-model", signal: new AbortController().signal };
@@ -106,6 +106,27 @@ test("parent-managed assessment mode selects the fixed review schema", async () 
   ];
   await createCodexExecutor("/tmp/private-auth").analyze({ ...request, responseMode: "assessment", outputSchema: { untrusted: true } }, () => {});
   expect(fake.run).toHaveBeenLastCalledWith(expect.stringContaining("Return JSON matching the supplied schema"), expect.objectContaining({ outputSchema: analysisAssessmentSchema }));
+});
+
+test("the developer response contract permits pending candidates but rejects self-approval before independent verification", async () => {
+  const development = { baseRevision: "a".repeat(40), inputDigest: "b".repeat(64), scope: { goalId: "goal", goalVersion: 1, allowedPaths: ["src"], excludedPaths: [] }, writePaths: ["src"], files: [] };
+  const candidate = { report: "Implementation ready for verification", evidence: ["src/main.mjs"], unresolved: ["Server tests and independent review pending"], complete: false, next: { purpose: "Independent review", effort: "medium", reason: "Verify the exact candidate" } };
+  fake.events = [
+    { type: "item.completed", item: { type: "agent_message", text: JSON.stringify(candidate) } },
+    { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } },
+  ];
+  await createCodexExecutor("/tmp/private-auth", undefined, true).analyze({ ...request, development, responseMode: "assessment", outputSchema: { untrusted: true } }, () => {});
+  const schema = fake.run.mock.lastCall![1].outputSchema;
+  expect(parseResponse(schema, candidate)).toEqual(candidate);
+  // The real provider returned complete=true alongside pending review. Its
+  // supplied schema must rule this out, without relaxing the server parser.
+  expect(() => parseResponse(schema, { ...candidate, complete: true })).toThrow();
+  expect(() => parseResponse(schema, { ...candidate, complete: true, unresolved: [], next: null })).toThrow();
+  expect(() => parseResponse(schema, { ...candidate, report: "" })).toThrow();
+  expect(() => parseResponse(schema, { ...candidate, next: { ...candidate.next, reason: "" } })).toThrow();
+  expect(() => parseResponse(schema, { ...candidate, evidence: Array(9).fill("evidence") })).toThrow();
+  expect(fake.run.mock.lastCall![0]).toContain("complete=false");
+  expect(parseResponse(analysisAssessmentSchema, { ...candidate, complete: true, unresolved: [], next: null }).complete).toBe(true);
 });
 
 test("maps progress without saving command arguments or reasoning and waits for completion", async () => {
