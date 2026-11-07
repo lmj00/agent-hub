@@ -82,10 +82,14 @@ export type DevelopmentCandidate = {
   }[];
 };
 
+export function developmentDirectoryName(databasePath: string) {
+  return `.development-${digest(resolve(databasePath)).slice(0, 16)}`;
+}
+
 export function developmentRoot(databasePath: string) {
   const root = join(
     realpathSync(dirname(resolve(databasePath))),
-    `.development-${digest(resolve(databasePath)).slice(0, 16)}`,
+    developmentDirectoryName(databasePath),
   );
   privateDirectory(root);
   return root;

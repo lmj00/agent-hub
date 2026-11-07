@@ -118,7 +118,46 @@ curl --fail https://agent-hub.example.com/health/live
 
 중지는 `sudo systemctl stop agent-hub.service`를 사용합니다. 설정 오류를 고친 뒤 시작 횟수 제한이 남았다면 `sudo systemctl reset-failed agent-hub.service` 후 다시 시작합니다. 원인을 확인하지 않고 반복해서 제한을 초기화하지 않습니다.
 
-업데이트 순서는 **서버 중지 → 실행·반영의 종료 확인 → 일관된 백업 → 검증한 빌드와 이미지 교체 → 시작 → 로그인·DB·실행 상태 확인**입니다. 자동 백업·복원 명령은 O2에서 구현할 예정입니다. 그 전에는 무인 업데이트 절차로 사용하지 않습니다. 마이그레이션 이후 옛 실행 파일만 복원하는 방법은 롤백으로 보장하지 않습니다.
+업데이트 순서는 **서버 중지 → 실행·반영의 종료 확인 → 일관된 백업 → 검증한 빌드와 이미지 교체 → 시작 → 로그인·DB·실행 상태 확인**입니다. 백업·복원은 아래 명령을 사용합니다. 복원에는 백업을 만든 버전과 호환되는 실행 파일·마이그레이션이 필요합니다. 마이그레이션 이후 옛 실행 파일만 복원하는 방법은 롤백으로 보장하지 않습니다.
+
+## DB·개발 코드 백업과 복원
+
+백업은 **서버와 수동 실행을 모두 중지하고, 실행 종료·변경 반영을 확인한 상태**에서 수행합니다. 실행 소유권이 남아 있거나 `running`·종료 미확정 실행·반영 대기 기록이 있으면 거부합니다. 기존 복구 절차로 먼저 대조하며, 백업을 위해 이 기록을 임의로 삭제하지 않습니다. API 전용 서버는 실행 소유권을 잡지 않으므로 명령이 모든 서버의 중지를 자동 증명하지는 않습니다.
+
+백업은 SQLite의 Backup API로 WAL에 저장된 확정 변경까지 포함하고, 같은 상태 폴더의 `.development-*`·`.prepared-*`를 묶습니다. 파일 해시와 실제 Git 커밋을 DB의 반영 이력과 대조합니다. 새 임시 폴더에서 검사를 끝내고 이름을 바꾸어 게시하므로 부분 복사 결과를 완료된 백업으로 사용하지 않습니다. 실패하면 자신이 만든 임시 결과만 정리합니다. [SQLite Backup API](https://www.sqlite.org/backup.html)
+
+DB 부모와 백업 부모는 서비스 계정 소유의 실제 절대 경로·`0700`이어야 합니다. 링크·다른 계정 소유 파일·하드 링크·다른 사용자의 쓰기를 허용한 하위 폴더는 거부합니다. 백업은 DB 상태 폴더 밖에 저장하고, 같은 이름이 있으면 새 이름을 선택합니다. 다음 경로는 운영 예시이며 실제 날짜와 보관 정책에 맞춥니다.
+
+```sh
+sudo systemctl stop agent-hub.service
+sudo install -d -o agent-hub -g agent-hub -m 0700 /var/lib/agent-hub/backups
+sudo -u agent-hub /usr/local/bin/node /opt/agent-hub/apps/server/dist/backup-cli.js create \
+  --database /var/lib/agent-hub/state/agent-hub.sqlite \
+  --destination /var/lib/agent-hub/backups/before-update-001
+sudo -u agent-hub /usr/local/bin/node /opt/agent-hub/apps/server/dist/backup-cli.js inspect \
+  --backup /var/lib/agent-hub/backups/before-update-001
+```
+
+개발 환경에서는 같은 인자를 `pnpm backup create`, `pnpm backup inspect`, `pnpm backup restore`로 전달할 수 있습니다. 성공하면 요약 JSON과 종료 코드 `0`, 실패하면 오류와 종료 코드 `1`을 반환합니다. 요약에는 원래 DB 경로가 있으므로 출력도 비공개로 관리합니다. 원본 로그·AI 응답·인증 내용은 출력하지 않습니다. 10분의 중단 신호와 Ctrl+C를 처리하지만 동기 SQLite 검사까지 정확히 10분에 강제 종료한다는 보장은 아닙니다.
+
+복원은 **원래 DB 절대 경로**에만 허용합니다. 원래 상태 디렉터리가 이미 있으면 빈 폴더여도 거부합니다. 운영자가 서비스를 중지한 뒤 기존 `state`를 별도 보존 위치로 이동해야 하며, 명령은 기존 데이터를 삭제하지 않습니다. 아래는 그 준비가 끝난 뒤의 순서입니다.
+
+```sh
+# 검사·미리보기만 수행. state 디렉터리를 만들지 않습니다.
+sudo -u agent-hub /usr/local/bin/node /opt/agent-hub/apps/server/dist/backup-cli.js restore \
+  --backup /var/lib/agent-hub/backups/before-update-001 \
+  --database /var/lib/agent-hub/state/agent-hub.sqlite
+# 같은 검사를 다시 수행하고 새 state 디렉터리를 게시합니다.
+sudo -u agent-hub /usr/local/bin/node /opt/agent-hub/apps/server/dist/backup-cli.js restore \
+  --backup /var/lib/agent-hub/backups/before-update-001 \
+  --database /var/lib/agent-hub/state/agent-hub.sqlite --apply
+```
+
+복원 후 서비스 시작 전에 설정과 원본 작업 폴더의 경로·기준 커밋, 실행 이미지를 대조합니다. 시작 후 로그인·프로젝트와 작업 이력·개발 Git 상태·실행 보류 이유를 확인합니다. DB와 Git이 어긋나면 성공으로 바꾸지 않습니다.
+
+**포함하지 않는 것:** `/etc/agent-hub`의 설정, Codex 인증, 원본 작업 폴더, Docker 이미지, 로그는 별도로 보존·재준비해야 합니다. 백업 자체에도 작업 내용과 세션 등이 있으므로 공개 저장소에 넣지 않습니다. 현재 검사한 DB 스키마·마이그레이션과 정확히 일치해야 복원할 수 있으므로 앱 업그레이드 후에는 해당 백업과 호환되는 앱 버전도 함께 준비합니다. 현재 지원은 로컬 파일 시스템·같은 경로 복원이며, 온라인 Git 변경 중 백업·임의 경로 이동·호스트 전체 복구를 보장하지 않습니다. 해시는 손상을 확인하는 수단이며 백업 작성자의 신원을 증명하는 서명은 아닙니다.
+
+파일은 나누어 읽고 최대 50,000개 항목·16MiB 목록을 허용합니다. 초과하면 실패하며 일부만 보존하지 않습니다. 충분한 디스크와 별도 보관 위치를 준비해야 합니다. 같은 디스크의 사본만으로 디스크 고장에 대비했다고 판단하지 않습니다.
 
 ## 저장소에서 재현하는 검사
 

@@ -120,11 +120,15 @@ export function privateDirectory(path: string) {
       "Prepared input directory must be private and owned by this user",
     );
 }
+export function preparedDirectoryName(databasePath: string) {
+  return `.prepared-${createHash("sha256").update(resolve(databasePath)).digest("hex").slice(0, 16)}`;
+}
+
 export function preparedInputRoot(databasePath: string) {
   const parent = realpathSync(dirname(resolve(databasePath)));
   const root = join(
     parent,
-    `.prepared-${createHash("sha256").update(resolve(databasePath)).digest("hex").slice(0, 16)}`,
+    preparedDirectoryName(databasePath),
   );
   privateDirectory(root);
   return root;

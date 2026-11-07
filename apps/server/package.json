@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "task:run": "tsx src/run-task-cli.ts",
+    "backup": "tsx src/backup-cli.ts",
     "auth:setup": "tsx src/auth-setup-cli.ts",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit",

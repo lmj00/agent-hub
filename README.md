@@ -65,6 +65,8 @@ MVP는 핵심 목적을 실제로 수행할 수 있는 첫 운영 버전입니�
 
 개발 환경은 Node.js 24 LTS와 pnpm을 사용합니다. SQLite는 better-sqlite3와 Drizzle ORM·Kit으로 연결합니다. 의존성은 `package.json`과 `pnpm-lock.yaml`에 고정했습니다. 초기 SQLite 기반은 macOS arm64·Linux arm64에서, 현재 Codex 연동은 macOS arm64에서 검증했습니다. [대안 비교와 선택 이유](docs/03-technology-decisions.md)를 기록합니다.
 
+백업·복원은 `pnpm backup` 또는 빌드한 `backup-cli.js`로 실행합니다. 서버 중지와 같은 경로 복원 등 자세한 조건은 [운영 절차](docs/04-operations.md#db개발-코드-백업과-복원)를 따릅니다.
+
 ## 로컬 실행
 
 저장소 루트에서 실행합니다. Node.js는 [`.nvmrc`](.nvmrc)의 24.22.1, pnpm은 [`package.json`](package.json)의 12.16.1을 준비합니다. [nvm](https://github.com/nvm-sh/nvm)을 사용한다면 다음과 같이 맞출 수 있습니다.
