@@ -21,7 +21,7 @@ import {
   type DevelopmentInputIntent,
   type DevelopmentInput,
   type DevelopmentCandidate,
-} from "./development-workspace.js";
+} from "../workspace/development-workspace.js";
 
 export { maxDevelopmentRounds };
 export type DevelopmentUpdate =

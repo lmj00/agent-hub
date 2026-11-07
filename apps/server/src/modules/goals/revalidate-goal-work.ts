@@ -1,7 +1,7 @@
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { goalRevisions, goals, recoveryRequests, runs, tasks } from "../../db/schema.js";
-import { allowedGoalPath, privateInputPath } from "./prepared-workspace.js";
+import { allowedGoalPath, privateInputPath } from "../workspace/prepared-workspace.js";
 import { narrowsGoalScope } from "./goal-scope-policy.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update">;

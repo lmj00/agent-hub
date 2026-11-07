@@ -12,7 +12,7 @@ import {
 } from "./analysis.js";
 import type { TaskStatus } from "../tasks/task-state.js";
 import type { ProviderGateView } from "./provider-gate.js";
-import type { GoalScope } from "../goals/prepared-workspace.js";
+import type { GoalScope } from "../workspace/prepared-workspace.js";
 import type { PlanningContext } from "../goals/goal-plan-policy.js";
 
 export type ClaimedRun = {

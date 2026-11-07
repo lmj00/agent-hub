@@ -1,7 +1,7 @@
 import { stopReasons, type StopReason, type Effort } from "@agent-hub/contracts";
 import type { AnalysisWorkflowPolicy, StepUpdate } from "./analysis-workflow.js";
 import type { EffortPolicy } from "./effort-policy.js";
-import type { GoalScope, PreparedInput } from "../goals/prepared-workspace.js";
+import type { GoalScope, PreparedInput } from "../workspace/prepared-workspace.js";
 import type { PlanningContext, PlanningInput } from "../goals/goal-plan-policy.js";
 import type { DevelopmentExecutionInput, DevelopmentChanges } from "./development-capture.js";
 import type { DevelopmentUpdate } from "../goals/development-journal.js";

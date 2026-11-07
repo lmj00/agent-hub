@@ -23,7 +23,7 @@ import {
   changeApplications,
 } from "../../server/dist/db/schema.js";
 import { loadRuntimeSkill } from "../../server/dist/modules/execution/runtime-skills.js";
-import { preparedInputRoot } from "../../server/dist/modules/goals/prepared-workspace.js";
+import { preparedInputRoot } from "../../server/dist/modules/workspace/prepared-workspace.js";
 import { buildPlanningInput } from "../../server/dist/modules/goals/goal-plan-policy.js";
 import { loadServiceConfig } from "../../server/dist/modules/services/service-config.js";
 

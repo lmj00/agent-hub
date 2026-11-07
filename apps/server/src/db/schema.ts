@@ -1,14 +1,14 @@
 import type { AnalysisWorkflowPolicy } from "../modules/execution/analysis-workflow.js";
 import type { EffortPolicy } from "../modules/execution/effort-policy.js";
 import type { RetryState } from "../modules/execution/retry-policy.js";
-import type { PreparedInput } from "../modules/goals/prepared-workspace.js";
+import type { PreparedInput } from "../modules/workspace/prepared-workspace.js";
 import type {
   DevelopmentRepositoryIntent,
   DevelopmentRepository,
   DevelopmentInputIntent,
   DevelopmentInput,
   DevelopmentCandidate,
-} from "../modules/goals/development-workspace.js";
+} from "../modules/workspace/development-workspace.js";
 import type {
   DevelopmentVerificationIntent,
   DevelopmentReview,

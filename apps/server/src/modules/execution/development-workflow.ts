@@ -2,7 +2,7 @@ import type { AnalysisAssessment, Effort } from "@agent-hub/contracts";
 import { AnalysisError } from "./analysis.js";
 import { parseAssessment, type AnalysisWorkflowPolicy } from "./analysis-workflow.js";
 import type { VerificationResult } from "./verification-config.js";
-import type { DevelopmentCandidate } from "../goals/development-workspace.js";
+import type { DevelopmentCandidate } from "../workspace/development-workspace.js";
 import type { PlannedWork } from "../goals/goal-plan-policy.js";
 
 export const maxDevelopmentRounds = 3;

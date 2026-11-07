@@ -8,8 +8,8 @@ import {
   type DevelopmentRepository,
   type DevelopmentInput,
   type DevelopmentCandidate,
-} from "./development-workspace.js";
-import { git } from "./workspace-git.js";
+} from "../workspace/development-workspace.js";
+import { git } from "../workspace/workspace-git.js";
 
 type Application = typeof changeApplications.$inferSelect;
 type CommitInput = Pick<Application, "id" | "baseRevision" | "tree" | "createdAt">;

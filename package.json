@@ -23,7 +23,8 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",
-    "check": "biome ci ."
+    "check": "biome ci . && pnpm check:boundaries",
+    "check:boundaries": "node scripts/check-boundaries.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",

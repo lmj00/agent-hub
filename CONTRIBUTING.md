@@ -11,13 +11,15 @@
 | 변경 내용 | 위치 |
 | --- | --- |
 | 서버의 프로젝트·목표·작업·실행 기능 | `apps/server/src/modules/`의 해당 기능 |
+| Git 작업 공간 준비·후보 검사 | `apps/server/src/modules/workspace/` |
+| 분석·개발·검증의 실행 순서 | `apps/server/src/modules/execution/workflows/` |
 | 서버 구성과 기능 연결 | `apps/server/src/app.ts` |
 | 관리 화면 | `apps/web/src/features/`의 해당 기능, 공통 API·표시는 `shared/` |
 | 서버와 화면이 주고받는 자료 형식 | `packages/contracts/src/` |
 | DB 테이블·변경 이력 | `apps/server/src/db/`, `apps/server/migrations/` |
 | 운영 설정·검증 명령 | `ops/`, `scripts/` |
 
-함께 변경되는 코드와 테스트를 가까운 기능으로 묶습니다. 서버 파일은 `kebab-case.ts`, React 컴포넌트는 `PascalCase.tsx`, 테스트는 `*.test.ts` 또는 브라우저용 `*.spec.ts`로 이름 짓습니다. 파일 길이보다 맡은 책임을 기준으로 분리합니다.
+서버 테스트는 `apps/server/tests/goals/`, `execution/`, `workspace/`에서 해당 기능을 찾습니다. 인증·DB·운영 등의 테스트는 아직 `tests/` 바로 아래에 있습니다. 공용 재현 자료는 `tests/fixtures/`에 둡니다. 함께 변경되는 코드와 테스트를 같은 기능 이름으로 묶습니다. 서버 파일은 `kebab-case.ts`, React 컴포넌트는 `PascalCase.tsx`, 테스트는 `*.test.ts` 또는 브라우저용 `*.spec.ts`로 이름 짓습니다. 파일 길이보다 맡은 책임을 기준으로 분리합니다.
 
 상태·예산·취소 규칙은 담당 모듈의 함수를 재사용합니다. 다른 모듈의 내부 저장 처리를 직접 가져오기 전에 기존 호출 지점과 트랜잭션 범위를 확인합니다. 여러 상태를 함께 저장하는 처리를 단순히 파일별 호출로 쪼개지 않습니다. 상세 기준은 [코드 구조 규칙](docs/reference/code-and-runtime.md#코드를-나누고-연결하는-기준)에 있습니다.
 
@@ -33,7 +35,7 @@ pnpm test
 pnpm build
 ```
 
-`format`은 코드 형식을 수정하고, `check`는 형식과 기본 오류 규칙을 수정 없이 검사합니다. `lint`와 `format:check`로 각각 실행할 수도 있습니다. Biome은 `biome.json`에 명시한 기본 오류를 검사하고, TypeScript 타입 검사는 `tsc`가 담당합니다. 자동 검사만으로 코드 리뷰를 대체하지 않습니다.
+`format`은 코드 형식을 수정하고, `check`는 형식·기본 오류·모듈 참조 방향을 수정 없이 검사합니다. `check:boundaries`는 참조 방향만 검사합니다. `lint`와 `format:check`로 각각 실행할 수도 있습니다. Biome은 `biome.json`에 명시한 기본 오류를 검사하고, TypeScript 타입 검사는 `tsc`가 담당합니다. 자동 검사만으로 코드 리뷰를 대체하지 않습니다.
 
 화면을 변경하면 `pnpm test:browser`도 실행합니다. Docker가 필요한 실제 실행 격리 검사는 [로컬 개발 안내](docs/guides/local-development.md)를 따릅니다. 로컬 기본 테스트에서 제외된 컨테이너 검사와 Linux 서비스 검사는 CI 결과까지 확인합니다.
 

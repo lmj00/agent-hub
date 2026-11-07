@@ -14,13 +14,13 @@ import { runTask } from "./modules/execution/run-task.js";
 import {
   cleanupConfirmedInputs,
   createPreparedExecutor,
-} from "./modules/goals/prepared-executor.js";
-import { preparedInputRoot } from "./modules/goals/prepared-workspace.js";
+} from "./modules/execution/workflows/prepared-executor.js";
+import { preparedInputRoot } from "./modules/workspace/prepared-workspace.js";
 import {
   configuredDevelopmentWorkspaces,
   createDevelopmentExecutor,
-} from "./modules/goals/development-executor.js";
-import { developmentRoot } from "./modules/goals/development-workspace.js";
+} from "./modules/execution/workflows/development-executor.js";
+import { developmentRoot } from "./modules/workspace/development-workspace.js";
 
 async function main() {
   const { values } = parseArgs({

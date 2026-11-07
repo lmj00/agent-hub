@@ -9,7 +9,11 @@ import {
 } from "@agent-hub/contracts";
 import { AnalysisError } from "../execution/analysis.js";
 import type { GoalVerification } from "./goal-verification.js";
-import { allowedGoalPath, privateInputPath, type PreparedInput } from "./prepared-workspace.js";
+import {
+  allowedGoalPath,
+  privateInputPath,
+  type PreparedInput,
+} from "../workspace/prepared-workspace.js";
 
 export type PlannedWork = {
   planningTaskId: string;

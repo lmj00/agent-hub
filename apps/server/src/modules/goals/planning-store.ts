@@ -17,7 +17,7 @@ import { redactOutput } from "../execution/analysis.js";
 import type { PlanningContext } from "./goal-plan-policy.js";
 import { revalidateGoalWork } from "./revalidate-goal-work.js";
 import { readPlanningWork } from "./planning-work-state.js";
-import { allowedGoalPath, privateInputPath } from "./prepared-workspace.js";
+import { allowedGoalPath, privateInputPath } from "../workspace/prepared-workspace.js";
 
 import { readServiceViews, type ObserverStatus } from "../services/drizzle-service-store.js";
 

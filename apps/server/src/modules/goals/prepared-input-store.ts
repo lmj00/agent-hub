@@ -10,7 +10,7 @@ import {
 } from "../../db/schema.js";
 import { AnalysisError, redactOutput } from "../execution/analysis.js";
 import { readGoalExecutionBlock } from "./goal-execution-store.js";
-import type { GoalScope, PreparedInput } from "./prepared-workspace.js";
+import type { GoalScope, PreparedInput } from "../workspace/prepared-workspace.js";
 import { planningInstruction, type PlanningInput } from "./goal-plan-policy.js";
 import { readExecutions } from "../execution/execution-record-store.js";
 

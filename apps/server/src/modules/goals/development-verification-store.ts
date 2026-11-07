@@ -19,7 +19,7 @@ import {
   validInputDigest,
   type DevelopmentInputIntent,
   type DevelopmentInput,
-} from "./development-workspace.js";
+} from "../workspace/development-workspace.js";
 
 export type DevelopmentVerificationIntent = {
   candidateDigest: string;

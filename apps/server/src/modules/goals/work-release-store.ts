@@ -16,7 +16,7 @@ import {
   type RetryPolicy,
 } from "../execution/retry-policy.js";
 import { ensureRetryState, readRetryBaseline } from "../execution/retry-state-store.js";
-import { allowedGoalPath, privateInputPath } from "./prepared-workspace.js";
+import { allowedGoalPath, privateInputPath } from "../workspace/prepared-workspace.js";
 import { narrowsGoalScope } from "./goal-scope-policy.js";
 import { revalidateGoalWork } from "./revalidate-goal-work.js";
 

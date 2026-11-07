@@ -25,7 +25,7 @@ import {
   validCandidateDigest,
   validInputDigest,
   verifyDevelopmentCandidate,
-} from "./development-workspace.js";
+} from "../workspace/development-workspace.js";
 import { applicationCommit, applyGitChange } from "./change-application-git.js";
 
 type Db = ReturnType<typeof openDatabase>["db"];

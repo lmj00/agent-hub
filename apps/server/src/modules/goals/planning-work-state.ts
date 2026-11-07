@@ -1,7 +1,7 @@
 import { and, asc, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { recoveryRequests, runExecutions, runs, taskReleases, tasks } from "../../db/schema.js";
-import { allowedGoalPath, privateInputPath } from "./prepared-workspace.js";
+import { allowedGoalPath, privateInputPath } from "../workspace/prepared-workspace.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select">;
 export type SuppressedWork = {

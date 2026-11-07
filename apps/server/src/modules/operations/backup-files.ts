@@ -3,7 +3,7 @@ import { constants, createWriteStream } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { safeGitPath } from "../goals/workspace-git.js";
+import { safeGitPath } from "../workspace/workspace-git.js";
 
 export class BackupError extends Error {}
 

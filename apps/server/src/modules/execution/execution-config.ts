@@ -1,10 +1,11 @@
+import { isWithin } from "../../shared/path-containment.js";
 import { parseEffortPolicy } from "./effort-policy.js";
 import { parseVerificationWorkspaces, validContainerImage } from "./verification-config.js";
 import { parseAnalysisWorkflow } from "./analysis-workflow.js";
 import { parseCapacityPolicy } from "./capacity-policy.js";
 import { parseRetryPolicy } from "./retry-policy.js";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { dirname, resolve } from "node:path";
 
 export const executionConfigErrors = {
   AUTH_DIRECTORY_CHANGED: "Authentication directory changed; restart with reviewed configuration",
@@ -23,11 +24,6 @@ export class ExecutionConfigError extends Error {
   constructor(public readonly code: keyof typeof executionConfigErrors) {
     super(executionConfigErrors[code]);
   }
-}
-
-export function isWithin(parent: string, child: string) {
-  const path = relative(parent, child);
-  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
 
 export function loadExecutionConfig(file: string) {

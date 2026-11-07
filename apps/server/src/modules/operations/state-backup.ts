@@ -10,10 +10,10 @@ import { preparePrivateDatabase } from "../../db/private-storage.js";
 import * as schema from "../../db/schema.js";
 import { readPrivateJson } from "../../private-config.js";
 import { acquireExecutionOwner, assertExecutionOwner } from "../execution/execution-owner.js";
-import { isWithin } from "../execution/execution-config.js";
-import { developmentDirectoryName, developmentRef } from "../goals/development-workspace.js";
-import { preparedDirectoryName } from "../goals/prepared-workspace.js";
-import { git } from "../goals/workspace-git.js";
+import { isWithin } from "../../shared/path-containment.js";
+import { developmentDirectoryName, developmentRef } from "../workspace/development-workspace.js";
+import { preparedDirectoryName } from "../workspace/prepared-workspace.js";
+import { git } from "../workspace/workspace-git.js";
 import {
   BackupError,
   inventoryBackupTree,

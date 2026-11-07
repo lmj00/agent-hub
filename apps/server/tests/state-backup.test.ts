@@ -37,16 +37,16 @@ import {
   previewStateRestore,
   restoreStateBackup,
 } from "../src/modules/operations/state-backup.js";
-import { preparedInputRoot } from "../src/modules/goals/prepared-workspace.js";
+import { preparedInputRoot } from "../src/modules/workspace/prepared-workspace.js";
 import { acquireExecutionOwner } from "../src/modules/execution/execution-owner.js";
 import {
   developmentRef,
   developmentRepositoryIntent,
   developmentRoot,
   prepareDevelopmentRepository,
-} from "../src/modules/goals/development-workspace.js";
+} from "../src/modules/workspace/development-workspace.js";
 import { applicationCommit } from "../src/modules/goals/change-application-git.js";
-import { git } from "../src/modules/goals/workspace-git.js";
+import { git } from "../src/modules/workspace/workspace-git.js";
 
 let directory: string, databasePath: string, backup: string;
 const databases: ReturnType<typeof openDatabase>[] = [];

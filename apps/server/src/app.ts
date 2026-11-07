@@ -47,14 +47,14 @@ import {
   cleanupPreparedRun,
   createPreparedExecutor,
   verifyPreparedResult,
-} from "./modules/goals/prepared-executor.js";
+} from "./modules/execution/workflows/prepared-executor.js";
 import {
   configuredDevelopmentWorkspaces,
   createDevelopmentExecutor,
-} from "./modules/goals/development-executor.js";
+} from "./modules/execution/workflows/development-executor.js";
 import { applyChangeApplication } from "./modules/goals/change-application.js";
-import { developmentRoot } from "./modules/goals/development-workspace.js";
-import { preparedInputRoot } from "./modules/goals/prepared-workspace.js";
+import { developmentRoot } from "./modules/workspace/development-workspace.js";
+import { preparedInputRoot } from "./modules/workspace/prepared-workspace.js";
 import { createWorkReleaseStore } from "./modules/goals/work-release-store.js";
 import { workReleaseRoutes } from "./modules/goals/work-release-routes.js";
 import type { NotificationConfig } from "./modules/operations/notification-config.js";

@@ -16,8 +16,8 @@ import {
   privateInputPath,
   type GoalScope,
   type ScopedGitFile,
-} from "../goals/prepared-workspace.js";
-import { safeGitPath } from "../goals/workspace-git.js";
+} from "../workspace/prepared-workspace.js";
+import { safeGitPath } from "../workspace/workspace-git.js";
 
 export const maxDevelopmentRequestBytes = 1024 * 1024;
 export const maxDevelopmentArtifactBytes = 12 * 1024 * 1024;
