@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 function launch(file: string, args: string[] = [], overrides: NodeJS.ProcessEnv = {}) {
   const env = { ...process.env };
-  delete env.AUTH_CONFIG; delete env.LOCAL_API_ONLY; delete env.EXECUTION_CONFIG;
+  delete env.AUTH_CONFIG; delete env.LOCAL_API_ONLY; delete env.EXECUTION_CONFIG; delete env.NOTIFICATION_CONFIG;
   const child = spawn(process.execPath, ["--import", "tsx", `src/${file}`, ...args], { cwd: serverDirectory, env: { ...env, DATABASE_PATH: join(directory, "hub.sqlite"), ...overrides }, stdio: ["pipe", "pipe", "pipe"] });
   children.push(child); let output = "";
   child.stdout!.on("data", chunk => { output += chunk; }); child.stderr!.on("data", chunk => { output += chunk; });

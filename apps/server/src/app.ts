@@ -38,16 +38,20 @@ import { developmentRoot } from "./modules/goals/development-workspace.js";
 import { preparedInputRoot } from "./modules/goals/prepared-workspace.js";
 import { createWorkReleaseStore } from "./modules/goals/work-release-store.js";
 import { workReleaseRoutes } from "./modules/goals/work-release-routes.js";
+import type { NotificationConfig } from "./modules/operations/notification-config.js";
+import { createNotificationStore, listNotifications } from "./modules/operations/notification-store.js";
+import { createNotificationWorker } from "./modules/operations/notification-worker.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
   databasePath: string;
   auth?: AuthConfig;
   webDirectory?: string;
   services?: ServiceConfig;
+  notifications?: NotificationConfig;
   execution?: { config: ExecutionConfig; executor?: AnalysisExecutor; observer?: ExecutionObserver; pollIntervalMs?: number };
 };
 
-export function buildApp({ databasePath, execution, auth, webDirectory, services, ...options }: AppOptions) {
+export function buildApp({ databasePath, execution, auth, webDirectory, services, notifications, ...options }: AppOptions) {
   if (webDirectory && !auth) throw new Error("The management UI requires authentication");
   const app = Fastify({
     ...options,
@@ -61,18 +65,19 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
     let queue: ReturnType<typeof createExecutionQueue> | undefined;
     let recovery: RecoveryStore | undefined;
     let serviceObserver: ReturnType<typeof createServiceObserver> | undefined;
+    let notifier: ReturnType<typeof createNotificationWorker> | undefined;
     let canTrackTermination = false;
-    const protectedFiles = [auth?.sourcePath, services?.sourcePath].filter((path): path is string => path !== undefined);
+    const protectedFiles = [auth?.sourcePath, services?.sourcePath, notifications?.sourcePath].filter((path): path is string => path !== undefined);
 
     scope.addHook("onClose", async () => {
       try {
-        await Promise.all([queue?.stop(), serviceObserver?.stop()]);
+        await Promise.all([queue?.stop(), serviceObserver?.stop(), notifier?.stop()]);
         owner?.release();
       } finally { database.close(); }
     });
-    scope.addHook("preClose", async () => { await Promise.all([queue?.stop(), serviceObserver?.stop()]); });
+    scope.addHook("preClose", async () => { await Promise.all([queue?.stop(), serviceObserver?.stop(), notifier?.stop()]); });
 
-    if (execution || services) {
+    if (execution || services || notifications) {
       try {
         if (execution) validateExecutionEnvironment(execution.config, databasePath, protectedFiles);
         owner = acquireExecutionOwner(database.db);
@@ -109,16 +114,28 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
             },
           });
         }
+        if (notifications) notifier = createNotificationWorker({
+          config: notifications,
+          store: createNotificationStore(database.db, owner.token, notifications, () => queue?.getStatus()),
+          report: event => {
+            if (event.code === "NOTIFICATION_STORAGE_ERROR") scope.log.error(event, "Notification storage failed");
+            else scope.log.info(event, "Notification storage recovered");
+          },
+        });
       } catch (error) {
         owner?.release();
         owner = undefined;
         database.close();
         throw error;
       }
-      scope.addHook("onListen", async () => { queue?.start(); serviceObserver?.start(); });
+      scope.addHook("onListen", async () => { queue?.start(); serviceObserver?.start(); notifier?.start(); });
     }
 
     if (auth) await installAuthentication(scope, auth, createDrizzleSessionStore(database.db));
+    scope.get("/operations/notifications", async () => ({
+      worker: notifier?.getStatus() ?? { enabled: false, storageError: false, delivering: false, lastCheckedAt: null },
+      notifications: listNotifications(database.db),
+    }));
     if (webDirectory) scope.register(webRoutes, { directory: webDirectory });
     scope.register(healthRoutes, { checkDatabase: () => database.checkReady() });
     const projectStore = createDrizzleProjectStore(database.db);

@@ -27,11 +27,14 @@ export function loadConfig(env: NodeJS.ProcessEnv) {
   if (authPath && env.LOCAL_API_ONLY) throw new Error("AUTH_CONFIG and LOCAL_API_ONLY cannot be used together.");
   const servicePath = env.SERVICE_CONFIG;
   if (servicePath !== undefined && (!servicePath.trim() || servicePath.includes("\0"))) throw new Error("SERVICE_CONFIG must be a non-empty file path when set.");
+  const notificationPath = env.NOTIFICATION_CONFIG;
+  if (notificationPath !== undefined && (!notificationPath.trim() || notificationPath.includes("\0"))) throw new Error("NOTIFICATION_CONFIG must be a non-empty file path when set.");
   return {
     host: "127.0.0.1", port, databasePath: resolve(repositoryDirectory, databasePath),
     localApiOnly: env.LOCAL_API_ONLY === "1",
     ...(authPath === undefined ? {} : { authConfigPath: resolve(repositoryDirectory, authPath) }),
     ...(executionPath === undefined ? {} : { executionConfigPath: resolve(repositoryDirectory, executionPath) }),
     ...(servicePath === undefined ? {} : { serviceConfigPath: resolve(repositoryDirectory, servicePath) }),
+    ...(notificationPath === undefined ? {} : { notificationConfigPath: resolve(repositoryDirectory, notificationPath) }),
   };
 }

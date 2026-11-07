@@ -16,6 +16,7 @@
 | 로컬 서버 실행, 테스트, DB 변경 | [로컬 개발](guides/local-development.md) |
 | 로그인, 프로젝트·목표·예산 등록, 서비스 관측 | [관리 화면과 설정](guides/management.md) |
 | Codex 인증, Docker, 자동 실행, 중단·재개 | [AI 실행과 복구](guides/agents.md) |
+| 조치가 필요한 문제를 알림으로 받기 | [알림 설정과 전송 기록](guides/notifications.md) |
 | Linux 서비스, HTTPS, 로그, 백업·복원 | [운영 절차](04-operations.md) |
 
 ## 코드를 구현하거나 검토할 때

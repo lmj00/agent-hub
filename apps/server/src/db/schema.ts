@@ -13,6 +13,33 @@ import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } fro
 import { taskStatuses } from "../modules/tasks/task-state.js";
 import { maxRunExecutions, stopReasons } from "../modules/execution/analysis.js";
 import { recoveryActions } from "../modules/execution/recover-task.js";
+import type { NotificationReason, DeliveryResult } from "../modules/operations/notification-delivery.js";
+
+// Latest delivery receipt per issue source. Task/Run remain the source of truth.
+export const notifications = sqliteTable("notifications", {
+  sourceKey: text("source_key").primaryKey().notNull(),
+  conditionKey: text("condition_key").notNull(),
+  id: text("id").notNull(),
+  destinationHash: text("destination_hash").notNull(),
+  reason: text("reason").$type<NotificationReason>().notNull(),
+  projectId: text("project_id").references(() => projects.id, { onDelete: "restrict" }),
+  taskId: text("task_id").references(() => tasks.id, { onDelete: "restrict" }),
+  runId: text("run_id").references(() => runs.id, { onDelete: "restrict" }),
+  status: text("status", { enum: ["pending", "delivered", "exhausted", "resolved"] }).notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: integer("next_attempt_at", { mode: "timestamp_ms" }),
+  lastAttemptAt: integer("last_attempt_at", { mode: "timestamp_ms" }),
+  lastResult: text("last_result").$type<DeliveryResult>(),
+  detectedAt: integer("detected_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, table => [
+  uniqueIndex("notifications_id_unique").on(table.id),
+  index("notifications_due_idx").on(table.status, table.nextAttemptAt, table.sourceKey),
+  index("notifications_updated_idx").on(table.updatedAt, table.sourceKey),
+  check("notifications_status_valid", sql`${table.status} IN ('pending', 'delivered', 'exhausted', 'resolved')`),
+  check("notifications_attempts_valid", sql`${table.attempts} >= 0 AND ${table.attempts} <= 20`),
+  check("notifications_pending_due", sql`(${table.status} = 'pending') = (${table.nextAttemptAt} IS NOT NULL)`),
+]);
 
 export const projects = sqliteTable(
   "projects",

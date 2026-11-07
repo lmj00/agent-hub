@@ -61,7 +61,8 @@
       "apps/server/tests/goal-verification-evidence.test.ts",
       "apps/server/tests/operations.test.ts",
       "apps/server/tests/state-backup.test.ts",
-      "apps/server/tests/health-monitor.test.ts"
+      "apps/server/tests/health-monitor.test.ts",
+      "apps/server/tests/notifications.test.ts"
     ],
     "apps/web/src/**": [
       "apps/web/e2e/workspace.spec.ts",
@@ -188,7 +189,8 @@
       "apps/server/tests/goal-verification.test.ts",
       "apps/server/tests/goal-verification-evidence.test.ts",
       "apps/server/tests/state-backup.test.ts",
-      "apps/server/tests/health-monitor.test.ts"
+      "apps/server/tests/health-monitor.test.ts",
+      "apps/server/tests/notifications.test.ts"
     ],
     "apps/server/skills/gstack/**": [
       "apps/server/tests/runtime-skills.test.ts",
@@ -218,7 +220,8 @@
       "apps/server/tests/goal-planning.test.ts",
       "apps/server/tests/change-application.test.ts",
       "apps/server/tests/operations.test.ts",
-      "apps/server/tests/state-backup.test.ts"
+      "apps/server/tests/state-backup.test.ts",
+      "apps/server/tests/notifications.test.ts"
     ],
     "apps/server/tests/fixtures/container-runner/**": [
       "apps/server/tests/execution-process.test.ts"
