@@ -74,6 +74,23 @@ jobs:
           JS
       - name: Install Chromium
         run: pnpm --filter @agent-hub/web exec playwright install --with-deps chromium
+      - name: Test production service restart on the disposable Linux VM
+        shell: bash
+        run: |
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" "$(command -v node)" scripts/check-systemd.mjs --disposable-github-runner 2>&1 | tee "$RUNNER_TEMP/systemd-tests.log"
+      - name: Annotate service lifecycle failure
+        if: failure()
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { existsSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const file = join(process.env.RUNNER_TEMP, 'systemd-tests.log');
+          if (existsSync(file)) {
+            const text = readFileSync(file, 'utf8').slice(-7500).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+            process.stdout.write(`::error title=systemd lifecycle::${text}\n`);
+          }
+          JS
       - name: Test browser flows with the fake AI executor
         run: pnpm --filter @agent-hub/web test:browser
       - name: Retain browser failure evidence

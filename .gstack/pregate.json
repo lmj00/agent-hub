@@ -251,7 +251,8 @@
       "apps/server/tests/operations.test.ts"
     ],
     ".github/workflows/ci.yml": [
-      "apps/server/tests/operations.test.ts"
+      "apps/server/tests/operations.test.ts",
+      "apps/server/tests/systemd-guard.test.ts"
     ],
     "apps/server/package.json": [
       "apps/server/tests/state-backup.test.ts",
@@ -260,6 +261,9 @@
     "package.json": [
       "apps/server/tests/state-backup.test.ts",
       "apps/server/tests/health-monitor.test.ts"
+    ],
+    "scripts/check-systemd.mjs": [
+      "apps/server/tests/systemd-guard.test.ts"
     ]
   }
 }
