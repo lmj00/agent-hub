@@ -246,6 +246,34 @@ export const developmentRounds = sqliteTable("development_rounds", {
   check("development_rounds_review_valid", sql`(${table.review} IS NULL AND ${table.reviewedAt} IS NULL) OR (${table.verificationResult} IS NOT NULL AND ${table.review} IS NOT NULL AND ${table.reviewedAt} IS NOT NULL)`),
 ]);
 
+// One durable authorization per Task. A pending Git outcome blocks subsequent
+// applications to that repository until the exact recorded commit is reconciled.
+export const changeApplications = sqliteTable("change_applications", {
+  id: text("id").primaryKey().notNull(),
+  taskId: text("task_id").notNull().references(() => tasks.id, { onDelete: "restrict" }),
+  runId: text("run_id").notNull().references(() => runs.id, { onDelete: "restrict" }),
+  repositoryId: text("repository_id").notNull().references(() => developmentRepositories.id, { onDelete: "restrict" }),
+  roundSequence: integer("round_sequence").notNull(),
+  goalVersion: integer("goal_version").notNull(),
+  baseRevision: text("base_revision").notNull(),
+  tree: text("tree").notNull(),
+  candidateDigest: text("candidate_digest").notNull(),
+  evidenceDigest: text("evidence_digest").notNull(),
+  resultCommit: text("result_commit").notNull(),
+  targetRef: text("target_ref").notNull(),
+  status: text("status", { enum: ["pending", "applied"] }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  appliedAt: integer("applied_at", { mode: "timestamp_ms" }),
+}, table => [
+  uniqueIndex("change_applications_task_unique").on(table.taskId),
+  uniqueIndex("change_applications_run_unique").on(table.runId),
+  uniqueIndex("change_applications_repository_pending").on(table.repositoryId).where(sql`${table.status} = 'pending'`),
+  check("change_applications_status_valid", sql`(${table.status} = 'pending' AND ${table.appliedAt} IS NULL) OR (${table.status} = 'applied' AND ${table.appliedAt} IS NOT NULL)`),
+  check("change_applications_round_valid", sql`${table.roundSequence} BETWEEN 1 AND 3`),
+  check("change_applications_goal_version_valid", sql`${table.goalVersion} > 0`),
+  check("change_applications_ref_valid", sql`${table.targetRef} = 'refs/heads/development'`),
+]);
+
 export const budgetPeriods = sqliteTable("budget_periods", {
   id: text("id").primaryKey(),
   accountKey: text("account_key").notNull(),

@@ -33,7 +33,7 @@ const maxBaselineBytes = 64 * 1048576,
 const maxChangeBytes = 8 * 1048576,
   maxFileBytes = 1048576,
   maxChanges = 500;
-const developmentRef = "refs/heads/development";
+export const developmentRef = "refs/heads/development";
 const marker = "repository.json";
 const oid = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const uuid = /^[a-f0-9-]{36}$/;
@@ -296,7 +296,7 @@ export async function recoverDevelopmentRepository(
   return repository;
 }
 
-export async function assertDevelopmentBase(
+export async function assertDevelopmentRepository(
   repository: DevelopmentRepository,
   signal: AbortSignal,
 ) {
@@ -328,6 +328,14 @@ export async function assertDevelopmentBase(
     repository.sourceRevision
   )
     throw new Error("Original source changed during development");
+  return storage;
+}
+
+export async function assertDevelopmentBase(
+  repository: DevelopmentRepository,
+  signal: AbortSignal,
+) {
+  const storage = await assertDevelopmentRepository(repository, signal);
   const actual = (
     await git(storage, ["rev-parse", "--verify", developmentRef], signal)
   )

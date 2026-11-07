@@ -28,6 +28,7 @@ export function openDatabase(databasePath: string, migrationsFolder = migrations
         db.select().from(schema.runExecutions).limit(1).all();
         db.select().from(schema.developmentRepositories).limit(1).all();
         db.select().from(schema.developmentRounds).limit(1).all();
+        db.select().from(schema.changeApplications).limit(1).all();
         db.select().from(schema.steps).limit(1).all();
         db.select().from(schema.events).limit(1).all();
         db.select().from(schema.executionOwner).limit(1).all();

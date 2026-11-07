@@ -55,7 +55,8 @@
       "apps/server/tests/web.test.ts",
       "apps/server/tests/work-release.test.ts",
       "apps/server/tests/runtime-skill-store.test.ts",
-      "apps/server/tests/runtime-skill-evidence.test.ts"
+      "apps/server/tests/runtime-skill-evidence.test.ts",
+      "apps/server/tests/change-application.test.ts"
     ],
     "apps/web/src/**": [
       "apps/web/e2e/workspace.spec.ts",
@@ -174,7 +175,8 @@
       "apps/server/tests/work-release.test.ts",
       "apps/web/e2e/workspace.spec.ts",
       "apps/web/tests/api.test.ts",
-      "apps/server/tests/runtime-skill-evidence.test.ts"
+      "apps/server/tests/runtime-skill-evidence.test.ts",
+      "apps/server/tests/change-application.test.ts"
     ],
     "apps/server/skills/gstack/**": [
       "apps/server/tests/runtime-skills.test.ts",
@@ -200,7 +202,8 @@
       "apps/server/tests/database.test.ts",
       "apps/server/tests/runtime-skill-store.test.ts",
       "apps/server/tests/development-executor.test.ts",
-      "apps/server/tests/goal-planning.test.ts"
+      "apps/server/tests/goal-planning.test.ts",
+      "apps/server/tests/change-application.test.ts"
     ],
     "apps/server/tests/fixtures/container-runner/**": [
       "apps/server/tests/execution-process.test.ts"
