@@ -66,6 +66,8 @@ LOCAL_API_ONLY=1 pnpm dev
 
 | 개발 명령 | 용도 |
 | --- | --- |
+| `pnpm format` | 코드 형식 정리 |
+| `pnpm check` | 형식·기본 오류·모듈 참조 방향 검사 |
 | `pnpm typecheck` | 타입 검사 |
 | `pnpm test` | 자동 테스트 |
 | `pnpm build` | 배포할 JavaScript와 화면 빌드 |

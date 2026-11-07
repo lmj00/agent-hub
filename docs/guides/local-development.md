@@ -58,6 +58,9 @@ DB 준비 상태(`/health/ready`) 예시:
 | --- | --- |
 | `pnpm dev` | TypeScript 소스로 개발 서버 실행·변경 감지. AUTH_CONFIG 또는 LOCAL_API_ONLY 지정 필요 |
 | `pnpm dev:web` | 화면 변경을 감지해 다시 빌드. 별도 터미널에서 개발 서버 실행 필요 |
+| `pnpm format` | 관리하는 소스와 설정의 코드 형식 정리 |
+| `pnpm check` | 코드 형식·기본 오류·모듈 참조 방향 검사 |
+| `pnpm check:boundaries` | 모듈 참조 방향만 검사 |
 | `pnpm typecheck` | 공통 계약·서버·화면 코드와 테스트의 타입 검사 |
 | `pnpm test` | 자동 테스트 한 번 실행 |
 | `pnpm test:browser` | 빌드 후 Chromium에서 임시 DB·가짜 AI로 주요 화면 흐름 검증 |
