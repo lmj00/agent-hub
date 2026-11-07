@@ -14,6 +14,7 @@ import { createServer, type RequestListener, type Server } from "node:http";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { buildApp } from "../src/app.js";
@@ -740,7 +741,7 @@ test("notification config has private permissions, fixed safe errors, validated 
   expect(
     loadConfig({ NOTIFICATION_CONFIG: "private/notifications.json" })
       .notificationConfigPath,
-  ).toMatch(/agent-hub\/private\/notifications.json$/);
+  ).toBe(fileURLToPath(new URL("../../../private/notifications.json", import.meta.url)));
   expect(() => loadConfig({ NOTIFICATION_CONFIG: " " })).toThrow();
   chmodSync(c.sourcePath, 0o644);
   expect(() => loadNotificationConfig(c.sourcePath)).toThrow(

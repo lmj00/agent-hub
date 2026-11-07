@@ -1,8 +1,10 @@
+import { spawnSync } from "node:child_process";
 import {
   closeSync, constants, fchmodSync, fstatSync, lstatSync, mkdirSync,
-  openSync, realpathSync, type Stats,
+  openSync, readFileSync, realpathSync, type Stats,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 function regularOwnedFile(stat: Stats, uid: number) {
   if (!stat.isFile() || stat.uid !== uid || stat.nlink !== 1) {
@@ -33,7 +35,7 @@ function makePrivate(path: string, uid: number, create: boolean) {
   } finally { closeSync(descriptor); }
 }
 
-export function preparePrivateDatabase(databasePath: string): string {
+function prepareFiles(databasePath: string): string {
   const uid = process.getuid?.();
   if (uid === undefined) throw new Error("Private database storage requires Unix file permissions");
   mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
@@ -49,4 +51,47 @@ export function preparePrivateDatabase(databasePath: string): string {
   // sidecars inherit the main file's 0600 mode, including with a permissive umask.
   for (const suffix of ["-wal", "-shm", "-journal"]) makePrivate(path + suffix, uid, false);
   return path;
+}
+
+const workerPath = fileURLToPath(import.meta.url);
+const workerFlag = "--prepare-private-database";
+
+export function preparePrivateDatabase(databasePath: string): string {
+  // Closing any descriptor for a SQLite file releases this process's POSIX locks
+  // on that inode, even those held by another live SQLite connection. Keep all
+  // permission checks and descriptor closes in a separate, short-lived process.
+  const worker = spawnSync(process.execPath, [workerPath, workerFlag], {
+    input: JSON.stringify(databasePath), encoding: "utf8", timeout: 5000, maxBuffer: 65536,
+  });
+  if (worker.error || worker.signal) {
+    throw new Error("Could not prepare private database storage", { cause: worker.error });
+  }
+  let result: unknown;
+  try { result = JSON.parse(worker.stdout); }
+  catch { throw new Error("Private database preparation did not return a result"); }
+  if (typeof result !== "object" || result === null) {
+    throw new Error("Invalid private database preparation result");
+  }
+  if (worker.status === 0 && "path" in result && typeof result.path === "string") return result.path;
+  if ("error" in result && typeof result.error === "string") {
+    const error: NodeJS.ErrnoException = new Error(result.error);
+    if ("code" in result && typeof result.code === "string") error.code = result.code;
+    throw error;
+  }
+  throw new Error("Private database preparation failed");
+}
+
+// Node 24 also runs this module directly from TypeScript during local development.
+if (process.argv[1] === workerPath && process.argv[2] === workerFlag) {
+  try {
+    const databasePath: unknown = JSON.parse(readFileSync(0, "utf8"));
+    if (typeof databasePath !== "string") throw new Error("Database path must be a string");
+    process.stdout.write(JSON.stringify({ path: prepareFiles(databasePath) }));
+  } catch (error) {
+    process.stdout.write(JSON.stringify({
+      error: error instanceof Error ? error.message : "Private database preparation failed",
+      code: error instanceof Error && "code" in error ? error.code : undefined,
+    }));
+    process.exitCode = 1;
+  }
 }

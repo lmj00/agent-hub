@@ -5,6 +5,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { openDatabase } from "../src/db/connection.js";
 
@@ -16,6 +18,20 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true });
 });
 const mode = (path: string) => statSync(path).mode & 0o777;
+
+test.each(["WAL", "DELETE"])("preparing private files preserves another connection's active SQLite write lock (%s)", (journalMode) => {
+  // Isolate the whole probe: a regression can invalidate SQLite's shared-memory mapping.
+  const child = spawnSync(process.execPath, [
+    fileURLToPath(new URL("./fixtures/database-lock-probe.mjs", import.meta.url)),
+    new URL("../src/db/private-storage.ts", import.meta.url).href,
+    join(directory, "locked.sqlite"),
+    journalMode,
+  ], { encoding: "utf8", timeout: 15000, maxBuffer: 65536 });
+  expect(child.error).toBeUndefined();
+  expect({ status: child.status, signal: child.signal, stderr: child.stderr })
+    .toMatchObject({ status: 0, signal: null });
+  expect(JSON.parse(child.stdout)).toEqual({ before: "SQLITE_BUSY", after: "SQLITE_BUSY" });
+});
 
 test("creates private SQLite storage and sidecars even when the process umask permits public reads", () => {
   const parent = join(directory, "data");

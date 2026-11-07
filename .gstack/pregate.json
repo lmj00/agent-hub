@@ -229,6 +229,9 @@
     "apps/server/tests/fixtures/workflow-runner.mjs": [
       "apps/server/tests/development-executor.test.ts"
     ],
+    "apps/server/tests/fixtures/database-lock-probe.mjs": [
+      "apps/server/tests/database-security.test.ts"
+    ],
     "apps/server/tests/fixtures/legacy-*": [
       "apps/server/tests/legacy-runner.test.ts"
     ],
