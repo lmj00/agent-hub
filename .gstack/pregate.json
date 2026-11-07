@@ -56,7 +56,8 @@
       "apps/server/tests/work-release.test.ts",
       "apps/server/tests/runtime-skill-store.test.ts",
       "apps/server/tests/runtime-skill-evidence.test.ts",
-      "apps/server/tests/change-application.test.ts"
+      "apps/server/tests/change-application.test.ts",
+      "apps/server/tests/goal-verification.test.ts"
     ],
     "apps/web/src/**": [
       "apps/web/e2e/workspace.spec.ts",
@@ -119,7 +120,8 @@
       "apps/web/e2e/workspace.spec.ts",
       "apps/web/tests/api.test.ts",
       "apps/server/tests/runtime-skill-store.test.ts",
-      "apps/server/tests/runtime-skill-evidence.test.ts"
+      "apps/server/tests/runtime-skill-evidence.test.ts",
+      "apps/server/tests/goal-verification.test.ts"
     ],
     "scripts/run-selected-tests.mjs": [
       "apps/server/tests/analysis-workflow.test.ts",
@@ -176,7 +178,8 @@
       "apps/web/e2e/workspace.spec.ts",
       "apps/web/tests/api.test.ts",
       "apps/server/tests/runtime-skill-evidence.test.ts",
-      "apps/server/tests/change-application.test.ts"
+      "apps/server/tests/change-application.test.ts",
+      "apps/server/tests/goal-verification.test.ts"
     ],
     "apps/server/skills/gstack/**": [
       "apps/server/tests/runtime-skills.test.ts",

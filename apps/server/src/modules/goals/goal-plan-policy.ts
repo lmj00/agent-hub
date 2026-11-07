@@ -8,6 +8,7 @@ import {
   type PlanningService,
 } from "@agent-hub/contracts";
 import { AnalysisError } from "../execution/analysis.js";
+import type { GoalVerification } from "./goal-verification.js";
 import {
   allowedGoalPath,
   privateInputPath,
@@ -29,6 +30,7 @@ export type PlanResult = {
   proposal: string;
   createdTaskIds: string[];
   reason: string | null;
+  verification?: GoalVerification;
   suppressed?: {
     proposalIndex: number;
     title: string;

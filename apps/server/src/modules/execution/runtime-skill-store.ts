@@ -18,7 +18,7 @@ function expectedRole(
   sequence: number,
 ): RuntimeSkillRole {
   return task.kind === "planning"
-    ? "planner"
+    ? sequence === 1 ? "planner" : "reviewer"
     : task.plannedWork
       ? sequence % 2 === 1
         ? "developer"

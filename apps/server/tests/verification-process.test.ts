@@ -196,6 +196,15 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
       writeFileSync(join(workspace, path), content);
     }
 
+    test("verifies a read-only Goal snapshot with no developer write paths", async () => {
+      const selected = request();
+      selected.development!.writePaths = [];
+      const result = await executor.analyze(selected, record);
+      expect(result.verification).toMatchObject({ status: "passed", exitCode: 0, inputDigest: selected.development!.inputDigest });
+      expect(result.output).toContain("calculation verified");
+      expect(readFileSync(join(workspace, "src/main.mjs"), "utf8")).toBe(files["src/main.mjs"]);
+    });
+
     test("checks actual candidate bytes without authentication, external network or host write access", async () => {
       replace(
         "tests/verify.mjs",

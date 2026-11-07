@@ -21,6 +21,13 @@ const input: DevelopmentExecutionInput = {
   ],
 };
 
+test("only fixed verification accepts an input without developer write paths", () => {
+  const readonly = { ...input, writePaths: [] };
+  expect(() => parseDevelopmentInput(readonly)).toThrow();
+  expect(parseDevelopmentInput(readonly, { verification: true }).writePaths).toEqual([]);
+  expect(() => parseDevelopmentInput({ ...readonly, files: [{ ...input.files[0]!, path: "src/.env" }] }, { verification: true })).toThrow();
+});
+
 test("maps file and missing paths to existing sandbox directories without broadening accepted Task changes", () => {
   expect(
     developmentWriteDirectories({

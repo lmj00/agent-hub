@@ -82,6 +82,7 @@ export function developmentWriteDirectories(input: DevelopmentExecutionInput) {
 
 export function parseDevelopmentInput(
   value: unknown,
+  options: { verification?: boolean } = {},
 ): DevelopmentExecutionInput {
   if (
     !object(value) ||
@@ -102,7 +103,7 @@ export function parseDevelopmentInput(
       (path) => path !== "." && !validPath(path),
     ) ||
     !Array.isArray(value.writePaths) ||
-    !value.writePaths.length ||
+    (!value.writePaths.length && !options.verification) ||
     value.writePaths.length > 20 ||
     !Array.isArray(value.files) ||
     value.files.length > maxFiles

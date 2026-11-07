@@ -18,6 +18,7 @@ import { saveRunCompletion } from "./run-completion-store.js";
 import { preparedGoalChanged, readGoalScope, savePreparedInput, savePlanningProposal, savePlanningInput } from "../goals/prepared-input-store.js";
 import { readPlanningContext } from "../goals/planning-store.js";
 import { applyPlanningCompletion } from "../goals/plan-application.js";
+import { saveGoalVerification } from "../goals/goal-verification.js";
 import { pauseCancelledPlan } from "../goals/planning-cancellation.js";
 import { revalidateGoalWork } from "../goals/revalidate-goal-work.js";
 import { assertDevelopmentExecutionReady, saveDevelopmentUpdate } from "../goals/development-journal.js";
@@ -211,6 +212,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         if (event.planningProposal !== undefined) savePlanningProposal(tx, run, event.planningProposal, event.kind);
         const now = new Date();
         if (event.development) saveDevelopmentUpdate(tx, run, event.development, event.kind, now);
+        if (event.goalVerification) saveGoalVerification(tx, run, event.goalVerification, event.kind, now);
         if (event.runtimeSkill) saveRuntimeSkillUpdate(tx, run, event.runtimeSkill, event.kind, now);
         if (event.execution) assertDevelopmentExecutionReady(tx, run);
         recordExecution(tx, run, event, now);
@@ -230,7 +232,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         const run = tx.select().from(runs).where(and(eq(runs.id, runId), eq(runs.instanceId, instanceId), eq(runs.status, "running"))).get();
         if (!run) throw new Error("Cannot finish a run not owned by this executor");
         completion = settleDevelopmentCompletion(tx, run, completion);
-        if (run.workflowPolicy && completion.status === "succeeded") {
+        if (run.workflowPolicy && !run.planResult?.verification && completion.status === "succeeded") {
           const lastStep = tx.select().from(steps).where(eq(steps.runId, runId)).orderBy(desc(steps.sequence)).get();
           if (!lastStep?.assessment?.complete || lastStep.assessment.report !== completion.result) completion = { ...completion, status: "blocked", result: null, errorCode: "invalid_plan" };
         }

@@ -88,7 +88,7 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
           const inputRoot = preparedInputRoot(databasePath);
           cleanupConfirmedInputs(database.db, inputRoot);
           const baseExecutor = execution.executor ?? createConfiguredExecutor(execution.config);
-          const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot, database.db), development: baseExecutor, config: execution.config, inputRoot, repositoryRoot: developmentRoot(databasePath), ownerToken: owner.token });
+          const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot, database.db, execution.config), development: baseExecutor, config: execution.config, inputRoot, repositoryRoot: developmentRoot(databasePath), ownerToken: owner.token });
           const developmentWorkspaceKeys = configuredDevelopmentWorkspaces(execution.config, baseExecutor);
           const planning = createPlanningStore(database.db, owner.token);
           canTrackTermination = typeof executor.confirmTermination === "function";

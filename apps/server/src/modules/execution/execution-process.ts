@@ -88,7 +88,7 @@ export function createContainerExecutor(
       if (request.development) {
         if (request.workflow || request.responseMode === "goal-plan")
           throw new AnalysisError("unsupported_settings");
-        request = { ...request, development: parseDevelopmentInput(request.development) };
+        request = { ...request, development: parseDevelopmentInput(request.development, { verification: !!request.verification }) };
       }
       if (request.verification) {
         request = { ...request, verification: parseVerificationRequest(request.verification) };

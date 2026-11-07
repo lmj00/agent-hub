@@ -36,7 +36,7 @@ export type PreparedInput = {
   phase: "preparing" | "ready";
   revision: string | null;
   digest: string | null;
-  files: { path: string; blob: string; bytes: number }[];
+  files: { path: string; blob: string; bytes: number; mode?: "100644" | "100755" }[];
 };
 const maxFiles = 500,
   maxFileBytes = 1048576,
@@ -196,7 +196,7 @@ export async function prepareGitWorkspace(
   const files = scopedGitFiles(
     await readGitTree(snapshot.directory, revision, signal),
     intent.scope,
-  ).map(({ path, blob, bytes }) => ({ path, blob, bytes }));
+  );
   const contents = await readGitBlobs(snapshot.directory, files, signal);
   for (const [index, file] of files.entries()) {
     signal.throwIfAborted();
@@ -204,7 +204,7 @@ export async function prepareGitWorkspace(
     if (!isWithin(intent.directory, destination) || file.path === marker)
       throw new Error("Invalid prepared destination");
     mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
-    writeFileSync(destination, contents[index]!, { mode: 0o600, flag: "wx" });
+    writeFileSync(destination, contents[index]!, { mode: file.mode === "100755" ? 0o700 : 0o600, flag: "wx" });
   }
   // A fresh Git root prevents discovery of configuration in the server's ancestor repository.
   await git(intent.directory, ["init", "--quiet", "--template="], signal);

@@ -879,18 +879,109 @@ REALITY: obligation-tiers pass S1~S3 필수, 전체 도구 설치는 별도 능�
 
 검토 요약: scope accepted as-is. Architecture 3건, Code Quality 1건, Test GAP 8개, Performance 1건으로 13건을 구현에 연결했습니다. 현실 확인 12개와 미검증 전제 2개를 기록했습니다. 오류 처리와 검증 계획이 모두 빠진 무음 실패 경로는 0개, 미결정 선택은 0개입니다. Suppressed findings: 없음.
 
+## 5f 유한 목표 완료 판정 검토
+
+검토 대상은 이 문서 5f의 목표 완료 계약입니다. 기존 T4와 S1~S3, 자동 계획 시작은 구현·검증됐습니다. 마지막 작업의 성공은 전체 목표의 달성을 뜻하지 않으므로, 총괄의 완료 제안 뒤 **현재 코드의 실제 테스트와 목표 전체에 대한 별도 검토**를 수행합니다. 이 절은 구현 계획이며 아래 검증을 마치기 전에는 완료 기록으로 보지 않습니다.
+
+### 범위와 결정 근거
+
+사용자는 일반 구현 선택의 독립 판단과 끝까지 구현·검증·커밋·푸시를 위임했습니다. 아래 R8~R10은 그 범위에서 내린 결정이며 새 질문이나 외부 서비스 변경 권한을 만들지 않습니다. Scope Challenge: scope accepted as-is. 계획한 변경은 기존 실행·계획·조회 경계를 포함해 약 15~20개 파일, 새 업무 모듈 1개와 서비스/프로세스 0개입니다(추정). 파일을 줄이려고 기존 테스트·권한 경계를 합치지 않습니다. 별도 검증 서버를 추가하는 구조 대신 기존 계획 실행과 저장 모듈을 확장합니다.
+
+| 결정 | 채택한 방법 | 대안과 제외 이유 |
+| --- | --- | --- |
+| R8 | 완료를 제안한 계획 Run 안에서 고정 테스트와 별도 읽기 전용 검토를 순서대로 실행 | 마지막 개발 작업의 검토 재사용은 그 작업만 검증하므로 전체 목표의 완료 근거로 부족함. 별도 검증 Task는 예약·취소·복구 경계를 하나 더 만듦 |
+| R9 | 목표·코드 버전·자료 해시·테스트 설정·실제 결과·검토 Step과 종료 근거를 저장하고 완료 때 다시 대조 | 모델의 완료 문장이나 성공 Task 개수만으로 판정하면 오래된 코드·빠진 요구를 통과시킬 수 있음 |
+| R10 | Goal 완료와 버전 이력, 계획 적용, Run/Task 성공을 같은 SQLite 트랜잭션으로 저장 | Goal을 먼저 닫거나 이력 없이 상태만 바꾸면 저장 실패·재시작 때 서로 다른 상태가 남음 |
+
+Approval readiness: PASS(R8~R10). Actual answer: 사용자의 일반 결정 자율 위임, 무인 목표 달성·실제 검증·기록 보존 요구. 구조 선택은 기존 모듈 확장, 회귀 계약은 예산·취소·종료·재시작·중복 방지 보존입니다. 선택 기능인 외부 모델 검토는 기존 disabled 설정을 유지합니다.
+
+### Architecture review
+
+- A1 [HIGH, confidence 10/10]: `development-workflow.ts`의 `Work only on this Task.`는 작업 검토 범위를 명시합니다. 이를 목표 전체의 검증으로 승격하지 않습니다(R8). 이미 코드가 완성된 목표도 새 수정 작업을 억지로 만들지 않고 같은 완료 검증을 사용합니다.
+- A2 [HIGH, confidence 10/10]: `plan-application.ts`의 `if (plan.outcome === "complete") return reject("verification_required");`를 검증 근거 대조로 교체합니다(R9). 지속 관리 목표의 완료 제안은 대기로 처리합니다. 유한 목표는 미완료·억제 작업과 종료·복구 미확정 기록을 전체 이력에서 검사합니다.
+- A3 [HIGH, confidence 10/10]: 일반 완료와 복구의 `applyPlanningCompletion` 뒤 `preparedGoalChanged` 검사는 자체 완료로 버전이 오른 Goal도 거부하게 됩니다. 목표 변경 검사를 적용 전에 수행하고, 계획 적용 내부의 재검사와 함께 원자성을 유지합니다(R10).
+
+구조 대안: `GoalVerificationService`가 별도 검증 Task를 예약하는 구조와 기존 계획 Run이 검증을 이어가는 구조를 비교했습니다. 후자를 채택해 `goal-verification` 모듈이 검증 기록의 규칙을 소유하고 기존 `prepared-executor`가 실행을 조율합니다. 표현·저장 규칙의 중복, 단계별 얕은 래퍼, 두 가지 완료 경로를 추가하지 않습니다. 새 프로세스·패키지·공개 실행 권한은 없습니다. Dispositions: A1~A3 accepted(R8~R10).
+
+```text
+계획 자료 준비 -> 총괄 제안 저장
+  +-- work/wait -----------------------> 기존 원자적 계획 적용
+  +-- continuous complete ------------> 다음 점검 예약
+  +-- finite complete
+       -> 검증 의도 저장 + 첫 Step 종료
+       -> 인증 없는 고정 테스트 -> 실제 종료/결과 저장
+       -> 두 번째 AI 호출 예산 예약 -> 별도 목표 검토 -> 종료/결과 저장
+       -> 현재 목표/코드/전체 미완료 이력/검증 근거 대조
+            +-- 불일치/실패 -> 근거와 보류 사유 보존
+            +-- 일치 -> Goal/버전 이력/계획/Run/Task 함께 완료
+```
+
+### Code quality review
+
+- Q1 [HIGH, confidence 9/10]: `saveWorkflowStep`은 저장된 정책과 예산을 확인합니다. 이를 재사용해 두 번째 검토 호출도 기존 호출 수·effort·시간·취소 제한을 받게 합니다. 테스트는 AI 호출로 계산하지 않습니다. 최초 완료 제안 뒤에만 최대 두 AI Step 정책을 저장합니다. 검증 입력의 빈 쓰기 경로는 테스트 전용 파싱에서만 허용하며 개발 호출의 쓰기 계약은 유지합니다.
+- 검증 설정·결과는 계획 결과와 함께 읽는 문서형 자료로 저장합니다. 별도 테이블·마이그레이션을 선제적으로 추가하지 않습니다. 부모가 만든 검증 이벤트만 저장하고 실행 자식의 같은 이름 필드는 수용하지 않습니다. Disposition: Q1 accepted(R9). 기존 일반 완료·복구가 같은 판정 함수를 호출하며, 테스트/출력/종료 처리 자체는 재작성하지 않습니다. 코드 절감 수치는 주장하지 않으며 검증 때문에 전체 코드량은 증가합니다.
+
+### Test review
+
+기존 `goal-planning.test.ts`의 실제 SQLite/Git 준비·계획 생성·재시작 검사를 확장하고 목표 완료 경계 검사를 추가합니다. Vitest와 실제 Docker, 기존 Chromium 시나리오를 사용합니다. 아래 GAP은 계획 시점이며 테스트 개수를 성과로 사용하지 않습니다.
+
+```text
+기존 계획/예산/취소            [기존 테스트] work/wait 동작 유지
+완료 제안 -> 고정 테스트       [GAP F1, E2E] 실제 입력/설정/종료 일치
+테스트 -> 별도 목표 검토       [GAP F2, E2E/EVAL] 예산과 reviewer 지침 기록
+Goal 원자적 완료/이력          [GAP F3, E2E] 무변경 목표, 중복, 롤백
+현재 근거와 불일치             [GAP F4] 목표/코드/결과/Step/종료/지침 변조 거부
+미완료/취소/억제/복구          [GAP F5] 축약 프롬프트 밖 기록도 검사
+재시작                        [GAP F6, E2E] 저장된 검증만 대조, 재호출 없음
+지속 관리/검토 거부            [GAP F7] active 유지, 점검 또는 보류 사유
+실제 두 Task 누적 변경         [GAP F8, EVAL] 실제 Codex, 별도 최종 검산
+```
+
+F1~F7은 잘못된 완료·예산 우회·오래된 근거 수용·부분 저장 회귀를 잡는 검사입니다. 테스트 전용 생산 코드 진입점은 추가하지 않습니다. 대역 모델 검사는 실제 모델 품질을 증명하지 않으며 F8에서 실제 호출을 따로 확인합니다. F8은 자동 목표 등록에서 시작하고 Task/Run 성공 기록을 수동으로 만들지 않습니다. 취소·목표 수정·예산·재시작은 결정적인 통합 검사로 확인하고, 실제 모델 실행에는 시간·호출 상한을 둡니다. 테스트 폐기 없음. Disposition: F1~F8 accepted(R8~R10 및 기존 5f 완료 기준).
+
+### Performance review
+
+완료 제안 때만 고정 테스트 한 번과 독립 AI 검토 한 번을 추가합니다. work/wait와 지속 관리 대기에는 추가 호출하지 않습니다. 최대 두 AI Step과 세 컨테이너이며 기존 Run 제한을 넘기지 않습니다. 전체 작업 검사는 DB에서 수행하며 프롬프트의 최근 20건으로 대체하지 않습니다. DB 트랜잭션 안에서 테스트·AI·Git 명령을 실행하지 않습니다. 새 성능 수치는 측정하지 않았습니다. 새 성능 이슈 없음.
+
+### 기존 기능·실패 처리·제외 범위
+
+재사용: `createPreparedExecutor`의 확정된 코드 사본, `runVerificationContainer`의 인증 없는 테스트, `saveWorkflowStep`의 예산·effort, 실행 종료 기록, `applyPlanningCompletion`의 원자적 반영, Goal 버전 이력. 테스트 실패·불완전 검토는 성공으로 바꾸지 않습니다. 검증 중 취소·예산 소진·소유자 상실에는 기존 보류/중단 규칙을 유지합니다. 최종 저장 실패는 전체 트랜잭션을 되돌리고 재시작 때 보존된 근거를 대조합니다. 각 경로는 F1~F7로 확인하므로 오류 처리와 테스트 계획이 모두 없는 무음 실패는 0개입니다.
+
+NOT in scope: 운영 배포·실제 거래 변경은 기존 권한 밖입니다. 운영 준비·장기 검증은 전체 목표의 다음 단계로 유지합니다. 새 TODO·범위 축소 없음. Sequential implementation, no parallelization opportunity.
+
+### Implementation Tasks — 5f 완료
+
+- [x] **F1 (P1, human: 1~2일 / CC: 1~3시간, 추정)** — 목표 검증 실행·저장·예산·지침 연결. A1/Q1/F1/F2/F4에서 도출. 실제 SQLite/Git로 저장·거부·예산·목표 변경·종료 경계를 확인하고, 실제 Docker에서 수정 경로 없는 검증 자료를 테스트했습니다. 모델 응답과 실행 기록을 주입한 검사이며 실제 모델 품질은 F3에 남습니다. Goal 상태 변경은 F2에서 연결합니다.
+- [ ] **F2 (P1, human: 1일 / CC: 1~2시간, 추정)** — F1 뒤 원자적 Goal 완료·이력·조회와 재시작/중복 검증. A2/A3/F3/F5/F6/F7에서 도출. goals/execution/contracts/web과 테스트를 변경하고 인증된 화면을 확인합니다.
+- [ ] **F3 (P1, human: 0.5~1일 / CC: 0.5~2시간, 추정)** — F2 뒤 실제 두 Task 누적 실행·최종 검산. F8과 기존 5f 기준에서 도출. 검증 결과와 한계를 기록합니다.
+
+기존 검토 목록 T4는 0786f98, S1~S3는 기존 구현과 실제 S3 검증으로 완료됐습니다. 위 세 작업은 순차 커밋 단위이며 별도 병렬 PR은 만들지 않습니다. 시간은 기존 실행·저장 구조 재사용을 가정한 추정입니다.
+
+F1은 준비한 자료의 Git 실행 권한도 보존하며, 개발 권한 없는 테스트 입력을 허용합니다. 같은 Run에서 계획·테스트·검토를 순서대로 실행하고 각 결과를 먼저 저장합니다. 검토는 전체 목표 정의와 실제 테스트 결과를 받습니다. 이 내부 검증 기록만으로 현재 Goal을 완료하지 않으며 F2의 최종 상태·조회·복구 연결이 필요합니다. 검토 중 발견한 계획 근거 12개와 Step 요약 8개 상한의 차이는 원본을 보존한 요약 변환으로 처리하고, 정상적인 12개 근거 제안을 회귀 검사에 포함했습니다.
+
+REALITY: premise-table pass unverified=1 실제 두 Task 누적 모델 수행은 F3에서 확인 docs/02-implementation-plan.md:281
+REALITY: already-done pass origin/main f70d41a까지 확인, 자동 계획과 반영 코드 연결 재구현 없음 apps/server/src/modules/goals/prepared-executor.ts:19
+REALITY: surface-check pass 실제 scripts와 검증 실행 함수 확인 package.json:12
+REALITY: binding-decisions pass 단일 Run·자율 판단·검증·기록 보존 유지 AGENTS.md:20
+REALITY: numbers pass 두 AI Step과 세 컨테이너는 제안된 계획/테스트/검토에서 집계, 일정은 추정 apps/server/src/modules/execution/analysis.ts:19
+REALITY: deferred-asks pass 연결 이슈 없음, 실제 두 Task와 운영 준비는 다음 단위에 유지 docs/02-implementation-plan.md:281
+REALITY: pr-count pass 세 순차 커밋, 추가 병렬 PR 없음 AGENTS.md:16
+REALITY: transaction-semantics pass 기존 SQLite immediate 트랜잭션 재사용, DB 밖에서 실제 실행 apps/server/src/modules/execution/drizzle-run-store.ts:227
+
+검토 요약: scope accepted as-is, Architecture 3건, Code Quality 1건, Test 8 GAP, Performance 0건. 현실 확인 8개, 미검증 전제 1개. 미결정 0개, 새 TODO 0개, 무음 실패 계획 누락 0개. 외부 모델 검토 disabled, 별도 모델의 찬성으로 주장하지 않습니다. Lake Score N/A(질문 없음). Suppressed findings: 없음.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 | --- | --- | --- | --- | --- | --- |
 | CEO Review | `/plan-ceo-review` | 제품 범위 | 0 | NOT RUN | 기존 범위 유지 |
-| Outside Review | 설정 disabled | 독립 모델 검토 | 2 | DISABLED | 외부 검토 없음 |
-| Eng Review | `/plan-eng-review` | 내부 gstack 지침·실행 경계 | 3 | ISSUES OPEN | 13건 구현 계획 확정. S1~S3·기존 T4 검증 대기 |
+| Outside Review | 설정 disabled | 독립 모델 검토 | 3 | DISABLED | 외부 검토 없음 |
+| Eng Review | `/plan-eng-review` | 유한 목표 완료·검증·복구 | 4 | ISSUES OPEN | 12건 구현 계획 확정. F1~F3 검증 대기 |
 | Design Review | `/plan-design-review` | UI/UX | 0 | NOT RUN | 화면 반영은 T4 검증에 포함 |
 | DX Review | `/plan-devex-review` | 개발 경험 | 0 | NOT RUN | 별도 검토 없음 |
 
 **OUTSIDE COVERAGE:** host=Codex, provider=claude-code, phase=plan-review, outside_status=disabled. 외부 모델 호출 없음.
 
-**VERDICT:** 내부 에이전트의 gstack 지침 적용·무결성·실행 이력 검증 계획을 확정했습니다. 개발용 gstack 설정, S1 지침 묶음·로더와 S2 호출·저장 연결은 구현했고, S3 화면·실제 모델 적용까지 확인했습니다. 기존 변경 반영 T4와 5f 자율 실행은 구현·검증 대기입니다. 위 검토 본문의 GAP·현실 확인은 계획 검토 당시의 기록이며, 이후 구현 결과는 Implementation Tasks에 구분합니다. 계획 검토를 기능 검증 통과로 표시하지 않습니다.
+**VERDICT:** 유한 목표 완료의 F1~F3 구현 계획을 확정했습니다. T4 변경 반영, S1~S3 지침 적용, 자동 계획과 반영 코드 연결은 구현했습니다. 이번 계획은 아직 구현 검증 전이며 eng review required 상태를 실제 변경 검토에서 해소합니다. 본문의 GAP·현실 확인은 각 계획 검토 당시의 기록이며 계획 검토를 기능 검증 통과로 표시하지 않습니다.
 
 NO UNRESOLVED DECISIONS
