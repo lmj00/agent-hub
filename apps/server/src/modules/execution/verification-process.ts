@@ -13,6 +13,35 @@ import {
 } from "./verification-config.js";
 
 const maxOutputBytes = 2 * 1024 * 1024;
+const maxStoredOutputBytes = 65536;
+
+function summarizeOutput(stdout: Buffer[], stderr: Buffer[]) {
+  // Decode and redact each pipe as a whole. Arrival order across pipes must not
+  // split UTF-8 characters or credentials, or bury stderr inside a stdout cut.
+  const out = Buffer.from(redactOutput(Buffer.concat(stdout).toString("utf8")));
+  const err = Buffer.from(redactOutput(Buffer.concat(stderr).toString("utf8")));
+  const trim = (value: Buffer, limit: number) => {
+    if (value.length <= limit) return value.toString("utf8");
+    const marker = "\n... test output truncated ...\n";
+    // Each cut may decode to a three-byte UTF-8 replacement character.
+    const edge = Math.floor((limit - Buffer.byteLength(marker) - 6) / 2);
+    return (
+      value.subarray(0, edge).toString("utf8") +
+      marker +
+      value.subarray(-edge).toString("utf8")
+    );
+  };
+  if (!out.length) return trim(err, maxStoredOutputBytes);
+  if (!err.length) return trim(out, maxStoredOutputBytes);
+  const separator = "\n--- stderr ---\n";
+  const available = maxStoredOutputBytes - Buffer.byteLength(separator);
+  const errLimit = Math.min(
+    err.length,
+    available - Math.min(out.length, Math.floor(available / 2)),
+  );
+  return trim(out, available - errLimit) + separator + trim(err, errLimit);
+}
+
 export function verificationRunnerInput(request: AnalysisRequest) {
   const verification = parseVerificationRequest(request.verification);
   if (
@@ -44,12 +73,13 @@ export async function runVerificationContainer(
   let bytes = 0,
     interrupted: "timed_out" | "output_limit" | undefined;
   let stopping: Promise<Date | null> | undefined;
-  const chunks: Buffer[] = [];
+  const stdout: Buffer[] = [],
+    stderr: Buffer[] = [];
   const stop = () => {
     stopping ??= confirmTermination();
     child.kill("SIGKILL");
   };
-  const receive = (chunk: Buffer) => {
+  const receive = (chunks: Buffer[], chunk: Buffer) => {
     if (bytes >= maxOutputBytes) return;
     const remaining = maxOutputBytes - bytes;
     chunks.push(chunk.subarray(0, remaining));
@@ -59,8 +89,8 @@ export async function runVerificationContainer(
       stop();
     }
   };
-  child.stdout!.on("data", receive);
-  child.stderr!.on("data", receive);
+  child.stdout!.on("data", (chunk: Buffer) => receive(stdout, chunk));
+  child.stderr!.on("data", (chunk: Buffer) => receive(stderr, chunk));
   const onAbort = () => stop();
   request.signal.addEventListener("abort", onAbort, { once: true });
   const timer = setTimeout(() => {
@@ -82,15 +112,7 @@ export async function runVerificationContainer(
       throw new AnalysisError("provider_error", true);
     request.signal.throwIfAborted();
     const exit = await readContainerExit(identity);
-    const redacted = Buffer.from(
-      redactOutput(Buffer.concat(chunks).toString("utf8")),
-    );
-    // Preserve the final assertion/stack trace as well as startup context.
-    // Leave byte margin for UTF-8 replacement characters at either cut.
-    const output =
-      redacted.length <= 65533
-        ? redacted.toString("utf8")
-        : `${redacted.subarray(0, 32700).toString("utf8")}\n... test output truncated ...\n${redacted.subarray(-32700).toString("utf8")}`;
+    const output = summarizeOutput(stdout, stderr);
     const result: VerificationResult = {
       candidateDigest: verification.candidateDigest,
       inputDigest: request.development!.inputDigest,

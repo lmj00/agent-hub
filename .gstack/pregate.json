@@ -207,6 +207,11 @@
     ],
     "apps/server/tests/fixtures/legacy-*": [
       "apps/server/tests/legacy-runner.test.ts"
+    ],
+    "apps/server/src/modules/execution/verification-process.ts": [
+      "apps/server/tests/verification-output.test.ts",
+      "apps/server/tests/verification-process.test.ts",
+      "apps/server/tests/development-executor.test.ts"
     ]
   }
 }
