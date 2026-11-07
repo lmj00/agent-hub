@@ -54,7 +54,8 @@
       "apps/server/tests/verification-process.test.ts",
       "apps/server/tests/web.test.ts",
       "apps/server/tests/work-release.test.ts",
-      "apps/server/tests/runtime-skill-store.test.ts"
+      "apps/server/tests/runtime-skill-store.test.ts",
+      "apps/server/tests/runtime-skill-evidence.test.ts"
     ],
     "apps/web/src/**": [
       "apps/web/e2e/workspace.spec.ts",
@@ -116,7 +117,8 @@
       "apps/server/tests/work-release.test.ts",
       "apps/web/e2e/workspace.spec.ts",
       "apps/web/tests/api.test.ts",
-      "apps/server/tests/runtime-skill-store.test.ts"
+      "apps/server/tests/runtime-skill-store.test.ts",
+      "apps/server/tests/runtime-skill-evidence.test.ts"
     ],
     "scripts/run-selected-tests.mjs": [
       "apps/server/tests/analysis-workflow.test.ts",
@@ -171,7 +173,8 @@
       "apps/server/tests/web.test.ts",
       "apps/server/tests/work-release.test.ts",
       "apps/web/e2e/workspace.spec.ts",
-      "apps/web/tests/api.test.ts"
+      "apps/web/tests/api.test.ts",
+      "apps/server/tests/runtime-skill-evidence.test.ts"
     ],
     "apps/server/skills/gstack/**": [
       "apps/server/tests/runtime-skills.test.ts",
@@ -212,6 +215,10 @@
       "apps/server/tests/verification-output.test.ts",
       "apps/server/tests/verification-process.test.ts",
       "apps/server/tests/development-executor.test.ts"
+    ],
+    "apps/server/src/modules/execution/runtime-skill-evidence.ts": [
+      "apps/server/tests/runtime-skill-evidence.test.ts",
+      "apps/web/e2e/workspace.spec.ts"
     ]
   }
 }

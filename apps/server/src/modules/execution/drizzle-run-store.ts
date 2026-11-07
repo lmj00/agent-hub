@@ -22,6 +22,7 @@ import { pauseCancelledPlan } from "../goals/planning-cancellation.js";
 import { revalidateGoalWork } from "../goals/revalidate-goal-work.js";
 import { assertDevelopmentExecutionReady, saveDevelopmentUpdate } from "../goals/development-journal.js";
 import { readDevelopmentEvidence } from "./development-evidence.js";
+import { readRuntimeSkillEvidence } from "./runtime-skill-evidence.js";
 import { runtimeSkillPolicyVersion } from "./runtime-skills.js";
 import { requireRuntimeSkillEvidence, saveRuntimeSkillUpdate } from "./runtime-skill-store.js";
 
@@ -246,9 +247,11 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         result: run.result, errorCode: run.errorCode,
         planningEvidence: run.planningInput ? { capturedAt: run.planningInput.capturedAt, services: run.planningInput.services, counts: run.planningInput.counts } : null,
         developmentEvidence: readDevelopmentEvidence(db, run),
+        runtimeSkillVersion: run.runtimeSkillVersion,
         stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt, terminationConfirmedAt: run.terminationConfirmedAt, retryAt: run.retryAt,
-        steps: db.select({ sequence: steps.sequence, status: steps.status, sessionId: steps.sessionId, effort: steps.effort, effortReason: steps.effortReason, effortPolicyVersion: steps.effortPolicyVersion, proposedEffort: steps.proposedEffort, purpose: steps.purpose, model: steps.model, assessment: steps.assessment, usage: steps.usage, startedAt: steps.startedAt, finishedAt: steps.finishedAt })
-          .from(steps).where(eq(steps.runId, id)).orderBy(asc(steps.sequence)).all(),
+        steps: db.select({ sequence: steps.sequence, status: steps.status, sessionId: steps.sessionId, effort: steps.effort, effortReason: steps.effortReason, effortPolicyVersion: steps.effortPolicyVersion, proposedEffort: steps.proposedEffort, purpose: steps.purpose, model: steps.model, assessment: steps.assessment, usage: steps.usage, startedAt: steps.startedAt, finishedAt: steps.finishedAt, runtimeSkill: steps.runtimeSkill, runtimeSkillSelectedAt: steps.runtimeSkillSelectedAt, runtimeSkillLoadedAt: steps.runtimeSkillLoadedAt })
+          .from(steps).where(eq(steps.runId, id)).orderBy(asc(steps.sequence)).all()
+          .map(({ runtimeSkillSelectedAt, runtimeSkillLoadedAt, ...step }) => ({ ...step, runtimeSkill: readRuntimeSkillEvidence({ runtimeSkill: step.runtimeSkill, runtimeSkillSelectedAt, runtimeSkillLoadedAt }) })),
         events: db.select({ sequence: events.sequence, kind: events.kind, createdAt: events.createdAt })
           .from(events).where(eq(events.runId, id)).orderBy(asc(events.sequence)).all(),
       };

@@ -36,10 +36,11 @@ export const executionRoutes: FastifyPluginAsync<{
       planningEvidence: run.planningEvidence ?? null,
       developmentEvidence: run.developmentEvidence ?? null,
       ...summary(run), result: run.result, errorCode: run.errorCode, lastActivityAt: run.lastActivityAt.toISOString(),
+      runtimeSkillVersion: run.runtimeSkillVersion ?? null,
       stopReason: run.stopReason, stopRequestedAt: run.stopRequestedAt?.toISOString() ?? null,
       terminationConfirmedAt: run.terminationConfirmedAt?.toISOString() ?? null,
       retryAt: run.retryAt?.toISOString() ?? null,
-      steps: run.steps.map(step => ({ ...step, startedAt: step.startedAt.toISOString(), finishedAt: step.finishedAt?.toISOString() ?? null })),
+      steps: run.steps.map(step => ({ ...step, runtimeSkill: step.runtimeSkill ?? null, startedAt: step.startedAt.toISOString(), finishedAt: step.finishedAt?.toISOString() ?? null })),
       events: run.events.map(event => ({ ...event, createdAt: event.createdAt.toISOString() })),
     };
   });

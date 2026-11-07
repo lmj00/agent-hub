@@ -19,7 +19,8 @@ import { createServer } from "node:http";
 import { openDatabase } from "../../server/dist/db/connection.js";
 import { createDrizzleProjectStore } from "../../server/dist/modules/projects/drizzle-project-store.js";
 import { createDrizzleGoalStore } from "../../server/dist/modules/goals/drizzle-goal-store.js";
-import { tasks, runs, developmentRepositories, developmentRounds } from "../../server/dist/db/schema.js";
+import { tasks, runs, steps, developmentRepositories, developmentRounds } from "../../server/dist/db/schema.js";
+import { loadRuntimeSkill } from "../../server/dist/modules/execution/runtime-skills.js";
 import { preparedInputRoot } from "../../server/dist/modules/goals/prepared-workspace.js";
 import { buildPlanningInput } from "../../server/dist/modules/goals/goal-plan-policy.js";
 import { loadServiceConfig } from "../../server/dist/modules/services/service-config.js";
@@ -164,6 +165,19 @@ database.db.insert(runs).values({ id: evidenceRunId, taskId: evidenceTaskId, ins
 // Historical read-side fixture: no real model, Git write or test execution is
 // represented by these rows. Runtime suites cover their authoritative writers.
 const developmentProjectId = randomUUID(), developmentTaskId = randomUUID(), developmentRunId = randomUUID(), repositoryId = randomUUID();
+// Persisted read-side examples only; this fixture never invokes a model.
+const skillProjectId = randomUUID(), skillTime = new Date();
+createDrizzleProjectStore(database.db).save({ id: skillProjectId, name: "지침 기록 예제", workspaceKey: "example", createdAt: skillTime });
+for (const [title, role, loaded] of [["읽기 확인 기록", "analyst", true], ["선택만 된 기록", "planner", false], ["선택 전 중단 기록", null, false]]) {
+  const taskId = randomUUID();
+  database.db.insert(tasks).values({ id: taskId, projectId: skillProjectId, instruction: title, requestKey: taskId, status: "blocked", createdAt: skillTime }).run();
+  for (const attempt of [1, 2]) {
+    const runId = randomUUID();
+    const selection = attempt === 2 && role ? loadRuntimeSkill(role).selection : null;
+    database.db.insert(runs).values({ id: runId, taskId, attempt, instanceId: "fixture", status: "blocked", runtimeSkillVersion: attempt === 2 ? 1 : null, model: "fixture", effort: "medium", startedAt: skillTime, lastActivityAt: skillTime, finishedAt: skillTime, terminationConfirmedAt: skillTime, errorCode: "unsupported_settings" }).run();
+    database.db.insert(steps).values({ id: randomUUID(), runId, sequence: 1, status: "blocked", startedAt: skillTime, finishedAt: skillTime, runtimeSkill: selection, runtimeSkillSelectedAt: selection ? skillTime : null, runtimeSkillLoadedAt: selection && loaded ? skillTime : null }).run();
+  }
+}
 const timestamp = new Date();
 createDrizzleProjectStore(database.db).save({ id: developmentProjectId, name: "개발 검증 예제", workspaceKey: "example", createdAt: timestamp });
 database.db.insert(tasks).values({ id: developmentTaskId, projectId: developmentProjectId, instruction: "계산 오류 수정 기록", requestKey: developmentTaskId, status: "blocked", createdAt: timestamp }).run();

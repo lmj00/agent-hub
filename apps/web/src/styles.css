@@ -917,6 +917,20 @@ a {
 .notice-facts dd {
   margin: 0;
 }
+.runtime-skills {
+  margin-top: 24px;
+}
+.runtime-skills .notice-facts > div {
+  flex-wrap: wrap;
+}
+.runtime-skills dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.runtime-skill-identifiers > div {
+  display: block;
+  margin-top: 8px;
+}
 .notice code {
   display: block;
   margin-top: 5px;

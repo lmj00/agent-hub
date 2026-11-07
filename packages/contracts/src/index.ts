@@ -336,10 +336,32 @@ export const developmentEvidenceSchema = object({
   rounds: Type.Array(developmentRoundSchema, { maxItems: 3 }),
 });
 export type DevelopmentEvidence = Static<typeof developmentEvidenceSchema>;
+export const runtimeSkillRoles = ["planner", "developer", "reviewer", "analyst"] as const;
+export type RuntimeSkillRole = (typeof runtimeSkillRoles)[number];
+// Historical descriptors remain readable after the installed bundle changes.
+export const runtimeSkillSelectionSchema = object({
+  id: Type.String({ pattern: "^gstack-agent-hub/(planner|developer|reviewer|analyst)$" }),
+  role: enumeration(runtimeSkillRoles),
+  version: Type.Integer({ minimum: 1 }),
+  mode: Type.Literal("adapted_instructions"),
+  upstreamVersion: Type.String({ minLength: 1, maxLength: 64, pattern: "^[0-9]+(\\.[0-9]+)*$" }),
+  upstreamCommit: Type.String({ pattern: "^[a-f0-9]{40}$" }),
+  digest: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  bundleDigest: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  bytes: Type.Integer({ minimum: 1, maximum: 32768 }),
+});
+export type RuntimeSkillSelection = Static<typeof runtimeSkillSelectionSchema>;
+export const runtimeSkillEvidenceSchema = object({
+  ...runtimeSkillSelectionSchema.properties,
+  selectedAt: date,
+  loadedAt: nullable(date),
+});
+export type RuntimeSkillEvidence = Static<typeof runtimeSkillEvidenceSchema>;
 export const runDetailsSchema = object({
   ...runSchema.properties,
   planningEvidence: nullable(planningEvidenceSchema),
   developmentEvidence: nullable(developmentEvidenceSchema),
+  runtimeSkillVersion: nullable(Type.Integer({ minimum: 1 })),
   lastActivityAt: date,
   result: nullable(text),
   errorCode: nullable(text),
@@ -359,6 +381,7 @@ export const runDetailsSchema = object({
       purpose: nullable(text),
       model: nullable(text),
       assessment: nullable(analysisAssessmentSchema),
+      runtimeSkill: nullable(runtimeSkillEvidenceSchema),
       usage: nullable(
         object({
           inputTokens: Type.Integer(),

@@ -53,6 +53,42 @@ async function createTask(page: Page, instruction: string) {
   await expect(page.locator("#detail-heading")).toHaveText(instruction);
 }
 
+test("distinguishes selected, loaded and unknown runtime skills across attempts on desktop and mobile", async ({ page }, testInfo) => {
+  await login(page);
+  await page.getByRole("button", { name: /지침 기록 예제 example/ }).click();
+  await page.getByRole("button", { name: /읽기 확인 기록/ }).click();
+  const panel = page.getByRole("region", { name: "에이전트 지침 기록", exact: true });
+  await expect(panel).toContainText("분석 · 지침 읽기 확인");
+  await expect(page.locator(".detail-top .status-blocked")).toBeVisible();
+  await panel.getByText("1. 분석 · 지침 읽기 확인", { exact: true }).click();
+  await expect(panel).toContainText("제품용 1 · gstack 1.93.11.0");
+  await expect(panel).toContainText("전체 gstack 도구 실행을 의미하지 않습니다");
+  await panel.getByText("버전 대조 정보", { exact: true }).click();
+  await expect(panel).toContainText("adapted_instructions");
+  await expect(panel.locator("code")).toHaveCount(3);
+  await page.screenshot({ path: testInfo.outputPath("runtime-skills-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(panel).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("runtime-skills-mobile.png"), fullPage: true });
+  await page.locator(".attempts button").last().click();
+  await expect(panel).toContainText("이 실행에는 지침 적용을 확인할 기록이 없습니다");
+  await expect(panel).toContainText("지침 기록 없음");
+  await expect(panel).not.toContainText("지침 읽기 확인");
+  await page.getByRole("button", { name: /선택만 된 기록/ }).click();
+  await expect(panel).toContainText("계획 · 선택됨 · 읽기 미확인");
+  await panel.getByText("1. 계획 · 선택됨 · 읽기 미확인", { exact: true }).click();
+  await expect(panel).toContainText("선택 기록만 있습니다");
+  await expect(panel).not.toContainText("지침 읽기 확인");
+  await page.getByRole("button", { name: /선택 전 중단 기록/ }).click();
+  await expect(panel).toContainText("지침 기록 없음");
+  await expect(panel).not.toContainText("이 실행에는 지침 적용을 확인할 기록이 없습니다");
+  await page.reload();
+  await page.getByRole("button", { name: /지침 기록 예제 example/ }).click();
+  await page.getByRole("button", { name: /읽기 확인 기록/ }).click();
+  await expect(panel).toContainText("분석 · 지침 읽기 확인");
+});
+
 test("shows failed development feedback and the later verified candidate without declaring the Task complete", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: /개발 검증 예제 example/ }).click();

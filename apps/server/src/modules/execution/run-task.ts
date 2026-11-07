@@ -58,10 +58,11 @@ export type RunSummary = {
 export type RunDetails = RunSummary & {
   planningEvidence?: import("@agent-hub/contracts").PlanningEvidence | null;
   developmentEvidence?: import("@agent-hub/contracts").DevelopmentEvidence | null;
+  runtimeSkillVersion?: number | null;
   lastActivityAt: Date; result: string | null; errorCode: string | null;
   stopReason: StopReason | null; stopRequestedAt: Date | null; terminationConfirmedAt: Date | null;
   retryAt: Date | null;
-  steps: { sequence: number; status: TaskStatus; sessionId: string | null; effort: Effort | null; effortReason: string | null; effortPolicyVersion: number | null; proposedEffort: string | null; purpose: string | null; model: string | null; assessment: import("@agent-hub/contracts").AnalysisAssessment | null; usage: AnalysisUsage | null; startedAt: Date; finishedAt: Date | null }[];
+  steps: { sequence: number; status: TaskStatus; sessionId: string | null; effort: Effort | null; effortReason: string | null; effortPolicyVersion: number | null; proposedEffort: string | null; purpose: string | null; model: string | null; assessment: import("@agent-hub/contracts").AnalysisAssessment | null; runtimeSkill?: import("@agent-hub/contracts").RuntimeSkillEvidence | null; usage: AnalysisUsage | null; startedAt: Date; finishedAt: Date | null }[];
   events: { sequence: number; kind: string; createdAt: Date }[];
 };
 export type RunQueries = {

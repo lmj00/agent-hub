@@ -16,6 +16,7 @@ import {
 import { api, ApiError, errorMessage } from "./api.js";
 import { dateTime, elapsed, Status, statusLabels } from "./format.js";
 import { PlanningEvidencePanel } from "./PlanningEvidencePanel.js";
+import { RuntimeSkillPanel } from "./RuntimeSkillPanel.js";
 import { DevelopmentEvidencePanel, developmentPhaseLabels } from "./DevelopmentEvidencePanel.js";
 import { usePolling } from "./use-polling.js";
 
@@ -586,6 +587,7 @@ function RunRecord({
             : "저장된 분석 결과가 없습니다."}
         </p>
       )}
+      <RuntimeSkillPanel run={run} />
       {run.steps.some((step) => step.purpose) ? (
         <section className="step-history" aria-label={run.developmentEvidence ? "AI 호출 기록" : "단계별 분석 기록"}>
           <div className="section-heading">

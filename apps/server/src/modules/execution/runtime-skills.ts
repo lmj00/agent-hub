@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
+import { runtimeSkillRoles, type RuntimeSkillRole, type RuntimeSkillSelection } from "@agent-hub/contracts";
+export { runtimeSkillRoles, type RuntimeSkillRole, type RuntimeSkillSelection } from "@agent-hub/contracts";
 import {
   AnalysisError,
   maxRunExecutions,
@@ -7,13 +9,6 @@ import {
   type AnalysisRequest,
 } from "./analysis.js";
 
-export const runtimeSkillRoles = [
-  "planner",
-  "developer",
-  "reviewer",
-  "analyst",
-] as const;
-export type RuntimeSkillRole = (typeof runtimeSkillRoles)[number];
 export const runtimeSkillPolicyVersion = 1;
 export const maxRuntimeSkillBytes = 32 * 1024;
 export const maxRuntimeSkillBundleBytes = 128 * 1024;
@@ -23,18 +18,6 @@ export const maxRuntimeSkillBundleBytes = 128 * 1024;
 const manifestDigest =
   "ac5f2e47e1cb6ca2869238eec9be3c96e5f1385ce941cf6d0186aee122b78599";
 const assetRoot = new URL("../../../skills/gstack/", import.meta.url);
-
-export type RuntimeSkillSelection = {
-  id: string;
-  role: RuntimeSkillRole;
-  version: number;
-  mode: "adapted_instructions";
-  upstreamVersion: string;
-  upstreamCommit: string;
-  digest: string;
-  bundleDigest: string;
-  bytes: number;
-};
 
 export type RuntimeSkillContext = {
   sequence: number;
