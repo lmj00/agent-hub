@@ -1,6 +1,6 @@
 import type { PlanningEvidence, ServiceObservation } from "@agent-hub/contracts";
-import { dateTime } from "./format.js";
-import { serviceStateLabels, serviceReasons } from "./service-format.js";
+import { dateTime } from "../../shared/format.js";
+import { serviceStateLabels, serviceReasons } from "../services/service-format.js";
 
 export function PlanningEvidencePanel({ evidence }: { evidence: PlanningEvidence }) {
   return (

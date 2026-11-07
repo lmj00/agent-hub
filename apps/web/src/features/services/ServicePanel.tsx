@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 import { servicesSchema, type Service } from "@agent-hub/contracts";
-import { api, errorMessage } from "./api.js";
-import { dateTime } from "./format.js";
-import { usePolling } from "./use-polling.js";
+import { api, errorMessage } from "../../shared/api.js";
+import { dateTime } from "../../shared/format.js";
+import { usePolling } from "../../shared/use-polling.js";
 
 import { serviceStateLabels as labels, serviceReasons as reasons } from "./service-format.js";
 

@@ -12,7 +12,7 @@
 | --- | --- |
 | 서버의 프로젝트·목표·작업·실행 기능 | `apps/server/src/modules/`의 해당 기능 |
 | 서버 구성과 기능 연결 | `apps/server/src/app.ts` |
-| 관리 화면 | `apps/web/src/` |
+| 관리 화면 | `apps/web/src/features/`의 해당 기능, 공통 API·표시는 `shared/` |
 | 서버와 화면이 주고받는 자료 형식 | `packages/contracts/src/` |
 | DB 테이블·변경 이력 | `apps/server/src/db/`, `apps/server/migrations/` |
 | 운영 설정·검증 명령 | `ops/`, `scripts/` |

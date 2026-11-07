@@ -1,5 +1,5 @@
 import type { DevelopmentEvidence } from "@agent-hub/contracts";
-import { dateTime } from "./format.js";
+import { dateTime } from "../../shared/format.js";
 
 export const developmentPhaseLabels: Record<DevelopmentEvidence["phase"], string> = {
   preparing: "개발 준비",

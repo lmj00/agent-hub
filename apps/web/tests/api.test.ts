@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { projectsSchema, queueSchema, recoverySchema } from "@agent-hub/contracts";
-import { ApiError, createApiClient, errorMessage } from "../src/api.js";
+import { ApiError, createApiClient, errorMessage } from "../src/shared/api.js";
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {

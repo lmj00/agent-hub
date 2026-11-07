@@ -1,5 +1,5 @@
 import type { GoalVerificationEvidence } from "@agent-hub/contracts";
-import { dateTime } from "./format.js";
+import { dateTime } from "../../shared/format.js";
 
 export const goalVerificationPhaseLabels = {
   testing: "목표 전체 테스트",

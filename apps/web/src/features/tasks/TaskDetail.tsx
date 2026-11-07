@@ -11,28 +11,17 @@ import {
   type ProviderGate,
   type Recovery,
   type RecoveryAction,
-  type RunDetails,
 } from "@agent-hub/contracts";
-import { api, ApiError, errorMessage } from "./api.js";
-import { dateTime, elapsed, Status, statusLabels } from "./format.js";
-import { PlanningEvidencePanel } from "./PlanningEvidencePanel.js";
-import { RuntimeSkillPanel } from "./RuntimeSkillPanel.js";
-import { DevelopmentEvidencePanel, developmentPhaseLabels } from "./DevelopmentEvidencePanel.js";
-import { GoalVerificationPanel, goalVerificationPhaseLabels } from "./GoalVerificationPanel.js";
-import { usePolling } from "./use-polling.js";
+import { api, ApiError, errorMessage } from "../../shared/api.js";
+import { dateTime, Status, statusLabels } from "../../shared/format.js";
+import { usePolling } from "../../shared/use-polling.js";
+
+import { RunRecord } from "../execution/RunRecord.js";
 
 const actions: Record<RecoveryAction, string> = {
   cancel: "취소",
   reconcile: "상태 확인",
   resume: "재개",
-};
-const stopReasons = {
-  scope_changed: "목표의 허용 범위 축소",
-  budget_limit: "기간 실행 예산 소진",
-  user_cancel: "사용자 취소 요청",
-  server_shutdown: "서버 종료",
-  timeout: "제한 시간 초과",
-  unknown: "중단 이유 미확인",
 };
 const retryReasons: Record<string, string> = {
   capacity_waiting: "사용량 제한 회복을 확인할 시각까지 기다립니다. 계정 전체의 차단은 유지됩니다.",
@@ -54,40 +43,6 @@ const retryReasons: Record<string, string> = {
   not_retryable: "자동 재시도 대상이 아닌 오류입니다. 실행 결과를 확인해 주세요.",
   user_cancelled: "사용자가 취소하여 다시 실행하지 않습니다.",
 };
-const runErrors: Record<string, string> = {
-  scope_changed:
-    "목표에서 허용한 경로가 줄어 실행 중단을 요청했습니다. 종료 확인 후 범위 변경에 따른 취소로 기록합니다.",
-  verification_required:
-    "목표 완료 제안은 받았지만 실제 코드와 테스트의 검증 근거가 없어 완료로 반영하지 않았습니다.",
-  work_unresolved:
-    "진행·종료 확인·복구 중인 작업이 있거나 기존 작업의 범위를 확인할 수 없어 새 계획을 보류했습니다.",
-  planning_no_progress:
-    "중복·재생성이 차단된 작업 또는 미완료인 목표의 완료 제안이 세 번 이어져 계획을 보류했습니다.",
-  input_unavailable:
-    "분석 자료를 준비하지 못했습니다. 원본 저장소의 미커밋 변경, 허용 경로와 파일·목표 입력의 크기 제한을 확인해 주세요.",
-  input_changed:
-    "분석 중 원본 코드가 바뀌어 결과를 반영하지 않았습니다. 최신 코드를 기준으로 다시 확인해야 합니다.",
-  goal_changed: "목표의 상태나 버전이 바뀌어 이전 기준의 실행을 보류했습니다.",
-  budget_limit:
-    "프로젝트 또는 목표의 기간 예산을 다 썼습니다. 기존 결과를 보존하고 다음 기간에 실행 조건을 다시 확인합니다.",
-  termination_unconfirmed: "결과가 있어도 전체 실행 종료를 확인하기 전까지 새 실행은 보류합니다.",
-  owner_lost: "실행을 관리하던 서버가 중단됐습니다. 이전 실행의 종료를 확인해 주세요.",
-  timeout: "정해진 실행 시간을 초과했습니다.",
-  transient: "AI 서비스와의 연결에 일시적인 오류가 발생했습니다.",
-  server_shutdown: "서버 종료로 멈췄습니다. 종료 확인 후 재개할 수 있습니다.",
-  cancel_requested: "취소 요청을 기록했습니다. 종료가 확인되면 취소가 완료됩니다.",
-  capacity: "AI 계정의 사용량 제한으로 실행을 보류했습니다.",
-  authentication: "AI 계정 로그인을 확인해 주세요.",
-  configuration: "AI 실행 설정을 확인해 주세요.",
-  invalid_plan: "다음 단계의 제안 형식이 올바르지 않아 분석을 보류했습니다.",
-  invalid_change: "수정 내용이 허용 범위·파일 종류·크기 제한에 맞지 않아 변경을 보류했습니다.",
-  development_incomplete: "개발 작업의 테스트·검토·변경 반영이 확인되지 않아 완료를 보류했습니다.",
-  workflow_limit:
-    "호출 수 또는 전달할 맥락의 상한에 도달했습니다. 저장된 단계 결과를 확인해 주세요.",
-  analysis_incomplete:
-    "분석에 필요한 정보가 부족해 완료하지 못했습니다. 남은 질문을 확인해 주세요.",
-};
-
 export function TaskDetail({
   task,
   queue,
@@ -479,206 +434,5 @@ export function TaskDetail({
         />
       ) : null}
     </section>
-  );
-}
-
-function RunRecord({
-  run,
-  viewingLatest,
-  checkedAt,
-  disconnected,
-}: {
-  run: RunDetails;
-  viewingLatest: boolean;
-  checkedAt: Date | null;
-  disconnected: boolean;
-}) {
-  return (
-    <div className="run-record">
-      {!viewingLatest ? (
-        <p className="notice">
-          이전 실행 기록입니다. 위 작업 제어는 현재 작업의 최신 실행에 적용됩니다.
-        </p>
-      ) : null}
-      <dl className="run-facts">
-        <div>
-          <dt>실행 상태</dt>
-          <dd>
-            <Status value={run.status} />
-          </dd>
-        </div>
-        <div>
-          <dt>{run.finishedAt ? "실행 시간" : "시작 후 경과"}</dt>
-          <dd>
-            {elapsed(
-              run.startedAt,
-              run.finishedAt ??
-                (disconnected ? (checkedAt?.toISOString() ?? run.lastActivityAt) : null),
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>
-            {(run.developmentEvidence || run.goalVerification) && run.finishedAt
-              ? "마지막 단계"
-              : "현재 단계"}
-          </dt>
-          <dd>
-            {run.goalVerification
-              ? goalVerificationPhaseLabels[run.goalVerification.phase]
-              : run.developmentEvidence
-                ? developmentPhaseLabels[run.developmentEvidence.phase]
-                : run.steps.length
-                  ? `분석 · 단계 ${run.steps.at(-1)!.sequence}`
-                  : "실행 준비"}
-          </dd>
-        </div>
-        <div>
-          <dt>최근 활동 기록</dt>
-          <dd>{dateTime(run.lastActivityAt)}</dd>
-        </div>
-        <div>
-          <dt>모델</dt>
-          <dd className="mono">{run.model}</dd>
-        </div>
-        <div>
-          <dt>추론 강도</dt>
-          <dd>
-            {run.effort}{" "}
-            <small>
-              {run.steps.at(-1)?.effortReason ??
-                "이전 버전의 실행으로 선택 이유가 기록되지 않았습니다."}
-            </small>
-          </dd>
-        </div>
-      </dl>
-      <p className="subtle-note">
-        최근 활동은 마지막으로 기록한 이벤트 시각입니다. 현재 프로세스의 생존이나 작업 진척을
-        보장하지 않습니다.
-      </p>
-      {run.stopReason || run.errorCode ? (
-        <div className="notice attention">
-          <strong>{run.stopReason ? stopReasons[run.stopReason] : "실행 확인 필요"}</strong>
-          {run.errorCode ? (
-            <p>
-              {runErrors[run.errorCode] ??
-                "실행 중 문제가 기록됐습니다. 아래 코드와 서버 기록을 확인해 주세요."}{" "}
-              <code>{run.errorCode}</code>
-            </p>
-          ) : null}
-          <dl className="notice-facts">
-            <div>
-              <dt>종료 확인</dt>
-              <dd>{dateTime(run.terminationConfirmedAt)}</dd>
-            </div>
-            {run.retryAt ||
-            (run.status === "waiting_capacity" && run.errorCode !== "budget_limit") ? (
-              <div>
-                <dt>재시도 시각</dt>
-                <dd>{dateTime(run.retryAt)}</dd>
-              </div>
-            ) : null}
-          </dl>
-        </div>
-      ) : null}
-      <div className="section-heading report-heading">
-        <h3>
-          {run.goalVerification
-            ? "목표 검토 결과"
-            : run.developmentEvidence
-              ? "개발 결과"
-              : "분석 결과"}
-        </h3>
-        {run.finishedAt ? <small>{dateTime(run.finishedAt)}</small> : null}
-      </div>
-      {run.planningEvidence ? <PlanningEvidencePanel evidence={run.planningEvidence} /> : null}
-      {run.developmentEvidence ? (
-        <DevelopmentEvidencePanel evidence={run.developmentEvidence} />
-      ) : null}
-      {run.goalVerification ? <GoalVerificationPanel evidence={run.goalVerification} /> : null}
-      {run.result ? (
-        <pre className="analysis-result">{run.result}</pre>
-      ) : (
-        <p className="empty-list">
-          {run.developmentEvidence
-            ? run.developmentEvidence.phase === "verified"
-              ? "검증을 통과했습니다. 변경 반영은 아직 확인되지 않았습니다."
-              : run.status === "running"
-                ? "개발·검증이 진행 중입니다. 저장된 단계별 기록을 확인할 수 있습니다."
-                : "저장된 개발 완료 결과가 없습니다."
-            : run.status === "running"
-              ? "분석이 진행 중입니다. 결과가 저장되면 여기에 표시됩니다."
-              : "저장된 분석 결과가 없습니다."}
-        </p>
-      )}
-      <RuntimeSkillPanel run={run} />
-      {run.steps.some((step) => step.purpose) ? (
-        <section
-          className="step-history"
-          aria-label={run.developmentEvidence ? "AI 호출 기록" : "단계별 분석 기록"}
-        >
-          <div className="section-heading">
-            <h3>{run.developmentEvidence ? "AI 호출 기록" : "단계별 분석 기록"}</h3>
-            <span className="count">{run.steps.length}</span>
-          </div>
-          {run.steps.map((step) => (
-            <details key={step.sequence} className="event-details">
-              <summary>
-                {step.sequence}. {step.purpose ?? "분석"} · {step.effort ?? run.effort} ·{" "}
-                {statusLabels[step.status]}
-              </summary>
-              <p className="subtle-note">
-                {step.effortReason} · {elapsed(step.startedAt, step.finishedAt)} ·{" "}
-                {step.model ?? run.model}
-              </p>
-              {step.assessment ? (
-                <>
-                  <pre className="analysis-result">{step.assessment.report}</pre>
-                  {step.assessment.evidence.length ? (
-                    <p>
-                      <strong>근거</strong> {step.assessment.evidence.join(" · ")}
-                    </p>
-                  ) : null}
-                  {step.assessment.unresolved.length ? (
-                    <p>
-                      <strong>남은 질문</strong> {step.assessment.unresolved.join(" · ")}
-                    </p>
-                  ) : null}
-                  {step.assessment.next ? (
-                    <p>
-                      <strong>다음 단계 제안</strong> {step.assessment.next.purpose} ·{" "}
-                      {step.assessment.next.effort}: {step.assessment.next.reason}
-                    </p>
-                  ) : null}
-                </>
-              ) : (
-                <p className="empty-list">이 호출의 결과가 아직 저장되지 않았습니다.</p>
-              )}
-              {step.usage ? (
-                <p className="subtle-note">
-                  제공된 토큰: 입력 {step.usage.inputTokens} · 캐시 {step.usage.cachedInputTokens} ·
-                  출력 {step.usage.outputTokens}
-                </p>
-              ) : null}
-            </details>
-          ))}
-        </section>
-      ) : null}
-      <details className="event-details">
-        <summary>
-          활동 기록 <span>{run.events.length}건</span>
-        </summary>
-        <ol className="event-list">
-          {run.events.map((event) => (
-            <li key={event.sequence}>
-              <span className="event-index">{event.sequence}</span>
-              <code>{event.kind}</code>
-              <time dateTime={event.createdAt}>{dateTime(event.createdAt)}</time>
-            </li>
-          ))}
-        </ol>
-        {!run.events.length ? <p className="muted">기록된 이벤트가 없습니다.</p> : null}
-      </details>
-    </div>
   );
 }

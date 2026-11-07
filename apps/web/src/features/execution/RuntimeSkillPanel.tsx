@@ -1,5 +1,5 @@
 import type { RunDetails, RuntimeSkillRole } from "@agent-hub/contracts";
-import { dateTime } from "./format.js";
+import { dateTime } from "../../shared/format.js";
 
 const roles: Record<RuntimeSkillRole, string> = {
   planner: "계획",

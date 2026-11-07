@@ -1,8 +1,8 @@
 import { useCallback, useState, type FormEvent } from "react";
 import { projectBudgetSchema, type PeriodBudgetPolicy } from "@agent-hub/contracts";
-import { api, ApiError, errorMessage } from "./api.js";
-import { dateTime } from "./format.js";
-import { usePolling } from "./use-polling.js";
+import { api, ApiError, errorMessage } from "../../shared/api.js";
+import { dateTime } from "../../shared/format.js";
+import { usePolling } from "../../shared/use-polling.js";
 
 export function BudgetPanel({
   projectId,

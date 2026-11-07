@@ -6,9 +6,9 @@ import {
   type Goal,
   type GoalDefinition,
 } from "@agent-hub/contracts";
-import { api, ApiError, errorMessage } from "./api.js";
-import { usePolling } from "./use-polling.js";
-import { dateTime } from "./format.js";
+import { api, ApiError, errorMessage } from "../../shared/api.js";
+import { usePolling } from "../../shared/use-polling.js";
+import { dateTime } from "../../shared/format.js";
 
 const labels = { active: "활성", paused: "일시정지", completed: "완료" };
 const defaults: GoalDefinition = {
