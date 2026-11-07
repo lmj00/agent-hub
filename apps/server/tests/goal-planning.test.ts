@@ -191,6 +191,27 @@ async function execute(
   );
 }
 
+test.each([false, true])("new-policy planning cannot create work without load evidence, recovery=%s", async recover => {
+  const plan = reserve();
+  const executor: AnalysisExecutor = {
+    runtimeSkillVersion: 1,
+    async analyze(request) { return { output: JSON.stringify(proposal(request)), usage: null }; },
+    confirmTermination: async () => new Date(),
+  };
+  const selected = recover ? { ...store, finish() { throw new Error("Simulated completion crash"); } } : store;
+  const pending = runTask({ taskId: plan.taskId, model: "fixture", workspace: source, timeoutMs: 5000, signal: new AbortController().signal }, selected, createPreparedExecutor(executor, root));
+  if (recover) {
+    await expect(pending).rejects.toThrow("Simulated completion crash");
+    const row = runRow(plan.taskId);
+    expect(row.planResult?.status).toBe("proposed");
+    const recovery = createDrizzleRecoveryStore(database.db);
+    const accepted = recovery.request({ taskId: plan.taskId, runId: row.id, action: "reconcile", requestKey: randomUUID(), providerGateVersion: null }, null, true);
+    await createRecoveryProcessor(recovery, { confirm: async () => new Date(), cleanup: async () => {} }, undefined, id => verifyPreparedResult(database.db, id)).process(accepted.request.id);
+  } else expect(await pending).toMatchObject({ status: "blocked", errorCode: "unsupported_settings" });
+  expect(runRow(plan.taskId)).toMatchObject({ status: "blocked", errorCode: "unsupported_settings" });
+  expect(workRows()).toHaveLength(0);
+});
+
 test("independent SQLite connections reserve one plan and no AI Run", () => {
   const second = openDatabase(join(directory, "hub.sqlite"));
   try {

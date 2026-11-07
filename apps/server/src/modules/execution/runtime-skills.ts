@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
-import { AnalysisError } from "./analysis.js";
+import {
+  AnalysisError,
+  maxRunExecutions,
+  type AnalysisEvent,
+  type AnalysisRequest,
+} from "./analysis.js";
 
 export const runtimeSkillRoles = [
   "planner",
@@ -28,7 +33,117 @@ export type RuntimeSkillSelection = {
   upstreamCommit: string;
   digest: string;
   bundleDigest: string;
+  bytes: number;
 };
+
+export type RuntimeSkillContext = {
+  sequence: number;
+  selection: RuntimeSkillSelection;
+};
+export type RuntimeSkillUpdate = RuntimeSkillContext & {
+  type: "selected" | "loaded";
+};
+
+// Protocol and journal validation is pure: never read deployment files in a DB
+// transaction. The parent selects from loadRuntimeSkill; the child can only
+// confirm that exact selection after independently reading its own files.
+export function parseRuntimeSkillContext(value: unknown): RuntimeSkillContext {
+  const raw = value as Partial<RuntimeSkillContext> | null;
+  const selection = raw?.selection;
+  const fields = [
+    "id",
+    "role",
+    "version",
+    "mode",
+    "upstreamVersion",
+    "upstreamCommit",
+    "digest",
+    "bundleDigest",
+    "bytes",
+  ];
+  if (
+    !raw ||
+    typeof raw !== "object" ||
+    Array.isArray(raw) ||
+    Object.keys(raw).length !== 2 ||
+    !Number.isInteger(raw.sequence) ||
+    raw.sequence! < 1 ||
+    raw.sequence! > maxRunExecutions ||
+    !selection ||
+    typeof selection !== "object" ||
+    Array.isArray(selection) ||
+    Object.keys(selection).length !== fields.length ||
+    !fields.every((key) => Object.hasOwn(selection, key)) ||
+    !runtimeSkillRoles.includes(selection.role) ||
+    selection.id !== `gstack-agent-hub/${selection.role}` ||
+    selection.version !== runtimeSkillPolicyVersion ||
+    selection.mode !== "adapted_instructions" ||
+    selection.upstreamVersion !== "1.93.11.0" ||
+    selection.upstreamCommit !== "24a47db3d9e12a1f6ead6919306ef0da3b5696d9" ||
+    selection.bundleDigest !== manifestDigest ||
+    typeof selection.digest !== "string" ||
+    !/^[a-f0-9]{64}$/.test(selection.digest) ||
+    !Number.isInteger(selection.bytes) ||
+    selection.bytes < 1 ||
+    selection.bytes > maxRuntimeSkillBytes
+  )
+    throw new AnalysisError("unsupported_settings");
+  return { sequence: raw.sequence!, selection: { ...selection } };
+}
+
+export function sameRuntimeSkill(
+  left: RuntimeSkillContext,
+  right: RuntimeSkillContext,
+) {
+  return (
+    left.sequence === right.sequence &&
+    matchesSelection(left.selection, right.selection)
+  );
+}
+
+export function runtimeSkillRoleForRequest(
+  request: AnalysisRequest,
+): RuntimeSkillRole {
+  return request.development
+    ? "developer"
+    : request.responseMode === "goal-plan"
+      ? "planner"
+      : request.responseMode === "assessment" && !request.workflow
+        ? "reviewer"
+        : "analyst";
+}
+
+export async function selectRuntimeSkill(
+  request: AnalysisRequest,
+  onEvent: (event: AnalysisEvent) => void | Promise<void>,
+): Promise<AnalysisRequest> {
+  if (request.runtimeSkillVersion === undefined) {
+    if (request.runtimeSkill) throw new AnalysisError("unsupported_settings");
+    return request;
+  }
+  if (
+    request.runtimeSkillVersion !== runtimeSkillPolicyVersion ||
+    request.verification
+  )
+    throw new AnalysisError("unsupported_settings");
+  request.signal.throwIfAborted();
+  const loaded = loadRuntimeSkill(runtimeSkillRoleForRequest(request));
+  const context = parseRuntimeSkillContext({
+    sequence: request.stepSequence ?? 1,
+    selection: loaded.selection,
+  });
+  if (
+    request.runtimeSkill &&
+    !sameRuntimeSkill(context, parseRuntimeSkillContext(request.runtimeSkill))
+  )
+    throw new AnalysisError("unsupported_settings");
+  await onEvent({
+    kind: "skill.selected",
+    runtimeSkill: { type: "selected", ...context },
+  });
+  request.signal.throwIfAborted();
+  return { ...request, runtimeSkill: context };
+}
 
 type Manifest = {
   id: string;
@@ -136,7 +251,9 @@ export function loadRuntimeSkill(
       upstreamCommit: manifest.upstream.commit,
       digest: manifest.profiles[role].sha256,
       bundleDigest: manifestDigest,
+      bytes: profiles.get(role)!.length,
     };
+    parseRuntimeSkillContext({ sequence: 1, selection });
     if (expected !== undefined && !matchesSelection(expected, selection))
       throw new Error("Skill selection differs");
     const bytes = profiles.get(role)!;

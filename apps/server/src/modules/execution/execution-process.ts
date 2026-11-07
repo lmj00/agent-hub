@@ -15,6 +15,7 @@ import {
 } from "./analysis-workflow.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import { runVerificationContainer, verificationRunnerInput } from "./verification-process.js";
+import { parseRuntimeSkillContext, runtimeSkillPolicyVersion, sameRuntimeSkill, selectRuntimeSkill } from "./runtime-skills.js";
 import { parseVerificationRequest } from "./verification-config.js";
 import {
   maxDevelopmentArtifactBytes,
@@ -30,6 +31,7 @@ import {
 } from "./container-runtime.js";
 
 type RunnerMessage =
+  | { type: "runner.ready"; runtimeSkillVersion: number; bundleDigest: string }
   | { type: "event"; event: AnalysisEvent }
   | { type: "result"; result: AnalysisResult }
   | { type: "error"; code: AnalysisError["code"]; retryAt?: string | null };
@@ -77,6 +79,7 @@ export function createContainerExecutor(
 ): AnalysisExecutor {
   const executions = new Map<string, RunExecutions>();
   return {
+    runtimeSkillVersion: runtimeSkillPolicyVersion,
     async analyze(request, onEvent) {
       if (!request.runId)
         throw new Error("A run ID is required for container execution");
@@ -108,15 +111,19 @@ export function createContainerExecutor(
         );
       executions.set(runId, run);
       run.active = true;
-      const prepared = prepareContainer(image, codexHome, request);
-      // Retain every identity, including preparation still pending after abort.
-      const entry: PendingExecution = {
-        prepared: prepared.catch(() => null),
-        confirmedAt: null,
-        saved: false,
-      };
-      run.entries.push(entry);
       try {
+        if (!request.verification) request = await selectRuntimeSkill(request, onEvent);
+        if (run.sealed) throw new Error("Execution stopped before preparation");
+        request.signal.throwIfAborted();
+        if (!request.verification) runnerInput(request);
+        const prepared = prepareContainer(image, codexHome, request);
+        // Retain every identity, including preparation still pending after abort.
+        const entry: PendingExecution = {
+          prepared: prepared.catch(() => null),
+          confirmedAt: null,
+          saved: false,
+        };
+        run.entries.push(entry);
         let identity: ExecutionIdentity;
         try {
           identity = await prepared;
@@ -153,6 +160,7 @@ export function createContainerExecutor(
       if (!run) return null;
       // Seal synchronously: late preparation cannot start after this observation.
       run.sealed = true;
+      if (!run.entries.length) return new Date();
       for (const entry of run.entries) {
         if (entry.confirmedAt) continue;
         // A failed create is never started; an unidentified shell cannot run code.
@@ -191,10 +199,14 @@ function runContainerProtocol(
     let result: AnalysisResult | undefined;
     let failure: AnalysisError | undefined;
     let processing = Promise.resolve();
+    let currentSkill = request.runtimeSkill;
+    let runnerReady = !currentSkill;
+    let skillLoaded = !currentSkill;
+    let stepStarted = !request.workflow;
     const fail = (error?: unknown) => {
-      // A server-side budget refusal must survive the child-protocol boundary.
+      // Preserve policy refusals across the child-protocol boundary.
       failure =
-        error instanceof AnalysisError && error.code === "budget_limit"
+        error instanceof AnalysisError && (error.code === "budget_limit" || error.code === "unsupported_settings")
           ? error
           : new AnalysisError("provider_error", true);
       reject(failure);
@@ -220,10 +232,32 @@ function runContainerProtocol(
           .then(async () => {
             if (failure) return;
             const message = JSON.parse(line) as RunnerMessage;
+            if (!runnerReady) {
+              if (message?.type !== "runner.ready" || Object.keys(message).length !== 3 ||
+                  message.runtimeSkillVersion !== runtimeSkillPolicyVersion ||
+                  message.bundleDigest !== currentSkill!.selection.bundleDigest) throw new AnalysisError("unsupported_settings");
+              request.signal.throwIfAborted();
+              runnerReady = true;
+              child.stdin!.write(runnerInput(request));
+              return;
+            }
             if (
               message.type === "event" &&
               typeof message.event?.kind === "string"
             ) {
+              const skill = message.event.runtimeSkill;
+              if (skill || message.event.kind === "skill.selected" || message.event.kind === "skill.loaded") {
+                if (!currentSkill || !stepStarted || skillLoaded || !skill || skill.type !== "loaded" ||
+                    Object.keys(skill).length !== 3 || message.event.kind !== "skill.loaded") throw new Error("Invalid skill event");
+                const loaded = parseRuntimeSkillContext({ sequence: skill.sequence, selection: skill.selection });
+                if (!sameRuntimeSkill(loaded, currentSkill)) throw new Error("Skill confirmation differs");
+                request.signal.throwIfAborted();
+                await onEvent({ kind: "skill.loaded", runtimeSkill: { type: "loaded", ...loaded } });
+                request.signal.throwIfAborted();
+                skillLoaded = true;
+                child.stdin!.write(JSON.stringify({ type: "skill.saved", sequence: loaded.sequence, digest: loaded.selection.digest }) + "\n");
+                return;
+              }
               // 자식이 보낸 실행 ID는 신뢰하지 않고 SDK 이벤트만 전달합니다.
               const step = message.event.step
                 ? parseStepUpdate(message.event.step)
@@ -242,6 +276,7 @@ function runContainerProtocol(
                   (step.type === "start" ? "step.started" : "step.completed")
               )
                 throw new Error("Invalid step event");
+              if (currentSkill && !skillLoaded && step?.type !== "start") throw new Error("Skill must be saved before model events");
               request.signal.throwIfAborted();
               await onEvent({
                 kind: message.event.kind,
@@ -251,6 +286,12 @@ function runContainerProtocol(
                 ...(step ? { step } : {}),
               });
               if (step) {
+                if (step.type === "start" && request.runtimeSkill) {
+                  currentSkill = { sequence: step.sequence, selection: request.runtimeSkill.selection };
+                  await onEvent({ kind: "skill.selected", runtimeSkill: { type: "selected", ...currentSkill } });
+                  skillLoaded = false;
+                  stepStarted = true;
+                } else if (step.type === "complete") stepStarted = false;
                 request.signal.throwIfAborted();
                 child.stdin!.write(
                   JSON.stringify({
@@ -265,6 +306,7 @@ function runContainerProtocol(
               typeof message.result?.output === "string" &&
               !result
             ) {
+              if (!skillLoaded) throw new Error("Skill load is unconfirmed");
               if (Buffer.byteLength(message.result.output) > 65536)
                 throw new Error("Runner output exceeds limits");
               result = {
@@ -309,11 +351,15 @@ function runContainerProtocol(
     child.once("close", async (code) => {
       await processing;
       if (failure) reject(failure);
+      else if (!runnerReady) reject(new AnalysisError("unsupported_settings"));
       else if (code !== 0 || buffer || !result)
         reject(new AnalysisError("provider_error", true));
       else resolve(result);
     });
-    child.stdin!.write(runnerInput(request));
+    // No executable task goes to an image until it confirms the protocol and
+    // bundle. Old runners reject this message before constructing their SDK.
+    child.stdin!.write(currentSkill ? JSON.stringify({ type: "runner.hello",
+      runtimeSkillVersion: runtimeSkillPolicyVersion, bundleDigest: currentSkill.selection.bundleDigest }) + "\n" : runnerInput(request));
   });
 }
 
@@ -326,6 +372,9 @@ function runnerInput(request: AnalysisRequest) {
     workflow: request.workflow,
     responseMode: request.responseMode,
     development: request.development,
+    runtimeSkillVersion: request.runtimeSkillVersion,
+    stepSequence: request.stepSequence,
+    runtimeSkill: request.runtimeSkill,
   });
   if (
     Buffer.byteLength(line) >

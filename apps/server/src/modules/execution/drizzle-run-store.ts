@@ -22,6 +22,8 @@ import { pauseCancelledPlan } from "../goals/planning-cancellation.js";
 import { revalidateGoalWork } from "../goals/revalidate-goal-work.js";
 import { assertDevelopmentExecutionReady, saveDevelopmentUpdate } from "../goals/development-journal.js";
 import { readDevelopmentEvidence } from "./development-evidence.js";
+import { runtimeSkillPolicyVersion } from "./runtime-skills.js";
+import { requireRuntimeSkillEvidence, saveRuntimeSkillUpdate } from "./runtime-skill-store.js";
 
 import type { ObserverStatus } from "../services/drizzle-service-store.js";
 
@@ -35,7 +37,8 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
     assertExecutionOwner(tx, ownerToken);
   }
 
-  function claim(model: string, selection: { taskId: string } | { workspaceKeys: string[] }): QueueClaim {
+  function claim(model: string, selection: { taskId: string } | { workspaceKeys: string[] }, skillVersion?: number): QueueClaim {
+    if (skillVersion !== undefined && skillVersion !== runtimeSkillPolicyVersion) throw new Error("Unsupported runtime skill policy");
     return db.transaction((tx) => {
       assertOwner(tx);
       const held = tx.select({ id: runs.id, status: runs.status }).from(runs)
@@ -117,6 +120,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         const effortPolicy = policies.effortPolicy ?? defaultEffortPolicy;
         const effortSelection = selectInitialEffort(task.instruction, effortPolicy);
         tx.insert(runs).values({ id, taskId: task.id, attempt, goalVersion: task.goalVersion, instanceId, status: "running", model, effort: effortSelection.effort, effortPolicy, workflowPolicy: planning ? null : policies.analysisWorkflow, startedAt: now, lastActivityAt: now,
+          runtimeSkillVersion: skillVersion ?? null,
           providerGateVersion: probing ? gate.version : null }).run();
         reserveRunBudget(tx, id, budget.periods, Math.min(budget.remainingRunMs, policies.timeoutMs ?? 600000, retryState ? retryState.policy.maxTotalRunMs - retryState.totalRunMs : Infinity), now);
         if (probing) tx.update(providerGates).set({ probeRunId: id, ...(gate.reason === "capacity" && gate.capacityState ? { capacityState: { ...gate.capacityState, checks: gate.capacityState.checks + 1, nextCheckAt: null, reason: "checking" } } : {}) }).where(eq(providerGates.scope, providerScope)).run();
@@ -130,21 +134,21 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
           JSON.stringify({ previousRunId: previousRun!.id, goalVersion: previousRun!.goalVersion, report: previousStep.assessment.report.slice(0, 2500), evidence: previousStep.assessment.evidence.slice(0, 4).map(v => v.slice(0, 200)), unresolved: previousStep.assessment.unresolved.slice(0, 4).map(v => v.slice(0, 200)) }),
         ].join("\n") : task.instruction;
         const scope = readGoalScope(tx, task.goalId);
-        return { kind: "claimed", run: { id, budgetDeadlineAt: now.getTime() + budget.remainingRunMs, budgetRunMs: budget.remainingRunMs, taskId: task.id, instruction, effort: effortSelection.effort, effortPolicy, ...(scope ? { scope } : {}), ...(planning ? { planning } : policies.analysisWorkflow ? { workflow: policies.analysisWorkflow } : {}), ...(retryState ? { remainingRunMs: Math.max(1, retryState.policy.maxTotalRunMs - retryState.totalRunMs) } : {}), ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
+        return { kind: "claimed", run: { id, ...(skillVersion !== undefined ? { runtimeSkillVersion: skillVersion } : {}), budgetDeadlineAt: now.getTime() + budget.remainingRunMs, budgetRunMs: budget.remainingRunMs, taskId: task.id, instruction, effort: effortSelection.effort, effortPolicy, ...(scope ? { scope } : {}), ...(planning ? { planning } : policies.analysisWorkflow ? { workflow: policies.analysisWorkflow } : {}), ...(retryState ? { remainingRunMs: Math.max(1, retryState.policy.maxTotalRunMs - retryState.totalRunMs) } : {}), ...(probing ? { providerCheck: true } : {}) }, workspaceKey: task.workspaceKey };
       }
       return budgetWaiting ? { kind: "idle", reason: "period_budget" } : { kind: "idle" };
     }, { behavior: "immediate" });
   }
 
   return {
-    claim(taskId: string, model: string) {
-      const result = claim(model, { taskId });
+    claim(taskId: string, model: string, skillVersion?: number) {
+      const result = claim(model, { taskId }, skillVersion);
       if (result.kind === "idle" && result.reason === "period_budget") throw new Error("PERIOD_BUDGET_EXHAUSTED");
       if (result.kind !== "claimed") throw new Error("A previous run needs completion or recovery before starting another run");
       return result.run;
     },
-    claimNext(model: string, workspaceKeys: string[]) {
-      return claim(model, { workspaceKeys });
+    claimNext(model: string, workspaceKeys: string[], skillVersion?: number) {
+      return claim(model, { workspaceKeys }, skillVersion);
     },
     getProviderGate() { return providerGateView(db); },
     reserveProviderCheck(taskId: string, expectedVersion: number, now = new Date()) {
@@ -191,6 +195,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         if (event.planningProposal !== undefined) savePlanningProposal(tx, run, event.planningProposal, event.kind);
         const now = new Date();
         if (event.development) saveDevelopmentUpdate(tx, run, event.development, event.kind, now);
+        if (event.runtimeSkill) saveRuntimeSkillUpdate(tx, run, event.runtimeSkill, event.kind, now);
         if (event.execution) assertDevelopmentExecutionReady(tx, run);
         recordExecution(tx, run, event, now);
         tx.update(runs).set({ lastActivityAt: now }).where(eq(runs.id, runId)).run();
@@ -220,6 +225,7 @@ export function createDrizzleRunStore(db: ReturnType<typeof openDatabase>["db"],
         const task = tx.select({ cancelRequestedAt: tasks.cancelRequestedAt }).from(tasks).where(eq(tasks.id, run.taskId)).get()!;
         completion = settleStoppedCompletion(completion, run.stopReason, task.cancelRequestedAt !== null);
         const now = new Date();
+        completion = requireRuntimeSkillEvidence(tx, run, completion);
         completion = applyPlanningCompletion(tx, run, completion, now);
         if (completion.status === "succeeded" && preparedGoalChanged(tx, run)) completion = { ...completion, status: "blocked", result: null, errorCode: "goal_changed" };
         saveRunCompletion(tx, run, completion, now);

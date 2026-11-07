@@ -97,6 +97,7 @@ test.each([
   "upstreamCommit",
   "digest",
   "bundleDigest",
+  "bytes",
 ])(
   "rejects a different expected %s instead of silently selecting another profile",
   (field) => {

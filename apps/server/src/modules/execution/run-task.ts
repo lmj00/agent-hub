@@ -7,7 +7,7 @@ import type { ProviderGateView } from "./provider-gate.js";
 import type { GoalScope } from "../goals/prepared-workspace.js";
 import type { PlanningContext } from "../goals/goal-plan-policy.js";
 
-export type ClaimedRun = { id: string; taskId: string; instruction: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; providerCheck?: boolean; remainingRunMs?: number; budgetDeadlineAt?: number; budgetRunMs?: number; scope?: GoalScope; planning?: PlanningContext };
+export type ClaimedRun = { id: string; taskId: string; instruction: string; effort?: Effort; effortPolicy?: EffortPolicy; workflow?: AnalysisWorkflowPolicy; providerCheck?: boolean; remainingRunMs?: number; budgetDeadlineAt?: number; budgetRunMs?: number; scope?: GoalScope; planning?: PlanningContext; runtimeSkillVersion?: number };
 export type RunCompletion = {
   status: Exclude<TaskStatus, "queued" | "running">;
   result: string | null;
@@ -36,7 +36,7 @@ export function settleStoppedCompletion(completion: RunCompletion, reason: StopR
   return completion;
 }
 export type RunStore = {
-  claim(taskId: string, model: string): ClaimedRun;
+  claim(taskId: string, model: string, runtimeSkillVersion?: number): ClaimedRun;
   record(runId: string, event: AnalysisEvent): void;
   requestStop(runId: string, reason: StopReason): StopReason;
   requestedStop?(runId: string): StopReason | null;
@@ -48,7 +48,7 @@ export type QueueClaim =
   | { kind: "held"; runId: string; reason: string }
   | { kind: "idle"; reason?: string };
 export type QueueStore = RunStore & {
-  claimNext(model: string, workspaceKeys: string[]): QueueClaim;
+  claimNext(model: string, workspaceKeys: string[], runtimeSkillVersion?: number): QueueClaim;
 };
 
 export type RunSummary = {
@@ -76,7 +76,8 @@ export async function runTask(
   executor: AnalysisExecutor,
 ) {
   options.signal.throwIfAborted();
-  const run = store.claim(options.taskId, options.model);
+  const run = executor.runtimeSkillVersion === undefined ? store.claim(options.taskId, options.model)
+    : store.claim(options.taskId, options.model, executor.runtimeSkillVersion);
   return runClaimedTask(run, options, store, executor);
 }
 
@@ -130,6 +131,7 @@ export async function runClaimedTask(
     // 중단 신호에 응답하지 않는 실행도 기다림을 끝냅니다. Promise.race는 뒤늦은 실패도 처리합니다.
     const result = await Promise.race([
       executor.analyze({
+        ...(run.runtimeSkillVersion !== undefined ? { runtimeSkillVersion: run.runtimeSkillVersion, stepSequence: 1 } : {}),
         instruction: run.instruction, workspace: options.workspace, model: options.model, signal: controller.signal, runId: run.id, effort: run.effort ?? "medium", ...(run.effortPolicy ? { effortPolicy: run.effortPolicy } : {}), ...(run.workflow ? { workflow: run.workflow } : {}), ...(run.scope ? { scope: run.scope } : {}), ...(run.planning ? { planning: run.planning } : {}),
       }, (event) => {
         observeStop();

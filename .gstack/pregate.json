@@ -53,7 +53,8 @@
       "apps/server/tests/tasks.test.ts",
       "apps/server/tests/verification-process.test.ts",
       "apps/server/tests/web.test.ts",
-      "apps/server/tests/work-release.test.ts"
+      "apps/server/tests/work-release.test.ts",
+      "apps/server/tests/runtime-skill-store.test.ts"
     ],
     "apps/web/src/**": [
       "apps/web/e2e/workspace.spec.ts",
@@ -114,7 +115,8 @@
       "apps/server/tests/web.test.ts",
       "apps/server/tests/work-release.test.ts",
       "apps/web/e2e/workspace.spec.ts",
-      "apps/web/tests/api.test.ts"
+      "apps/web/tests/api.test.ts",
+      "apps/server/tests/runtime-skill-store.test.ts"
     ],
     "scripts/run-selected-tests.mjs": [
       "apps/server/tests/analysis-workflow.test.ts",
@@ -186,6 +188,25 @@
     ".dockerignore": [
       "apps/server/tests/runtime-skills.test.ts",
       "apps/server/tests/codex-sandbox.test.ts"
+    ],
+    "apps/server/src/modules/execution/runtime-skill-store.ts": [
+      "apps/server/tests/runtime-skill-store.test.ts",
+      "apps/server/tests/goal-planning.test.ts"
+    ],
+    "apps/server/migrations/**": [
+      "apps/server/tests/database.test.ts",
+      "apps/server/tests/runtime-skill-store.test.ts",
+      "apps/server/tests/development-executor.test.ts",
+      "apps/server/tests/goal-planning.test.ts"
+    ],
+    "apps/server/tests/fixtures/container-runner/**": [
+      "apps/server/tests/execution-process.test.ts"
+    ],
+    "apps/server/tests/fixtures/workflow-runner.mjs": [
+      "apps/server/tests/development-executor.test.ts"
+    ],
+    "apps/server/tests/fixtures/legacy-*": [
+      "apps/server/tests/legacy-runner.test.ts"
     ]
   }
 }

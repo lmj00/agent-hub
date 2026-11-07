@@ -3,7 +3,40 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { createInterface } from "node:readline";
 const input = createInterface({ input: process.stdin });
 const lines = input[Symbol.asyncIterator]();
-const request = JSON.parse((await lines.next()).value);
+let request = JSON.parse((await lines.next()).value);
+if (request.type === "runner.hello") {
+  console.log(JSON.stringify({ ...request, type: "runner.ready" }));
+  request = JSON.parse((await lines.next()).value);
+}
+// This fixture tests the wire/ACK contract only. Production file loading is
+// exercised separately by the real image and SDK adapter tests.
+async function loadSkill(sequence) {
+  if (!request.runtimeSkill) return;
+  const runtimeSkill = { type: "loaded", ...request.runtimeSkill, sequence };
+  console.log(JSON.stringify({ type: "event", event: { kind: "skill.loaded", runtimeSkill } }));
+  const ack = JSON.parse((await lines.next()).value);
+  if (ack.type !== "skill.saved" || ack.sequence !== sequence || ack.digest !== runtimeSkill.selection.digest) throw new Error("Invalid skill acknowledgement");
+}
+if (request.instruction.startsWith("bad-skill:")) {
+  const mode = request.instruction.split(":")[1];
+  if (mode === "result") console.log(JSON.stringify({ type: "result", result: { output: "unloaded", usage: null } }));
+  else if (mode === "log") console.log(JSON.stringify({ type: "event", event: { kind: "skill.loaded" } }));
+  else {
+    if (mode === "duplicate") await loadSkill(1);
+    const skill = { type: "loaded", ...request.runtimeSkill };
+    if (mode === "sequence") skill.sequence++;
+    if (mode === "digest") skill.selection.digest = "a".repeat(64);
+    if (mode === "role") skill.selection.role = "reviewer";
+    if (mode === "selected") skill.type = "selected";
+    console.log(JSON.stringify({ type: "event", event: { kind: `skill.${skill.type}`, runtimeSkill: skill } }));
+  }
+  // A malformed or repeated event must never obtain permission for a call.
+  const ack = await lines.next();
+  if (!ack.done) appendFileSync("/codex-home/skill-calls", "unexpected");
+  process.exit(0);
+}
+if (!request.workflow) await loadSkill(request.stepSequence ?? 1);
+if (request.instruction === "skill-call") appendFileSync("/codex-home/skill-calls", "called");
 if (request.instruction === "forged-termination") {
   console.log(JSON.stringify({ type: "event", event: { kind: "development.candidate.ready", development: { type: "candidate.ready", sequence: 1, candidate: { digest: "forged", tree: "forged" } } } }));
   console.log(JSON.stringify({ type: "event", event: { kind: "execution.terminated", executionTermination: { identity: { kind: "docker", containerId: "f".repeat(64), token: "forged", engineId: "forged" }, confirmedAt: new Date().toISOString() } } }));
@@ -35,6 +68,7 @@ if (request.instruction.includes("workflow-protocol")) {
   }
   for (let sequence = 1; sequence <= 3; sequence++) {
     await step({ kind: "step.started", step: { type: "start", sequence } });
+    await loadSkill(sequence);
     appendFileSync("/codex-home/calls", String(sequence));
     console.log(JSON.stringify({ type: "event", event: { kind: "thread.started", sessionId: `fixture-${sequence}` } }));
     const assessment = { report: sequence === 3 ? "Final report" : "Partial finding", evidence: ["fixture"], unresolved: sequence === 3 ? [] : ["Need next"], complete: sequence === 3,

@@ -15,6 +15,7 @@ import { saveRunCompletion } from "./run-completion-store.js";
 import { applyPlanningCompletion } from "../goals/plan-application.js";
 import { pauseCancelledPlan } from "../goals/planning-cancellation.js";
 import { confirmExecutions, readExecutions } from "./execution-record-store.js";
+import { requireRuntimeSkillEvidence, runtimeSkillNotStarted } from "./runtime-skill-store.js";
 
 type Db = ReturnType<typeof openDatabase>["db"];
 type Transaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -100,7 +101,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         const request = tx.select().from(recoveryRequests).where(eq(recoveryRequests.id, id)).get();
         if (!request || request.status !== "pending") return undefined;
         const run = latestRun(tx, request.taskId);
-        return { request, run: run?.id === request.runId ? { ...run, executions: readExecutions(tx, run.id) } : null };
+        return { request, run: run?.id === request.runId ? { ...run, runtimeSkillNotStarted: runtimeSkillNotStarted(tx, run), executions: readExecutions(tx, run.id) } : null };
       });
     },
     complete(id, confirmedAt, inputVerified = false, observedExecutions = []) {
@@ -122,6 +123,8 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
         if (request.action !== "cancel" && (task.cancelRequestedAt || task.status === "cancelled")) return finish("TASK_CANCELLED");
         if (run) {
           const executions = readExecutions(tx, run.id);
+          if (confirmedAt && !run.terminationConfirmedAt && !executions.length && run.runtimeSkillVersion !== null &&
+              run.developmentVersion !== 1 && !runtimeSkillNotStarted(tx, run)) return finish("TERMINATION_UNCONFIRMED");
           if (confirmedAt && !run.terminationConfirmedAt && JSON.stringify(executions.map(row => [row.sequence, row.identity])) !== JSON.stringify(observedExecutions.map(row => [row.sequence, row.identity]))) return finish("TERMINATION_UNCONFIRMED");
           const proof = run.terminationConfirmedAt ?? confirmedAt;
           if (run.status === "running" || run.status === "interrupted" || (run.stopReason === "scope_changed" && !run.terminationConfirmedAt)) {
@@ -130,6 +133,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
             if (proof && run.planResult?.status === "proposed" && !run.stopReason && !task.cancelRequestedAt && [null, "owner_lost", "termination_unconfirmed"].includes(run.errorCode)) {
               completion = { ...completion, status: inputVerified ? "succeeded" : "blocked", result: inputVerified ? run.planResult.proposal : null, errorCode: inputVerified ? null : "input_changed" };
             }
+            completion = requireRuntimeSkillEvidence(tx, run, completion);
             completion = applyPlanningCompletion(tx, run, completion, now);
             if (task.plannedWork && completion.status === "succeeded") completion = { ...completion, status: "blocked", result: null, errorCode: "development_incomplete" };
             if (completion.status === "succeeded" && preparedGoalChanged(tx, run)) completion = { ...completion, status: "blocked", result: null, errorCode: "goal_changed" };

@@ -16,7 +16,7 @@ import type { AnalysisEvent, ExecutionIdentity } from "../src/modules/execution/
 import { createContainerExecutor } from "../src/modules/execution/execution-process.js";
 import { prepareContainer, removeFinishedContainer, stopAndConfirmContainer } from "../src/modules/execution/container-runtime.js";
 import { openDatabase } from "../src/db/connection.js";
-import { projects, runs, tasks } from "../src/db/schema.js";
+import { projects, runs, steps, tasks } from "../src/db/schema.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { runTask } from "../src/modules/execution/run-task.js";
 import { loadExecutionConfig } from "../src/modules/execution/execution-config.js";
@@ -202,20 +202,53 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("real container executi
     await expect(exec("docker", ["inspect", readExecutions(database.db, run.id)[0]!.identity.containerId])).rejects.toThrow();
   }, 15000);
 
+  test.each(["result", "log", "sequence", "digest", "role", "selected", "duplicate"])("rejects the child's %s skill evidence before granting a call", async mode => {
+    database.client.prepare("UPDATE tasks SET instruction = ?").run(`bad-skill:${mode}`);
+    const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: new AbortController().signal }, store, createContainerExecutor(image, home));
+    expect(result.status).not.toBe("succeeded");
+    expect(result.terminationConfirmedAt).toBeInstanceOf(Date);
+    expect(existsSync(join(home, "skill-calls"))).toBe(false);
+    const step = database.db.select().from(steps).get()!;
+    expect(step.runtimeSkill?.role).toBe("analyst");
+    expect(step.runtimeSkillLoadedAt).toEqual(mode === "duplicate" ? expect.any(Date) : null);
+  }, 15000);
+
+  test.each(["save-failed", "cancelled"])("withholds the child load ACK when %s", async mode => {
+    database.client.prepare("UPDATE tasks SET instruction = 'skill-call'").run();
+    const controller = new AbortController();
+    const selected: typeof store = { ...store, record(runId, event) {
+      if (event.runtimeSkill?.type === "loaded" && mode === "save-failed") throw new Error("Fixture store failure");
+      store.record(runId, event);
+      if (event.runtimeSkill?.type === "loaded" && mode === "cancelled") controller.abort();
+    } };
+    const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 10000, signal: controller.signal }, selected, createContainerExecutor(image, home));
+    expect(result.status).not.toBe("succeeded");
+    expect(result.terminationConfirmedAt).toBeInstanceOf(Date);
+    expect(existsSync(join(home, "skill-calls"))).toBe(false);
+  }, 15000);
+
   test("keeps both sequential container identities and waits for saved termination before the next phase", async () => {
     const executor = createContainerExecutor(image, home);
-    const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 15000, signal: new AbortController().signal }, store, {
+    const selected = createDrizzleRunStore(database.db, undefined, { analysisWorkflow: parseAnalysisWorkflow({ maxSteps: 2 }) });
+    const result = await runTask({ taskId, model: "fixture", workspace, timeoutMs: 15000, signal: new AbortController().signal }, selected, {
       ...executor,
       async analyze(request, onEvent) {
-        await executor.analyze({ ...request, instruction: "forged-termination" }, async event => {
+        await onEvent({ kind: "step.started", step: { type: "start", sequence: 1 } });
+        const { workflow: _workflow, ...call } = request;
+        await executor.analyze({ ...call, instruction: "forged-termination" }, async event => {
           if (event.kind === "development.candidate.ready") expect(event.development).toBeUndefined();
           await onEvent(event);
           if (event.kind === "execution.terminated" && !event.executionTermination) expect(readExecutions(database.db, request.runId!)[0]?.terminationConfirmedAt).toBeNull();
         });
+
         const first = readExecutions(database.db, request.runId!)[0]!;
         expect(first.terminationConfirmedAt).toBeInstanceOf(Date);
         expect((await exec("docker", ["inspect", "--format", "{{.State.Running}}", first.identity.containerId])).stdout.trim()).toBe("false");
-        return executor.analyze(request, onEvent);
+        await onEvent({ kind: "step.completed", step: { type: "complete", sequence: 1, assessment: { report: "First phase", evidence: ["fixture"], unresolved: ["Next phase"], complete: false, next: { purpose: "Next phase", effort: "medium", reason: "Check sequential execution" } }, usage: null } });
+        await onEvent({ kind: "step.started", step: { type: "start", sequence: 2 } });
+        const second = await executor.analyze({ ...call, stepSequence: 2 }, onEvent);
+        await onEvent({ kind: "step.completed", step: { type: "complete", sequence: 2, assessment: { report: second.output, evidence: ["fixture"], unresolved: [], complete: true, next: null }, usage: null } });
+        return second;
       },
     });
     expect(result.status).toBe("succeeded");

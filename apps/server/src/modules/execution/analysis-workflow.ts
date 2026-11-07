@@ -191,6 +191,10 @@ export function createAnalysisWorkflow(
         const result = await executor.analyze(
           {
             ...request,
+            ...(request.runtimeSkillVersion !== undefined ? {
+              stepSequence: sequence,
+              ...(request.runtimeSkill ? { runtimeSkill: { ...request.runtimeSkill, sequence } } : {}),
+            } : {}),
             instruction,
             effort,
             outputSchema: analysisAssessmentSchema,

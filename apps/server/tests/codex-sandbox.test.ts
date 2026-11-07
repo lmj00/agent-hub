@@ -42,6 +42,39 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("Codex container sandbo
     } finally { rmSync(directory, { recursive: true, force: true }); }
   }, 35000);
 
+  test.each(["wrong-ack", "missing-selection", "wrong-digest", "changed-file", "missing-hello", "wrong-bundle"])("production runner blocks %s before SDK invocation", async mode => {
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-skill-runner-")));
+    const changed = join(directory, "changed.md"); writeFileSync(changed, "untrusted replacement", { mode: 0o644 });
+    const selection = loadRuntimeSkill("analyst").selection;
+    const hello = { type: "runner.hello", runtimeSkillVersion: 1, bundleDigest: mode === "wrong-bundle" ? "a".repeat(64) : selection.bundleDigest };
+    const request = { instruction: "Inspect", model: "fixture", runtimeSkillVersion: 1, stepSequence: 1,
+      ...(mode === "missing-selection" ? {} : { runtimeSkill: { sequence: 1, selection: { ...selection, ...(mode === "wrong-digest" ? { digest: "a".repeat(64) } : {}) } } }) };
+    const name = `hub-skill-runner-${randomUUID()}`;
+    try {
+      const output = await new Promise<string>((resolve, reject) => {
+        const child = execFile("docker", ["run", "--rm", "-i", "--name", name, "--network", "none", "--read-only",
+          ...(mode === "changed-file" ? ["--mount", `type=bind,src=${changed},dst=/app/apps/server/skills/gstack/planner.md,readonly`] : []), image], { timeout: 15000 }, (error, stdout) => {
+          // Input validation exits nonzero; both paths still emit a bounded error.
+          if (error && !stdout) reject(error); else resolve(stdout);
+        });
+        child.stdin!.end((mode === "missing-hello" ? "" : JSON.stringify(hello) + "\n") + JSON.stringify(request) + "\n" + JSON.stringify({ type: "skill.saved", sequence: 1, digest: "wrong" }) + "\n");
+      });
+      const messages = output.trim().split("\n").map(line => JSON.parse(line));
+      if (!["changed-file", "missing-hello", "wrong-bundle"].includes(mode)) {
+        expect(messages.shift()).toEqual({ type: "runner.ready", runtimeSkillVersion: 1, bundleDigest: selection.bundleDigest });
+      }
+      if (mode === "wrong-ack") {
+        expect(messages).toEqual([
+          { type: "event", event: { kind: "skill.loaded", runtimeSkill: { type: "loaded", sequence: 1, selection } } },
+          { type: "error", code: "provider_error", retryAt: null },
+        ]);
+      } else expect(messages).toEqual([expect.objectContaining({ type: "error", code: "unsupported_settings" })]);
+    } finally {
+      await exec("docker", ["rm", "-f", name]).catch(() => {});
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 20000);
+
   test("can execute the bundled tools and read the project while denying writes, private files and network", async () => {
     const directory = realpathSync(mkdtempSync(join(tmpdir(), "hub-sandbox-")));
     const home = join(directory, "home"), workspace = join(directory, "workspace"), outside = join(directory, "outside");

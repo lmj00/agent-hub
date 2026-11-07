@@ -535,6 +535,7 @@ test("preserves existing run records when adding durable planning input", () => 
     ...before,
     planning_input: null,
     development_version: null,
+    runtime_skill_version: null,
   });
   expect(database.client.prepare("SELECT count(*) AS count FROM run_executions").get()).toEqual({ count: 0 });
   expect(() => database.checkReady()).not.toThrow();

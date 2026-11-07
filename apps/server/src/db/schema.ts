@@ -5,6 +5,7 @@ import type { PreparedInput } from "../modules/goals/prepared-workspace.js";
 import type { DevelopmentRepositoryIntent, DevelopmentRepository, DevelopmentInputIntent, DevelopmentInput, DevelopmentCandidate } from "../modules/goals/development-workspace.js";
 import type { DevelopmentVerificationIntent, DevelopmentReview } from "../modules/goals/development-verification-store.js";
 import type { VerificationResult } from "../modules/execution/verification-config.js";
+import type { RuntimeSkillSelection } from "../modules/execution/runtime-skills.js";
 import type { PlannedWork, PlanResult, PlanningInput } from "../modules/goals/goal-plan-policy.js";
 import { sql } from "drizzle-orm";
 import type { ServiceSnapshot, CapacityState, AnalysisAssessment, GoalDefinition, Goal, PeriodBudgetPolicy, BudgetWait, TaskGoalReview } from "@agent-hub/contracts";
@@ -88,6 +89,7 @@ export const runs = sqliteTable("runs", {
   effortPolicy: text("effort_policy", { mode: "json" }).$type<EffortPolicy>(),
   workflowPolicy: text("workflow_policy", { mode: "json" }).$type<AnalysisWorkflowPolicy>(),
   developmentVersion: integer("development_version"),
+  runtimeSkillVersion: integer("runtime_skill_version"),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   lastActivityAt: integer("last_activity_at", { mode: "timestamp_ms" }).notNull(),
@@ -106,6 +108,7 @@ export const runs = sqliteTable("runs", {
 }, (table) => [
   check("runs_slot_valid", sql`${table.slot} = 1`),
   check("runs_development_version_valid", sql`${table.developmentVersion} IS NULL OR ${table.developmentVersion} = 1`),
+  check("runs_runtime_skill_version_valid", sql`${table.runtimeSkillVersion} IS NULL OR ${table.runtimeSkillVersion} = 1`),
   uniqueIndex("runs_one_active").on(table.slot).where(sql`${table.status} = 'running' OR (${table.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${table.terminationConfirmedAt} IS NULL)`),
   index("runs_task_started_at_idx").on(table.taskId, table.startedAt),
   uniqueIndex("runs_task_attempt_unique").on(table.taskId, table.attempt),
@@ -154,6 +157,9 @@ export const steps = sqliteTable("steps", {
   proposedEffort: text("proposed_effort"),
   purpose: text("purpose"),
   model: text("model"),
+  runtimeSkill: text("runtime_skill", { mode: "json" }).$type<RuntimeSkillSelection>(),
+  runtimeSkillSelectedAt: integer("runtime_skill_selected_at", { mode: "timestamp_ms" }),
+  runtimeSkillLoadedAt: integer("runtime_skill_loaded_at", { mode: "timestamp_ms" }),
   assessment: text("assessment", { mode: "json" }).$type<AnalysisAssessment>(),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),

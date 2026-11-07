@@ -12,8 +12,63 @@ vi.mock("@openai/codex-sdk", () => ({ Codex: class {
 import { codexOptions, createCodexExecutor, threadOptions } from "../src/modules/execution/codex-executor.js";
 import { type AnalysisEvent, classifyCodexError } from "../src/modules/execution/analysis.js";
 import { analysisAssessmentSchema, goalPlanSchema } from "@agent-hub/contracts";
+import { loadRuntimeSkill } from "../src/modules/execution/runtime-skills.js";
 
 const request = { instruction: "Analyze", workspace: "/tmp/prepared", model: "test-model", signal: new AbortController().signal };
+
+test.each(["analyst", "planner", "developer", "reviewer"] as const)("reads %s bytes and waits for durable load acknowledgement before the SDK call", async role => {
+  fake.start.mockClear(); fake.run.mockClear();
+  fake.events = [
+    { type: "item.completed", item: { type: "agent_message", text: "Result" } },
+    { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } },
+  ];
+  const loaded = loadRuntimeSkill(role);
+  const ack = Promise.withResolvers<void>();
+  const seen = Promise.withResolvers<void>();
+  const events: AnalysisEvent[] = [];
+  const call = createCodexExecutor("/tmp/private-auth", undefined, true).analyze({
+    ...request, runtimeSkillVersion: 1, stepSequence: 1,
+    ...(role === "planner" ? { responseMode: "goal-plan" as const } : role === "reviewer" ? { responseMode: "assessment" as const } : {}),
+    ...(role === "developer" ? { development: { baseRevision: "a".repeat(40), inputDigest: "b".repeat(64), scope: { goalId: "goal", goalVersion: 1, allowedPaths: ["."], excludedPaths: [] }, writePaths: ["src"], files: [] } } : {}),
+  }, async event => {
+    events.push(event);
+    if (event.runtimeSkill?.type === "loaded") { seen.resolve(); await ack.promise; }
+  });
+  await seen.promise;
+  expect(fake.start).not.toHaveBeenCalled();
+  expect(fake.run).not.toHaveBeenCalled();
+  expect(events.map(event => event.runtimeSkill)).toEqual([
+    { type: "selected", sequence: 1, selection: loaded.selection },
+    { type: "loaded", sequence: 1, selection: loaded.selection },
+  ]);
+  ack.resolve(); await call;
+  expect(fake.run).toHaveBeenCalledOnce();
+  expect(fake.run.mock.lastCall?.[0]).toContain(loaded.instructions);
+  expect(fake.start).toHaveBeenLastCalledWith(expect.objectContaining({ approvalPolicy: "never", webSearchMode: "disabled" }));
+});
+
+test.each(["save-failed", "cancelled"])("does not call the SDK when load acknowledgement is %s", async mode => {
+  fake.start.mockClear(); fake.run.mockClear();
+  const controller = new AbortController();
+  await expect(createCodexExecutor("/tmp/private-auth").analyze({ ...request, signal: controller.signal, runtimeSkillVersion: 1 }, event => {
+    if (event.runtimeSkill?.type === "loaded") {
+      if (mode === "save-failed") throw new Error("Database unavailable");
+      controller.abort();
+    }
+  })).rejects.toThrow();
+  expect(fake.start).not.toHaveBeenCalled(); expect(fake.run).not.toHaveBeenCalled();
+});
+
+test.each(["digest", "role", "sequence", "version"])("rejects mismatched %s before load acknowledgement or SDK invocation", async field => {
+  fake.start.mockClear(); fake.run.mockClear();
+  const context = { sequence: 1, selection: loadRuntimeSkill("analyst").selection };
+  if (field === "digest") context.selection.digest = "a".repeat(64);
+  if (field === "role") context.selection = loadRuntimeSkill("reviewer").selection;
+  if (field === "sequence") context.sequence = 2;
+  const onEvent = vi.fn();
+  await expect(createCodexExecutor("/tmp/private-auth").analyze({ ...request, runtimeSkillVersion: field === "version" ? 2 : 1, runtimeSkill: context }, onEvent)).rejects.toMatchObject({ code: "unsupported_settings" });
+  expect(onEvent).not.toHaveBeenCalled(); expect(fake.start).not.toHaveBeenCalled(); expect(fake.run).not.toHaveBeenCalled();
+});
 
 test("planning selects the server-owned structured schema without changing read-only permissions", async () => {
   fake.events = [

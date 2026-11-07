@@ -605,6 +605,8 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
     mkdirSync(home);
     writeFileSync(join(home, "auth.json"), "synthetic credential");
     claim();
+    database.db.update(runs).set({ runtimeSkillVersion: 1 }).where(eq(runs.id, run.id)).run();
+    run.runtimeSkillVersion = 1;
     const base = createContainerExecutor("agent-hub-workflow-test:local", home);
     const result = await runWith(wrap(base));
     expect(result).toMatchObject({
@@ -619,6 +621,9 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
     ]);
     expect(rounds[1]!.review!.assessment.complete).toBe(true);
     expect(readExecutions(database.db, run.id)).toHaveLength(6);
+    const skillHistory = database.db.select().from(steps).where(eq(steps.runId, run.id)).all();
+    expect(skillHistory.map(step => step.runtimeSkill?.role)).toEqual(["developer", "reviewer", "developer", "reviewer"]);
+    expect(skillHistory.every(step => step.runtimeSkillSelectedAt && step.runtimeSkillLoadedAt)).toBe(true);
     expect(
       new Set(store.findById(run.id)!.steps.map((step) => step.sessionId)).size,
     ).toBe(4);

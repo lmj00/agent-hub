@@ -55,7 +55,9 @@ export function createExecutionQueue(options: {
         options.validate();
         diagnostics.recovered("validation");
         phase = "claim";
-        const claim = options.store.claimNext(options.config.model, [...options.config.workspaces.keys()]);
+        const claim = options.executor.runtimeSkillVersion === undefined
+          ? options.store.claimNext(options.config.model, [...options.config.workspaces.keys()])
+          : options.store.claimNext(options.config.model, [...options.config.workspaces.keys()], options.executor.runtimeSkillVersion);
         diagnostics.recovered("claim");
         if (claim.kind === "claimed") {
           phase = "execution";

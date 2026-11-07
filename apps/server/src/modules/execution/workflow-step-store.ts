@@ -36,7 +36,8 @@ export function saveWorkflowStep(
       latest.sequence !== update.sequence ||
       latest.status !== "running" ||
       !latest.purpose ||
-      latest.assessment
+      latest.assessment ||
+      (run.runtimeSkillVersion !== null && !latest.runtimeSkillLoadedAt)
     )
       throw new AnalysisError("invalid_plan");
     db.update(steps)

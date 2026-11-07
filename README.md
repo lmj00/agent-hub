@@ -23,7 +23,7 @@ AI가 이 저장소를 수정할 때의 문서 참조 순서·개발 방법·검
 
 저장소 개발에는 gstack의 계획 검토·검증·코드 리뷰 절차를 사용합니다. [검사 설정](.gstack/pregate.json)은 변경 파일에 필요한 테스트를 지정하고, `scripts/run-selected-tests.mjs`가 서버·화면 단위 테스트는 Vitest, 브라우저 시나리오는 Playwright로 실행합니다. 예를 들어 `node scripts/run-selected-tests.mjs apps/server/tests/development-evidence.test.ts`로 지정한 테스트를 실행할 수 있습니다.
 
-제품 내부 에이전트에는 [역할별 gstack 지침](apps/server/skills/gstack/NOTICE.md)을 준비했습니다. 원본 버전·출처·MIT 라이선스를 보존하고, 서버와 실행 이미지에서 같은 파일인지 검사합니다. 현재는 지침 묶음과 읽기·무결성 검사를 검증했으며, AI 호출 전 전달과 사용 이력 저장은 다음 구현 범위입니다. 적용 방식은 `adapted_instructions`로, gstack의 판단 기준을 실행 환경에 맞게 수정한 지침입니다. 전체 gstack CLI나 브라우저 기능을 실행한다는 의미는 아닙니다. 서버를 파일로 배포할 때에는 `dist/`와 함께 `apps/server/skills/gstack/`도 보존해야 합니다. 실행용 Docker 이미지에는 이 디렉터리를 포함합니다.
+제품 내부 에이전트에는 [역할별 gstack 지침](apps/server/skills/gstack/NOTICE.md)을 연결했습니다. 원본 버전·출처·MIT 라이선스를 보존하고, 서버와 실행 이미지에서 같은 파일인지 검사합니다. 새 실행은 역할에 맞는 지침을 선택하고, 실행기가 실제 내용을 읽었다는 기록을 DB에 저장한 뒤 AI를 호출합니다. 구버전 실행기는 작업 전달 전에 차단합니다. 이 호출 경계와 저장·취소·복구는 대역 SDK와 실제 Docker로 검증하며, 화면 조회와 실제 모델 적용 확인은 다음 구현 범위입니다. 적용 방식은 `adapted_instructions`로, gstack의 판단 기준을 실행 환경에 맞게 수정한 지침입니다. 전체 gstack CLI나 브라우저 기능을 실행한다는 의미는 아닙니다. 서버를 파일로 배포할 때에는 `dist/`와 함께 `apps/server/skills/gstack/`도 보존해야 합니다. 실행용 Docker 이미지에는 이 디렉터리를 포함합니다.
 
 ## 첫 번째 목표
 

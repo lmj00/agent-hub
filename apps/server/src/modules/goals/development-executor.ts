@@ -76,6 +76,8 @@ export function createDevelopmentExecutor(options: {
     { started: boolean; controller: AbortController; settled: Promise<void> }
   >();
   return {
+    ...(development.runtimeSkillVersion !== undefined ? { runtimeSkillVersion: development.runtimeSkillVersion }
+      : analysis.runtimeSkillVersion !== undefined ? { runtimeSkillVersion: analysis.runtimeSkillVersion } : {}),
     async analyze(request, onEvent) {
       const selected = request.runId
         ? db
@@ -191,6 +193,7 @@ export function createDevelopmentExecutor(options: {
           );
           const effort = await startStep(sequence * 2 - 1);
           const changed = await execute({
+            ...(run.runtimeSkillVersion !== null ? { runtimeSkillVersion: run.runtimeSkillVersion, stepSequence: sequence * 2 - 1 } : {}),
             runId: run.id,
             model: run.model,
             effort,
@@ -263,6 +266,7 @@ export function createDevelopmentExecutor(options: {
           if (!verification) throw new AnalysisError("input_unavailable");
           const reviewEffort = await startStep(sequence * 2);
           const reviewed = await execute({
+            ...(run.runtimeSkillVersion !== null ? { runtimeSkillVersion: run.runtimeSkillVersion, stepSequence: sequence * 2 } : {}),
             runId: run.id,
             model: run.model,
             effort: reviewEffort,
