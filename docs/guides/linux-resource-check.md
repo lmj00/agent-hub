@@ -18,7 +18,7 @@ GitHub Actions의 CI 실행에서 `linux-lifecycle-ubuntu-22.04` 또는 `linux-l
 | `state`, `database`, `wal` | 상태 폴더 전체, SQLite 본체, 임시 변경 기록 파일 크기 | 뒤의 두 항목은 `state`에 포함되므로 합산하지 않음 |
 | `journals` | agent-hub 전용 로그 폴더의 파일 크기 | 내용은 읽지 않음. 다른 서비스의 로그는 제외 |
 
-메모리는 바이트, `cpuUsageUsec`는 해당 cgroup이 생성된 뒤 누적한 CPU 시간(마이크로초)입니다. `identity`가 바뀌면 새 cgroup이므로 전후 CPU 값을 빼지 않습니다. `peakBytes`는 커널이 제공하는 해당 cgroup의 최대 메모리이며, 지원하지 않는 커널에서는 `null`입니다. 현재 값과 최대값은 차례로 읽으므로 한 순간의 원자적 측정이 아닙니다.
+cgroup은 Linux가 프로세스를 한 묶음으로 관리하는 단위입니다. 메모리는 바이트, `cpuUsageUsec`는 해당 cgroup이 생성된 뒤 누적한 CPU 시간(마이크로초)입니다. `identity`가 바뀌면 새 cgroup이므로 전후 CPU 값을 빼지 않습니다. `peakBytes`는 커널이 제공하는 해당 cgroup의 최대 메모리이며, 지원하지 않는 커널에서는 `null`입니다. 현재 값과 최대값은 차례로 읽으므로 한 순간의 원자적 측정이 아닙니다.
 
 파일 크기의 `bytes`는 파일 내용 길이, `allocatedBytes`는 파일에 할당된 디스크 블록 크기입니다. 하드링크는 각 측정 폴더 안에서 한 번만 세고, 심볼릭 링크는 따라가지 않습니다. `exists: false`는 아직 생성되지 않았거나 이미 제거된 경로입니다. `vanishedEntries`가 있으면 측정 중 사라진 항목이 있으므로 정확한 합계로 보지 않습니다. 파일 내용은 열지 않아 SQLite의 잠금에 영향을 주지 않습니다.
 

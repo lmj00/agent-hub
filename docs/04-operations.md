@@ -230,6 +230,8 @@ RUN_CONTAINER_TESTS=1 pnpm --filter @agent-hub/server exec vitest run tests/oper
 2. 운영자가 서비스를 중지하면 실행을 정리하고 중지 상태를 유지합니다. 다시 시작하면 저장된 작업을 이어갑니다.
 3. 완료 후 재시작해도 같은 작업을 추가 실행하지 않고, 로그인·DB 무결성·종료 기록을 보존합니다.
 
+재시작 시험에 더해 짧은 대역 작업 10회를 반복하고, 서버·컨테이너·호스트의 자원과 상태 파일 크기를 기록합니다. [결과를 읽는 방법](guides/linux-resource-check.md)과 [실제 CI 측정 기록](history/resource-measurements.md#2026-11-07-linux-서비스의-짧은-반복-시험)을 참고합니다.
+
 운영 서비스 파일은 그대로 복사하며, Node 실행 파일 위치만 테스트용 경로로 바꿉니다. 재시작 간격·파일 권한·서비스 격리 설정은 유지합니다. 모델 출력과 인증은 테스트용이며 실제 AI 호출·코드 개발 검사는 아닙니다. 공인 HTTPS·호스트 재부팅·장시간 자원 안정성·원격 24시간 운영도 이 짧은 검사와 구분합니다.
 
 이 명령은 개발 PC나 운영 서버에 설치하는 도구가 아닙니다. 명시적 CI 실행 옵션, root, GitHub 제공 Linux VM, systemd PID 1을 확인하고, 기존 서비스·계정·데이터 경로가 있으면 거부합니다. 이번 검사에서 만든 경로와 실행만 정리하며, 종료를 확인하지 못하면 파일을 보존하고 실패합니다. GitHub가 제공하는 VM과 관리자 권한은 [공식 실행 환경 설명](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)을 참고합니다.
