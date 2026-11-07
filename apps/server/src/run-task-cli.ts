@@ -36,7 +36,7 @@ async function main() {
     const inputRoot = preparedInputRoot(databasePath);
     cleanupConfirmedInputs(database.db, inputRoot);
     const baseExecutor = createConfiguredExecutor(config);
-    const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot), development: baseExecutor, config, inputRoot, repositoryRoot: developmentRoot(databasePath), ownerToken: owner.token });
+    const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot, database.db), development: baseExecutor, config, inputRoot, repositoryRoot: developmentRoot(databasePath), ownerToken: owner.token });
     if (config.automaticRecovery && !executor.confirmTermination) throw new Error("Automatic recovery requires execution termination tracking");
     const store = createDrizzleRunStore(database.db, owner.token, config, { developmentWorkspaceKeys: configuredDevelopmentWorkspaces(config, baseExecutor) });
     const outcome = await runTask({

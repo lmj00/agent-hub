@@ -87,7 +87,7 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
           const inputRoot = preparedInputRoot(databasePath);
           cleanupConfirmedInputs(database.db, inputRoot);
           const baseExecutor = execution.executor ?? createConfiguredExecutor(execution.config);
-          const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot), development: baseExecutor, config: execution.config, inputRoot, repositoryRoot: developmentRoot(databasePath), ownerToken: owner.token });
+          const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot, database.db), development: baseExecutor, config: execution.config, inputRoot, repositoryRoot: developmentRoot(databasePath), ownerToken: owner.token });
           canTrackTermination = typeof executor.confirmTermination === "function";
           if (execution.config.automaticRecovery && !canTrackTermination) throw new Error("Automatic recovery requires execution termination tracking");
           recovery = createDrizzleRecoveryStore(database.db, owner.token);

@@ -18,6 +18,8 @@ import {
 } from "./workspace-git.js";
 import { isWithin } from "../execution/execution-config.js";
 
+import type { DevelopmentRepository } from "./development-workspace.js";
+
 export type GoalScope = {
   goalId: string;
   goalVersion: number;
@@ -29,6 +31,7 @@ export type PreparedInput = {
   runId: string;
   directory: string;
   source: string;
+  developmentRepository?: DevelopmentRepository;
   scope: GoalScope;
   phase: "preparing" | "ready";
   revision: string | null;
@@ -169,6 +172,19 @@ export async function prepareWorkspace(
   intent: PreparedInput,
   signal: AbortSignal,
 ): Promise<PreparedInput> {
+  const revision = await sourceRevision(intent.source, signal);
+  const input = await prepareGitWorkspace(intent, signal, { directory: intent.source, revision });
+  await assertSourceUnchanged(input, signal);
+  return input;
+}
+
+// The caller verifies the recorded source before and after copying. Both original
+// and accepted development inputs use the same scoped immutable-blob reader.
+export async function prepareGitWorkspace(
+  intent: PreparedInput,
+  signal: AbortSignal,
+  snapshot: { directory: string; revision: string },
+): Promise<PreparedInput> {
   signal.throwIfAborted();
   mkdirSync(intent.directory, { mode: 0o700 });
   writeFileSync(
@@ -176,12 +192,12 @@ export async function prepareWorkspace(
     JSON.stringify({ id: intent.id, runId: intent.runId }),
     { mode: 0o600, flag: "wx" },
   );
-  const revision = await sourceRevision(intent.source, signal);
+  const { revision } = snapshot;
   const files = scopedGitFiles(
-    await readGitTree(intent.source, revision, signal),
+    await readGitTree(snapshot.directory, revision, signal),
     intent.scope,
   ).map(({ path, blob, bytes }) => ({ path, blob, bytes }));
-  const contents = await readGitBlobs(intent.source, files, signal);
+  const contents = await readGitBlobs(snapshot.directory, files, signal);
   for (const [index, file] of files.entries()) {
     signal.throwIfAborted();
     const destination = join(intent.directory, file.path);
@@ -201,7 +217,6 @@ export async function prepareWorkspace(
       .update(JSON.stringify({ revision, scope: intent.scope, files }))
       .digest("hex"),
   };
-  await assertSourceUnchanged(input, signal);
   return input;
 }
 

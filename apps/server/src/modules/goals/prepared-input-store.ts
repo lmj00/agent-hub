@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { goals, planningCycles, runs, tasks } from "../../db/schema.js";
+import { changeApplications, developmentRepositories, goals, planningCycles, runs, tasks } from "../../db/schema.js";
 import { AnalysisError, redactOutput } from "../execution/analysis.js";
 import { readGoalExecutionBlock } from "./goal-execution-store.js";
 import type { GoalScope, PreparedInput } from "./prepared-workspace.js";
@@ -9,6 +9,24 @@ import { readExecutions } from "../execution/execution-record-store.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update">;
 type Run = typeof runs.$inferSelect;
+
+// Planning must keep the accepted source snapshot for its entire lifetime,
+// including completion after a restart. Never fall back to the original source
+// while a private repository is preparing or an application is unresolved.
+export function planningSourceChanged(db: Pick<Db, "select">, run: Run) {
+  const task = db.select().from(tasks).where(eq(tasks.id, run.taskId)).get();
+  const input = run.preparedInput;
+  if (!task || !input) return true;
+  if (task.kind !== "planning") return !!input.developmentRepository;
+  const repository = db.select().from(developmentRepositories).where(eq(developmentRepositories.projectId, task.projectId)).get();
+  if (!repository) return !!input.developmentRepository;
+  const pending = db.select({ id: changeApplications.id }).from(changeApplications).where(and(eq(changeApplications.repositoryId, repository.id), eq(changeApplications.status, "pending"))).get();
+  if (pending) return true;
+  return !repository.prepared || !input.developmentRepository ||
+    input.source !== repository.prepared.source ||
+    JSON.stringify(input.developmentRepository) !== JSON.stringify(repository.prepared) ||
+    (input.phase === "ready" && input.revision !== repository.prepared.head);
+}
 
 export function savePlanningInput(
   db: Db,
@@ -98,6 +116,7 @@ export function savePreparedInput(
   )
     throw new AnalysisError("goal_changed");
   if (
+    planningSourceChanged(db, { ...run, preparedInput: input }) ||
     input.runId !== run.id ||
     readExecutions(db, run.id).length > 0 ||
     kind !== `input.${input.phase}`
@@ -121,6 +140,7 @@ export function savePreparedInput(
       prior.id !== input.id ||
       prior.directory !== input.directory ||
       prior.source !== input.source ||
+      JSON.stringify(prior.developmentRepository) !== JSON.stringify(input.developmentRepository) ||
       JSON.stringify(prior.scope) !== JSON.stringify(input.scope)
     )
       throw new AnalysisError("input_unavailable");

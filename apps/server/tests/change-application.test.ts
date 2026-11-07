@@ -16,6 +16,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
 import {
   changeApplications,
+  developmentRepositories,
   developmentRounds,
   executionOwner,
   goals,
@@ -49,6 +50,9 @@ import { createDrizzleRecoveryStore } from "../src/modules/execution/drizzle-rec
 import { createRecoveryProcessor } from "../src/modules/execution/recover-task.js";
 import { createAutomaticRecovery } from "../src/modules/execution/automatic-recovery.js";
 import { acquireExecutionOwner } from "../src/modules/execution/execution-owner.js";
+import { createPlanningStore } from "../src/modules/goals/planning-store.js";
+import { createPreparedExecutor, verifyPreparedResult } from "../src/modules/goals/prepared-executor.js";
+import { runTask } from "../src/modules/execution/run-task.js";
 import { defaultRetryPolicy } from "../src/modules/execution/retry-policy.js";
 
 let directory: string,
@@ -832,4 +836,93 @@ test.each(["timeout", "budget_limit"] as const)("preserves %s when normal comple
   expect(recovery.findById(receipt.id)).toMatchObject({ status: "completed", resultStatus: expected });
   expect(database.db.select().from(runs).get()).toMatchObject({ status: expected, errorCode: reason });
   expect(readChangeApplication(database.db, run.id)?.status).toBe("applied");
+});
+
+
+async function prepareFollowingPlan() {
+  await approvedRound();
+  const application = await prepared();
+  await apply();
+  store.finish(run.id, { status: "succeeded", result: "Candidate inspected", errorCode: null, usage: null, terminationConfirmedAt: new Date() });
+  expect(database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()?.status).toBe("succeeded");
+  return { application, plan: createPlanningStore(database.db).reserveNext(["fixture"])! };
+}
+
+function followingPlanner(onRead?: () => void): AnalysisExecutor {
+  return {
+    async analyze(request, onEvent) {
+      const identity: ExecutionIdentity = { kind: "docker", containerId: randomUUID().replaceAll("-", "").repeat(2), token: randomUUID(), engineId: "fixture" };
+      await onEvent({ kind: "execution.prepared", execution: identity });
+      await onEvent({ kind: "execution.terminated", executionTermination: { identity, confirmedAt: new Date() } });
+      const input = JSON.parse(request.instruction.split("\n").at(-1)!);
+      expect(readFileSync(join(request.workspace, "src/main.mjs"), "utf8")).toBe(content);
+      expect(input.sourceRevision).toBe(head());
+      onRead?.();
+      return { output: JSON.stringify({ version: 1, goalVersion: input.goalVersion, inputDigest: input.inputDigest, outcome: "work", summary: "Continue from the accepted code", evidence: ["src/main.mjs returns 42"], tasks: [{ title: "Add another behavior", instruction: "Keep the accepted result and add the next behavior", acceptanceCriteria: "Both behaviors pass", paths: ["src/main.mjs"], evidence: ["src/main.mjs already returns 42"] }] }), usage: null };
+    },
+    confirmTermination: async () => new Date(),
+  };
+}
+
+function runFollowingPlan(id: string, executor: AnalysisExecutor, selectedStore = store) {
+  return runTask({ taskId: id, model: "fixture", workspace: source, timeoutMs: 5000, signal: signal() }, selectedStore, createPreparedExecutor(executor, preparedInputRoot(join(directory, "hub.sqlite")), database.db));
+}
+
+test("the next plan reads the accepted code and records that revision on its new Task", async () => {
+  const { application, plan } = await prepareFollowingPlan();
+  expect(await runFollowingPlan(plan.taskId, followingPlanner())).toMatchObject({ status: "succeeded" });
+  const planned = database.db.select().from(runs).where(eq(runs.taskId, plan.taskId)).get()!;
+  expect(planned.preparedInput).toMatchObject({ source, revision: application.resultCommit, developmentRepository: repository() });
+  expect(planned.planningInput?.sourceRevision).toBe(application.resultCommit);
+  const nextTask = database.db.select().from(tasks).where(eq(tasks.id, planned.planResult!.createdTaskIds[0]!)).get()!;
+  expect(nextTask.plannedWork?.sourceRevision).toBe(application.resultCommit);
+  expect(readFileSync(join(source, "src/main.mjs"), "utf8")).toContain("answer = 1");
+  expect(git(source, "rev-parse", "HEAD")).toBe(application.baseRevision);
+});
+
+test.each(["source", "branch", "record"])("planning rejects an accepted %s that changes during the model call", async boundary => {
+  const { application, plan } = await prepareFollowingPlan();
+  const result = await runFollowingPlan(plan.taskId, followingPlanner(() => {
+    if (boundary === "source") writeFileSync(join(source, "src/main.mjs"), "external edit\n");
+    else if (boundary === "branch") git(join(repository().directory, "git"), "update-ref", "refs/heads/development", application.baseRevision);
+    else database.db.update(developmentRepositories).set({ prepared: { ...repository(), head: application.baseRevision } }).where(eq(developmentRepositories.projectId, projectId)).run();
+  }));
+  expect(result).toMatchObject({ status: "blocked", errorCode: "input_changed" });
+  const planned = database.db.select().from(runs).where(eq(runs.taskId, plan.taskId)).get()!;
+  expect(planned.planResult?.createdTaskIds).toEqual([]);
+  expect(database.db.select().from(tasks).all()).toHaveLength(2);
+});
+
+test.each([false, true])("planning recovery rechecks the recorded development snapshot, moved=%s", async moved => {
+  const { application, plan } = await prepareFollowingPlan();
+  await expect(runFollowingPlan(plan.taskId, followingPlanner(), { ...store, finish() { throw new Error("lost planning completion"); } })).rejects.toThrow("lost planning completion");
+  const planned = database.db.select().from(runs).where(eq(runs.taskId, plan.taskId)).get()!;
+  if (moved) git(join(repository().directory, "git"), "update-ref", "refs/heads/development", application.baseRevision);
+  reopen();
+  expect(await verifyPreparedResult(database.db, planned.id)).toBe(!moved);
+  const recovery = createDrizzleRecoveryStore(database.db);
+  const request = recovery.request({ taskId: plan.taskId, runId: planned.id, action: "reconcile", requestKey: randomUUID(), providerGateVersion: null }, null, true);
+  await createRecoveryProcessor(recovery, { confirm: async () => new Date(), cleanup: async () => {} }, undefined, id => verifyPreparedResult(database.db, id)).process(request.request.id);
+  expect(database.db.select().from(runs).where(eq(runs.id, planned.id)).get()).toMatchObject(moved ? { status: "blocked", errorCode: "input_changed" } : { status: "succeeded", errorCode: null });
+  expect(database.db.select().from(tasks).all()).toHaveLength(moved ? 2 : 3);
+});
+
+
+test.each(["missing-adapter", "preparing", "unconfirmed"])("planning never falls back to original code when accepted storage is %s", async boundary => {
+  const { application, plan } = await prepareFollowingPlan();
+  let calls = 0;
+  const executor: AnalysisExecutor = { analyze: async () => { calls++; throw new Error("must not invoke AI"); }, confirmTermination: async () => new Date() };
+  const root = preparedInputRoot(join(directory, "hub.sqlite"));
+  const selected = { ...store, record(id: string, event: Parameters<typeof store.record>[1]) {
+    // Inject uncertainty after claim but before preparation is acknowledged.
+    if (event.kind === "input.preparing") {
+      if (boundary === "preparing") database.db.update(developmentRepositories).set({ prepared: null }).where(eq(developmentRepositories.projectId, projectId)).run();
+      if (boundary === "unconfirmed") database.db.update(changeApplications).set({ status: "pending", appliedAt: null }).where(eq(changeApplications.id, application.id)).run();
+    }
+    store.record(id, event);
+  } };
+  const result = await runTask({ taskId: plan.taskId, model: "fixture", workspace: source, timeoutMs: 5000, signal: signal() }, selected, createPreparedExecutor(executor, root, boundary === "missing-adapter" ? undefined : database.db));
+  expect(result).toMatchObject({ status: "blocked", errorCode: "input_unavailable" });
+  expect(calls).toBe(0);
+  expect(database.db.select().from(tasks).all()).toHaveLength(2);
 });

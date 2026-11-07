@@ -9,7 +9,7 @@ import {
   type PlannedWork,
   type PlanResult,
 } from "./goal-plan-policy.js";
-import { preparedGoalChanged } from "./prepared-input-store.js";
+import { preparedGoalChanged, planningSourceChanged } from "./prepared-input-store.js";
 import {
   overlappingWorkPaths,
   readPlanningWork,
@@ -99,6 +99,7 @@ export function applyPlanningCompletion(
     cycle.goalVersion !== run.goalVersion
   )
     return reject("goal_changed");
+  if (planningSourceChanged(db, run)) return reject("input_changed");
   if (preparedGoalChanged(db, run)) return reject("goal_changed");
   const goal = db.select().from(goals).where(eq(goals.id, cycle.goalId)).get()!;
   let plan;
