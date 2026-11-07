@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import { openDatabase } from "../src/db/connection.js";
-import { executionOwner, projects, runs, tasks } from "../src/db/schema.js";
+import { executionOwner, goals, projects, runs, tasks } from "../src/db/schema.js";
 import { AnalysisError, type AnalysisExecutor } from "../src/modules/execution/analysis.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { createExecutionQueue } from "../src/modules/execution/execution-queue.js";
@@ -257,4 +258,87 @@ test("writes diagnostic records to the server logger without exposing configurat
   writeFileSync(join(directory, "auth", "auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
   await vi.waitFor(() => expect(lines.some(line => line.includes('"event":"execution_queue.recovered"'))).toBe(true));
   expect((await app.inject({ url: "/execution" })).json().state).toBe("idle");
+});
+
+
+const autonomousGoal = {
+  description: "Keep the example healthy", completionCriteria: "No verified defects remain",
+  kind: "continuous" as const, priority: 50, allowedPaths: ["main.mjs"], excludedPaths: [],
+  checkIntervalMs: 60000, budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
+};
+function preparePlanningSource() {
+  const source = config.workspaces.get("example")!;
+  writeFileSync(join(source, "main.mjs"), "export const answer = 42;\n");
+  const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args], { cwd: source, env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" }, stdio: "ignore" });
+  git("init", "--quiet", "--template="); git("add", "--all"); git("commit", "--quiet", "-m", "fixture");
+  config.containerImage = "fixture:local";
+  config.verification = new Map([["example", { image: "fixture:local", command: ["node", "main.mjs"], timeoutMs: 10000 }]]);
+}
+function waitingPlanner() {
+  return { analyze: vi.fn<AnalysisExecutor["analyze"]>(async request => {
+    expect(request.responseMode).toBe("goal-plan");
+    const input = JSON.parse(request.instruction.split("\n").at(-1)!);
+    return { output: JSON.stringify({ version: 1, goalVersion: input.goalVersion, inputDigest: input.inputDigest, outcome: "wait", summary: "No new work", evidence: ["main.mjs returns 42"], tasks: [] }), usage: null };
+  }), confirmTermination: async () => new Date() };
+}
+async function checkedAgain(app: ReturnType<typeof buildApp>) {
+  const previous = (await app.inject({ url: "/execution" })).json().lastCheckedAt;
+  await vi.waitFor(async () => {
+    const current = (await app.inject({ url: "/execution" })).json().lastCheckedAt;
+    expect(current).not.toBeNull(); expect(current).not.toBe(previous);
+  });
+}
+
+test("goal registration starts planning, waits without repeated calls and resumes a due check after server restart", async () => {
+  preparePlanningSource();
+  const executor = waitingPlanner();
+  const execution = { config, executor, pollIntervalMs: 5 };
+  const app = buildApp({ databasePath, execution }); cleanup.push(() => app.close());
+  await app.listen({ host: "127.0.0.1", port: 0 });
+  const response = await app.inject({ method: "POST", url: `/projects/${projectId}/goals`, payload: { requestKey: "automatic-goal", definition: autonomousGoal } });
+  expect(response.statusCode).toBe(201);
+  await vi.waitFor(() => expect(database.db.select().from(tasks).all().map(item => item.status)).toEqual(["succeeded"]), { timeout: 10000 });
+  const id = response.json().id;
+  expect(database.db.select().from(goals).where(eq(goals.id, id)).get()!.nextCheckAt!.getTime()).toBeGreaterThan(Date.now());
+  await checkedAgain(app);
+  expect(executor.analyze).toHaveBeenCalledTimes(1);
+  await app.close();
+  const restarted = buildApp({ databasePath, execution }); cleanup.push(() => restarted.close());
+  await restarted.listen({ host: "127.0.0.1", port: 0 });
+  await checkedAgain(restarted);
+  expect(executor.analyze).toHaveBeenCalledTimes(1);
+  expect(database.db.select().from(tasks).all()).toHaveLength(1);
+  database.db.update(goals).set({ nextCheckAt: new Date(0) }).where(eq(goals.id, id)).run();
+  await vi.waitFor(() => expect(database.db.select().from(tasks).all().map(item => item.status)).toEqual(["succeeded", "succeeded"]), { timeout: 10000 });
+  expect(executor.analyze).toHaveBeenCalledTimes(2);
+});
+
+test.each(["image", "verification", "termination"])("goal registration without development %s does not reserve automatic planning", async missing => {
+  preparePlanningSource();
+  if (missing === "image") { delete config.containerImage; delete config.verification; }
+  if (missing === "verification") delete config.verification;
+  const executor = waitingPlanner();
+  const app = buildApp({ databasePath, execution: { config, executor: missing === "termination" ? { analyze: executor.analyze } : executor, pollIntervalMs: 5 } }); cleanup.push(() => app.close());
+  await app.listen({ host: "127.0.0.1", port: 0 });
+  expect((await app.inject({ method: "POST", url: `/projects/${projectId}/goals`, payload: { requestKey: "no-development", definition: autonomousGoal } })).statusCode).toBe(201);
+  await checkedAgain(app);
+  expect(database.db.select().from(tasks).all()).toEqual([]);
+  expect(executor.analyze).not.toHaveBeenCalled();
+});
+
+test("planning storage failures prevent claims and report recovery in the planning phase", async () => {
+  const id = task("queued work");
+  let healthy = false;
+  const reportDiagnostic = vi.fn();
+  const analyze = vi.fn(success.analyze);
+  const execution = createExecutionQueue({ config, executor: { analyze }, store: createDrizzleRunStore(database.db), validate() {}, reportDiagnostic, pollIntervalMs: 5,
+    planning: { tick() { if (!healthy) throw Object.assign(new Error("private storage detail"), { code: "SQLITE_BUSY" }); } },
+  }); cleanup.push(() => execution.stop());
+  execution.start();
+  expect(execution.getStatus()).toMatchObject({ state: "error", reason: "storage_error" });
+  expect(reportDiagnostic.mock.calls[0]?.[0]).toMatchObject({ phase: "planning", code: "SQLITE_BUSY" });
+  expect(analyze).not.toHaveBeenCalled();
+  healthy = true;
+  await vi.waitFor(() => expect(taskStatus(id)).toBe("succeeded"));
+  expect(reportDiagnostic.mock.calls.some(([event]) => event.event === "execution_queue.recovered" && event.phase === "planning")).toBe(true);
 });

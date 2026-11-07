@@ -25,6 +25,7 @@ export function createExecutionQueue(options: {
   recovery?: ReturnType<typeof createRecoveryProcessor>;
   automaticRecovery?: { tick(): boolean };
   capacityRecovery?: { tick(): boolean };
+  planning?: { tick(): void };
 }) {
   const controller = new AbortController();
   let started = false;
@@ -54,6 +55,9 @@ export function createExecutionQueue(options: {
         phase = "validation";
         options.validate();
         diagnostics.recovered("validation");
+        phase = "planning";
+        options.planning?.tick();
+        diagnostics.recovered("planning");
         phase = "claim";
         const claim = options.executor.runtimeSkillVersion === undefined
           ? options.store.claimNext(options.config.model, [...options.config.workspaces.keys()])

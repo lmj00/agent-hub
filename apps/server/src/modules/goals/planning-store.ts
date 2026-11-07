@@ -13,6 +13,8 @@ import {
 } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import {
+  changeApplications,
+  developmentRepositories,
   goals,
   planningCycles,
   projects,
@@ -175,6 +177,10 @@ export function createPlanningStore(db: Db, ownerToken?: string) {
             })
             .sort((a, b) => b.score - a.score);
           for (const { goal } of candidates) {
+            const pendingApplication = tx.select({ id: changeApplications.id }).from(changeApplications)
+              .innerJoin(developmentRepositories, eq(developmentRepositories.id, changeApplications.repositoryId))
+              .where(and(eq(developmentRepositories.projectId, goal.projectId), eq(changeApplications.status, "pending"))).get();
+            if (pendingApplication) continue;
             const reservation = tx
               .select()
               .from(planningCycles)

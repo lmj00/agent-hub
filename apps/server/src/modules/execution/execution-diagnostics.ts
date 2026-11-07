@@ -17,7 +17,7 @@ const diagnosticMessages: Record<string, string> = {
 };
 
 export type QueueDiagnosticContext = {
-  phase: "recovery" | "validation" | "claim" | "execution";
+  phase: "recovery" | "validation" | "planning" | "claim" | "execution";
   reason: "configuration_invalid" | "storage_error";
   runId: string | null;
   taskId: string | null;

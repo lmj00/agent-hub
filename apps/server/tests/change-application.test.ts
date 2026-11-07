@@ -926,3 +926,15 @@ test.each(["missing-adapter", "preparing", "unconfirmed"])("planning never falls
   expect(calls).toBe(0);
   expect(database.db.select().from(tasks).all()).toHaveLength(2);
 });
+
+
+test("planning reservations wait for a pending application from another Goal in the project", async () => {
+  await approvedRound();
+  await prepared();
+  const original = database.db.select().from(goals).where(eq(goals.id, goalId)).get()!;
+  const other = createDrizzleGoalStore(database.db).register(projectId, "other-goal", { ...original.definition, description: "Another goal" }).goal;
+  expect(createPlanningStore(database.db).reserveNext(["fixture"])).toBeNull();
+  await apply();
+  // The first Goal still has running work, but the distinct Goal can now plan.
+  expect(createPlanningStore(database.db).reserveNext(["fixture"])?.goalId).toBe(other.id);
+});

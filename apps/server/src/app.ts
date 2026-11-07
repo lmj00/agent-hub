@@ -26,6 +26,7 @@ import type { ServiceConfig } from "./modules/services/service-config.js";
 import { createDrizzleServiceStore } from "./modules/services/drizzle-service-store.js";
 import { createServiceObserver } from "./modules/services/service-observer.js";
 import { serviceRoutes } from "./modules/services/routes.js";
+import { createPlanningStore } from "./modules/goals/planning-store.js";
 import { createDrizzleGoalStore } from "./modules/goals/drizzle-goal-store.js";
 import { goalRoutes } from "./modules/goals/routes.js";
 import { budgetRoutes } from "./modules/budgets/routes.js";
@@ -88,13 +89,16 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
           cleanupConfirmedInputs(database.db, inputRoot);
           const baseExecutor = execution.executor ?? createConfiguredExecutor(execution.config);
           const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot, database.db), development: baseExecutor, config: execution.config, inputRoot, repositoryRoot: developmentRoot(databasePath), ownerToken: owner.token });
+          const developmentWorkspaceKeys = configuredDevelopmentWorkspaces(execution.config, baseExecutor);
+          const planning = createPlanningStore(database.db, owner.token);
           canTrackTermination = typeof executor.confirmTermination === "function";
           if (execution.config.automaticRecovery && !canTrackTermination) throw new Error("Automatic recovery requires execution termination tracking");
           recovery = createDrizzleRecoveryStore(database.db, owner.token);
           queue = createExecutionQueue({
             ...execution,
-            store: createDrizzleRunStore(database.db, owner.token, execution.config, { developmentWorkspaceKeys: configuredDevelopmentWorkspaces(execution.config, baseExecutor), getObserverStatus: () => serviceObserver?.getStatus() ?? { enabledKeys: new Set(), errors: new Set(), nextChecks: new Map() } }),
+            store: createDrizzleRunStore(database.db, owner.token, execution.config, { developmentWorkspaceKeys, getObserverStatus: () => serviceObserver?.getStatus() ?? { enabledKeys: new Set(), errors: new Set(), nextChecks: new Map() } }),
             executor,
+            ...(developmentWorkspaceKeys.length ? { planning: { tick: () => { planning.reserveNext(developmentWorkspaceKeys); } } } : {}),
             ...(execution.config.automaticRecovery ? { automaticRecovery: createAutomaticRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()], recovery }) } : {}),
             ...(execution.config.automaticRecovery && execution.config.capacityRecovery ? { capacityRecovery: createCapacityRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.capacityRecovery, retryPolicy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()] }) } : {}),
             recovery: createRecoveryProcessor(recovery, execution.observer ?? { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }, runId => cleanupPreparedRun(database.db, inputRoot, runId), runId => verifyPreparedResult(database.db, runId), async (runId, signal) => { await applyChangeApplication(database.db, runId, signal, owner!.token); }),
