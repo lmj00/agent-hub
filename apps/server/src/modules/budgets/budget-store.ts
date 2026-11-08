@@ -2,24 +2,11 @@ import { randomUUID } from "node:crypto";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import type { BudgetWait } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  budgetPeriods,
-  budgetReservations,
-  goals,
-  projectBudgets,
-} from "../../db/schema.js";
+import { budgetPeriods, budgetReservations, goals, projectBudgets } from "../../db/schema.js";
 import { AnalysisError } from "../execution/analysis.js";
-import {
-  defaultProjectBudget,
-  periodWait,
-  validateBudget,
-  type Period,
-} from "./budget-policy.js";
+import { defaultProjectBudget, periodWait, validateBudget, type Period } from "./budget-policy.js";
 
-export type BudgetDb = Pick<
-  ReturnType<typeof openDatabase>["db"],
-  "select" | "insert" | "update"
->;
+export type BudgetDb = Pick<ReturnType<typeof openDatabase>["db"], "select" | "insert" | "update">;
 type TaskReference = { projectId: string; goalId: string | null };
 
 export function latestPeriod(db: Pick<BudgetDb, "select">, accountKey: string) {
@@ -31,12 +18,7 @@ export function latestPeriod(db: Pick<BudgetDb, "select">, accountKey: string) {
     .get();
 }
 
-function periodsForTask(
-  db: BudgetDb,
-  task: TaskReference,
-  now: Date,
-  create: boolean,
-): Period[] {
+function periodsForTask(db: BudgetDb, task: TaskReference, now: Date, create: boolean): Period[] {
   let project = db
     .select()
     .from(projectBudgets)
@@ -107,20 +89,13 @@ export function prepareRunBudget(db: BudgetDb, task: TaskReference, now: Date) {
       0,
       Math.min(
         ...periods.map((period) =>
-          Math.min(
-            period.policy.maxRunMs - period.runMs,
-            period.endsAt.getTime() - now.getTime(),
-          ),
+          Math.min(period.policy.maxRunMs - period.runMs, period.endsAt.getTime() - now.getTime()),
         ),
       ),
     ),
   };
 }
-export function readBudgetWait(
-  db: BudgetDb,
-  task: TaskReference,
-  now: Date,
-): BudgetWait | null {
+export function readBudgetWait(db: BudgetDb, task: TaskReference, now: Date): BudgetWait | null {
   return periodWait(periodsForTask(db, task, now, false), now);
 }
 export function reserveRunBudget(
@@ -148,10 +123,7 @@ export function reserveRunBudget(
       .where(eq(budgetPeriods.id, period.id))
       .run();
 }
-function reservationPeriods(
-  db: BudgetDb,
-  reservation: typeof budgetReservations.$inferSelect,
-) {
+function reservationPeriods(db: BudgetDb, reservation: typeof budgetReservations.$inferSelect) {
   return db
     .select()
     .from(budgetPeriods)
@@ -180,10 +152,7 @@ export function reserveNextBudgetCall(db: BudgetDb, runId: string, now: Date) {
         now >= p.endsAt ||
         p.calls >= p.policy.maxCalls ||
         now.getTime() >=
-          reservation.startedAt.getTime() +
-            p.policy.maxRunMs -
-            p.runMs +
-            reservation.reservedRunMs,
+          reservation.startedAt.getTime() + p.policy.maxRunMs - p.runMs + reservation.reservedRunMs,
     )
   )
     throw new AnalysisError("budget_limit");
@@ -195,11 +164,7 @@ export function reserveNextBudgetCall(db: BudgetDb, runId: string, now: Date) {
 }
 
 // Only observed termination releases unused time. Repeated or later reconciliation cannot double-charge.
-export function settleRunBudget(
-  db: BudgetDb,
-  runId: string,
-  confirmedAt: Date | null,
-) {
+export function settleRunBudget(db: BudgetDb, runId: string, confirmedAt: Date | null) {
   if (!confirmedAt) return;
   const reservation = db
     .select()
@@ -213,8 +178,7 @@ export function settleRunBudget(
       : confirmedAt.getTime() - reservation.startedAt.getTime(),
     reservation.settledRunMs ?? 0,
   );
-  const delta =
-    elapsed - (reservation.settledRunMs ?? reservation.reservedRunMs);
+  const delta = elapsed - (reservation.settledRunMs ?? reservation.reservedRunMs);
   for (const period of reservationPeriods(db, reservation))
     db.update(budgetPeriods)
       .set({ runMs: sql`${budgetPeriods.runMs} + ${delta}` })
@@ -226,11 +190,7 @@ export function settleRunBudget(
     .run();
 }
 
-export function runBudgetWait(
-  db: BudgetDb,
-  runId: string,
-  now: Date,
-): BudgetWait | null {
+export function runBudgetWait(db: BudgetDb, runId: string, now: Date): BudgetWait | null {
   const reservation = db
     .select()
     .from(budgetReservations)
@@ -243,10 +203,7 @@ export function runBudgetWait(
       scope: reservation.goalPeriodId ? "goal" : "project",
       reason: "time_limit",
       retryAt: periods
-        .reduce(
-          (latest, p) => (p.endsAt > latest ? p.endsAt : latest),
-          periods[0]!.endsAt,
-        )
+        .reduce((latest, p) => (p.endsAt > latest ? p.endsAt : latest), periods[0]!.endsAt)
         .toISOString(),
     }
   );

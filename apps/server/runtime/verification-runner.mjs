@@ -36,9 +36,7 @@ try {
       typeof file.path !== "string" ||
       file.path.startsWith("/") ||
       file.path.includes("\\") ||
-      file.path
-        .split("/")
-        .some((part) => !part || [".", "..", ".git"].includes(part)) ||
+      file.path.split("/").some((part) => !part || [".", "..", ".git"].includes(part)) ||
       !Number.isSafeInteger(file.bytes) ||
       file.bytes < 0 ||
       file.bytes > 1048576 ||
@@ -47,10 +45,7 @@ try {
       throw new Error("invalid manifest");
     const source = join("/input", file.path);
     if (realpathSync(source) !== source) throw new Error("input link");
-    const fd = openSync(
-      source,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    );
+    const fd = openSync(source, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     let content;
     try {
       const stat = fstatSync(fd);
@@ -65,9 +60,7 @@ try {
     } finally {
       closeSync(fd);
     }
-    const hash = createHash(
-      input.baseRevision.length === 64 ? "sha256" : "sha1",
-    )
+    const hash = createHash(input.baseRevision.length === 64 ? "sha256" : "sha1")
       .update(`blob ${content.length}\0`)
       .update(content)
       .digest("hex");

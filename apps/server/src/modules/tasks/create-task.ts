@@ -35,7 +35,11 @@ export type TaskStore = {
 
 export class TaskRegistrationError extends Error {
   constructor(public readonly code: "PROJECT_NOT_FOUND" | "REQUEST_KEY_CONFLICT") {
-    super(code === "PROJECT_NOT_FOUND" ? "Project not found" : "Request key already used for a different instruction");
+    super(
+      code === "PROJECT_NOT_FOUND"
+        ? "Project not found"
+        : "Request key already used for a different instruction",
+    );
   }
 }
 
@@ -57,6 +61,11 @@ export function createTask(
   };
 
   const result = store.register(task);
-  if (result.task.instruction !== task.instruction || result.task.goalId != null || (result.task.kind ?? "work") !== "work") throw new TaskRegistrationError("REQUEST_KEY_CONFLICT");
+  if (
+    result.task.instruction !== task.instruction ||
+    result.task.goalId != null ||
+    (result.task.kind ?? "work") !== "work"
+  )
+    throw new TaskRegistrationError("REQUEST_KEY_CONFLICT");
   return result;
 }

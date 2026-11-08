@@ -1,12 +1,6 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  developmentRepositories,
-  developmentRounds,
-  runs,
-  steps,
-  tasks,
-} from "../../db/schema.js";
+import { developmentRepositories, developmentRounds, runs, steps, tasks } from "../../db/schema.js";
 import { AnalysisError } from "../execution/analysis.js";
 import { readExecutions } from "../execution/execution-record-store.js";
 import {
@@ -27,7 +21,7 @@ import {
   type DevelopmentInputIntent,
   type DevelopmentInput,
   type DevelopmentCandidate,
-} from "./development-workspace.js";
+} from "../workspace/development-workspace.js";
 
 export { maxDevelopmentRounds };
 export type DevelopmentUpdate =
@@ -42,21 +36,14 @@ export type DevelopmentUpdate =
       sequence: number;
       candidate: DevelopmentCandidate;
     };
-type Db = Pick<
-  ReturnType<typeof openDatabase>["db"],
-  "select" | "insert" | "update"
->;
+type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "insert" | "update">;
 type Run = typeof runs.$inferSelect;
-const same = (left: unknown, right: unknown) =>
-  JSON.stringify(left) === JSON.stringify(right);
+const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 const fail = () => {
   throw new AnalysisError("input_unavailable");
 };
 
-export function readDevelopmentRepository(
-  db: Pick<Db, "select">,
-  projectId: string,
-) {
+export function readDevelopmentRepository(db: Pick<Db, "select">, projectId: string) {
   return db
     .select()
     .from(developmentRepositories)
@@ -94,9 +81,7 @@ export function saveDevelopmentUpdate(
   // Completed evidence may still be kept after a Goal pause; it grants no
   // permission to start another phase or to apply changes.
   if (
-    !["candidate.ready", "verification.complete", "review.complete"].includes(
-      update.type,
-    ) &&
+    !["candidate.ready", "verification.complete", "review.complete"].includes(update.type) &&
     (run.stopReason ||
       selected.cancelRequestedAt ||
       readGoalExecutionBlock(db, selected) ||
@@ -104,9 +89,7 @@ export function saveDevelopmentUpdate(
   )
     throw new AnalysisError("goal_changed");
   const executions = readExecutions(db, run.id);
-  const idle = executions.every(
-    (entry) => entry.terminationConfirmedAt !== null,
-  );
+  const idle = executions.every((entry) => entry.terminationConfirmedAt !== null);
   if (update.type === "workflow.started") {
     if (run.developmentVersion === 1) {
       if (!same(run.workflowPolicy, developmentWorkflowPolicy)) fail();
@@ -132,8 +115,7 @@ export function saveDevelopmentUpdate(
     return;
   }
   if (update.type === "repository.intent") {
-    if (executions.length || update.repository.projectId !== selected.projectId)
-      fail();
+    if (executions.length || update.repository.projectId !== selected.projectId) fail();
     const existing = readDevelopmentRepository(db, selected.projectId);
     if (existing) {
       if (!same(existing.intent, update.repository)) fail();
@@ -152,12 +134,7 @@ export function saveDevelopmentUpdate(
   }
   if (update.type === "repository.ready") {
     const existing = readDevelopmentRepository(db, selected.projectId);
-    const {
-      sourceRevision: _source,
-      head: _head,
-      headTree: _tree,
-      ...intent
-    } = update.repository;
+    const { sourceRevision: _source, head: _head, headTree: _tree, ...intent } = update.repository;
     if (
       !existing ||
       executions.length ||
@@ -178,10 +155,7 @@ export function saveDevelopmentUpdate(
       .run();
     return;
   }
-  const repository = readDevelopmentRepository(
-    db,
-    selected.projectId,
-  )?.prepared;
+  const repository = readDevelopmentRepository(db, selected.projectId)?.prepared;
   if (
     !repository ||
     !idle ||
@@ -203,10 +177,7 @@ export function saveDevelopmentUpdate(
       input.runId !== run.id ||
       input.revision !== repository!.head ||
       !same(input.scope, readGoalScope(db, selected.goalId)) ||
-      !same(
-        [...input.writePaths].sort(),
-        [...selected.plannedWork!.paths].sort(),
-      )
+      !same([...input.writePaths].sort(), [...selected.plannedWork!.paths].sort())
     )
       fail();
     if (current) {
@@ -280,10 +251,7 @@ export function saveDevelopmentUpdate(
       if (!same(current!.input, update.input)) fail();
       return;
     }
-    db.update(developmentRounds)
-      .set({ input: update.input, preparedAt: now })
-      .where(where)
-      .run();
+    db.update(developmentRounds).set({ input: update.input, preparedAt: now }).where(where).run();
     return;
   }
   const candidate = update.candidate;
@@ -301,16 +269,10 @@ export function saveDevelopmentUpdate(
     if (!same(current!.candidate, candidate)) fail();
     return;
   }
-  db.update(developmentRounds)
-    .set({ candidate, capturedAt: now })
-    .where(where)
-    .run();
+  db.update(developmentRounds).set({ candidate, capturedAt: now }).where(where).run();
 }
 
-export function assertDevelopmentExecutionReady(
-  db: Pick<Db, "select">,
-  run: Run,
-) {
+export function assertDevelopmentExecutionReady(db: Pick<Db, "select">, run: Run) {
   const task = db.select().from(tasks).where(eq(tasks.id, run.taskId)).get();
   if (!task?.plannedWork) return;
   const current = readDevelopmentRounds(db, run.id).at(-1);

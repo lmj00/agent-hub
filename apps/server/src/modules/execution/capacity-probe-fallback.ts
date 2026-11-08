@@ -2,32 +2,15 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { CapacityState } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  events,
-  projects,
-  providerGates,
-  recoveryRequests,
-  runs,
-  tasks,
-} from "../../db/schema.js";
+import { events, projects, providerGates, recoveryRequests, runs, tasks } from "../../db/schema.js";
 import { readBudgetWait } from "../budgets/budget-store.js";
-import {
-  assignableGoal,
-  readGoalExecutionBlock,
-} from "../goals/goal-execution-store.js";
+import { assignableGoal, readGoalExecutionBlock } from "../goals/goal-execution-store.js";
 import { capacityCheckAt, type CapacityPolicy } from "./capacity-policy.js";
-import {
-  providerScope,
-  reserveProviderCheck,
-  type readProviderGate,
-} from "./provider-gate.js";
+import { providerScope, reserveProviderCheck, type readProviderGate } from "./provider-gate.js";
 import { ensureRetryState, readRetryBaseline } from "./retry-state-store.js";
 import { retryLimitReason, type RetryPolicy } from "./retry-policy.js";
 
-type Db = Pick<
-  ReturnType<typeof openDatabase>["db"],
-  "select" | "insert" | "update"
->;
+type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "insert" | "update">;
 type Gate = NonNullable<ReturnType<typeof readProviderGate>>;
 
 // The caller holds the execution owner and an immediate transaction, and has
@@ -48,9 +31,7 @@ export function replaceUnavailableGoalProbe(
     ? db.select().from(runs).where(eq(runs.id, gate.sourceRunId)).get()
     : undefined;
   const targetId = gate.probeTaskId ?? source?.taskId;
-  const target = targetId
-    ? db.select().from(tasks).where(eq(tasks.id, targetId)).get()
-    : undefined;
+  const target = targetId ? db.select().from(tasks).where(eq(tasks.id, targetId)).get() : undefined;
   if (!target?.goalId || !readGoalExecutionBlock(db, target)) return undefined;
   // Even a completed-looking source needs termination evidence. No new model
   // call is used to discover whether the old one has really stopped.
@@ -59,12 +40,7 @@ export function replaceUnavailableGoalProbe(
     db
       .select({ id: recoveryRequests.id })
       .from(recoveryRequests)
-      .where(
-        and(
-          eq(recoveryRequests.taskId, target.id),
-          eq(recoveryRequests.status, "pending"),
-        ),
-      )
+      .where(and(eq(recoveryRequests.taskId, target.id), eq(recoveryRequests.status, "pending")))
       .get()
   )
     return false;
@@ -109,12 +85,7 @@ export function replaceUnavailableGoalProbe(
         db
           .select({ id: recoveryRequests.id })
           .from(recoveryRequests)
-          .where(
-            and(
-              eq(recoveryRequests.taskId, task.id),
-              eq(recoveryRequests.status, "pending"),
-            ),
-          )
+          .where(and(eq(recoveryRequests.taskId, task.id), eq(recoveryRequests.status, "pending")))
           .get()
       )
         continue;
@@ -124,8 +95,7 @@ export function replaceUnavailableGoalProbe(
         .where(eq(runs.taskId, task.id))
         .orderBy(desc(runs.attempt))
         .get();
-      if (last && (!last.terminationConfirmedAt || last.status === "succeeded"))
-        continue;
+      if (last && (!last.terminationConfirmedAt || last.status === "succeeded")) continue;
       if (readBudgetWait(db, task, now)) continue;
       const retry = ensureRetryState(db, task.id, options.retryPolicy)!;
       if (
@@ -152,13 +122,7 @@ export function replaceUnavailableGoalProbe(
     ...state,
     decisionVersion: version,
     nextCheckAt: limited ? null : state.nextCheckAt,
-    reason: limited
-      ? "check_limit"
-      : nextTaskId
-        ? "ready"
-        : due
-          ? "task_unavailable"
-          : "waiting",
+    reason: limited ? "check_limit" : nextTaskId ? "ready" : due ? "task_unavailable" : "waiting",
   };
   if (
     gate.probeTaskId === nextTaskId &&
@@ -181,9 +145,7 @@ export function replaceUnavailableGoalProbe(
       id: randomUUID(),
       runId: source.id,
       sequence,
-      kind: nextTaskId
-        ? "capacity.check_reassigned"
-        : `capacity.held.${nextState.reason}`,
+      kind: nextTaskId ? "capacity.check_reassigned" : `capacity.held.${nextState.reason}`,
       createdAt: now,
     })
     .run();

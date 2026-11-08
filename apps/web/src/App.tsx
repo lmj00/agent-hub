@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@agent-hub/contracts";
-import { api, errorMessage } from "./api.js";
-import { Workspace } from "./Workspace.js";
+import { api, errorMessage } from "./shared/api.js";
+import { Login } from "./features/auth/Login.js";
+import { Workspace } from "./features/workspace/Workspace.js";
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -22,8 +23,7 @@ export function App() {
     refreshSession();
   }, [refreshSession]);
 
-  if (session?.authenticated)
-    return <Workspace onExpired={expired} onLogout={refreshSession} />;
+  if (session?.authenticated) return <Workspace onExpired={expired} onLogout={refreshSession} />;
   return (
     <main className="login-layout">
       <section className="login-intro">
@@ -68,54 +68,8 @@ export function App() {
         ) : (
           <Login onLogin={setSession} />
         )}
-        <p className="login-footnote">
-          이 공간에는 프로젝트 지시와 실행 결과가 저장됩니다.
-        </p>
+        <p className="login-footnote">이 공간에는 프로젝트 지시와 실행 결과가 저장됩니다.</p>
       </section>
     </main>
-  );
-}
-
-function Login({ onLogin }: { onLogin: (session: Session) => void }) {
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      onLogin(await api.login(password));
-      setPassword("");
-    } catch (failure) {
-      setError(failure);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <form onSubmit={(event) => void submit(event)} className="stack">
-      <label htmlFor="password">비밀번호</label>
-      <input
-        id="password"
-        type="password"
-        autoComplete="current-password"
-        required
-        maxLength={1024}
-        value={password}
-        onChange={(event) => setPassword(event.target.value)}
-        autoFocus
-      />
-      {error ? (
-        <p className="error-text" role="alert">
-          {errorMessage(error)}
-        </p>
-      ) : null}
-      <button className="primary" disabled={busy || !password}>
-        {busy ? "로그인 중…" : "작업 공간 열기"}
-        <span aria-hidden="true">↗</span>
-      </button>
-    </form>
   );
 }

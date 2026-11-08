@@ -14,13 +14,8 @@ export function readRuntimeSkillEvidence(
   >,
 ): RuntimeSkillEvidence | null {
   const skill = step.runtimeSkill;
-  if (!skill && !step.runtimeSkillSelectedAt && !step.runtimeSkillLoadedAt)
-    return null;
-  if (
-    !skill ||
-    !step.runtimeSkillSelectedAt ||
-    skill.id !== `gstack-agent-hub/${skill.role}`
-  ) {
+  if (!skill && !step.runtimeSkillSelectedAt && !step.runtimeSkillLoadedAt) return null;
+  if (!skill || !step.runtimeSkillSelectedAt || skill.id !== `gstack-agent-hub/${skill.role}`) {
     throw new Error("Invalid recorded runtime skill");
   }
   return parseResponse(runtimeSkillEvidenceSchema, {

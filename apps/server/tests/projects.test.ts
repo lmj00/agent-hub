@@ -36,12 +36,18 @@ test("returns an empty project list before registration", async () => {
 
 test("registers a project, trims its name, and preserves the API result after reopening the app", async () => {
   const before = Date.now();
-  const created = await app.inject({ method: "POST", url: "/projects", payload: { ...input, name: `  ${input.name}  ` } });
+  const created = await app.inject({
+    method: "POST",
+    url: "/projects",
+    payload: { ...input, name: `  ${input.name}  ` },
+  });
   const after = Date.now();
   expect(created.statusCode).toBe(201);
   const project = created.json();
   expect(project).toEqual({ ...input, id: expect.any(String), createdAt: expect.any(String) });
-  expect(project.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  expect(project.id).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
   expect(Date.parse(project.createdAt)).toBeGreaterThanOrEqual(before);
   expect(Date.parse(project.createdAt)).toBeLessThanOrEqual(after);
   expect(created.headers.location).toBe(`/projects/${project.id}`);
@@ -62,18 +68,25 @@ test("lists newest projects first and orders equal timestamps by id", async () =
   const secondId = "00000000-0000-4000-8000-000000000002";
   const newestId = "00000000-0000-4000-8000-000000000003";
   try {
-    database.db.insert(projects).values([
-      { ...input, id: secondId, createdAt: new Date("2026-01-01T00:00:00Z") },
-      { ...input, id: firstId, createdAt: new Date("2026-01-01T00:00:00Z") },
-      { ...input, id: newestId, createdAt: new Date("2026-01-02T00:00:00Z") },
-    ]).run();
+    database.db
+      .insert(projects)
+      .values([
+        { ...input, id: secondId, createdAt: new Date("2026-01-01T00:00:00Z") },
+        { ...input, id: firstId, createdAt: new Date("2026-01-01T00:00:00Z") },
+        { ...input, id: newestId, createdAt: new Date("2026-01-02T00:00:00Z") },
+      ])
+      .run();
   } finally {
     database.close();
   }
 
   const response = await app.inject({ method: "GET", url: "/projects" });
   expect(response.statusCode).toBe(200);
-  expect(response.json().projects.map((project: { id: string }) => project.id)).toEqual([newestId, firstId, secondId]);
+  expect(response.json().projects.map((project: { id: string }) => project.id)).toEqual([
+    newestId,
+    firstId,
+    secondId,
+  ]);
 });
 
 test.each([
@@ -121,11 +134,17 @@ test("distinguishes malformed project ids from missing projects", async () => {
 
 test("rejects malformed JSON and non-JSON request bodies", async () => {
   const malformed = await app.inject({
-    method: "POST", url: "/projects", headers: { "content-type": "application/json" }, payload: '{"name":',
+    method: "POST",
+    url: "/projects",
+    headers: { "content-type": "application/json" },
+    payload: '{"name":',
   });
   expect(malformed.statusCode).toBe(400);
   const text = await app.inject({
-    method: "POST", url: "/projects", headers: { "content-type": "text/plain" }, payload: JSON.stringify(input),
+    method: "POST",
+    url: "/projects",
+    headers: { "content-type": "text/plain" },
+    payload: JSON.stringify(input),
   });
   expect(text.statusCode).toBe(415);
   const list = await app.inject({ method: "GET", url: "/projects" });
@@ -148,7 +167,10 @@ test("returns generic errors on database failure while liveness remains availabl
   ];
   for (const response of responses) {
     expect(response.statusCode).toBe(500);
-    expect(response.json()).toEqual({ error: "INTERNAL_ERROR", message: "Unable to process project request" });
+    expect(response.json()).toEqual({
+      error: "INTERNAL_ERROR",
+      message: "Unable to process project request",
+    });
   }
   expect((await app.inject({ method: "GET", url: "/health/live" })).statusCode).toBe(200);
   expect((await app.inject({ method: "GET", url: "/health/ready" })).statusCode).toBe(503);

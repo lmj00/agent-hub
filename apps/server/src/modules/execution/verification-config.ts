@@ -27,36 +27,24 @@ export type VerificationResult = {
 const object = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 export const validContainerImage = (image: unknown): image is string =>
-  typeof image === "string" &&
-  /^[a-zA-Z0-9][a-zA-Z0-9./_:@-]{0,199}$/.test(image);
+  typeof image === "string" && /^[a-zA-Z0-9][a-zA-Z0-9./_:@-]{0,199}$/.test(image);
 
 export function parseVerificationConfig(value: unknown): VerificationConfig {
   if (
     !object(value) ||
-    Object.keys(value).some(
-      (key) => !["image", "command", "timeoutMs"].includes(key),
-    ) ||
+    Object.keys(value).some((key) => !["image", "command", "timeoutMs"].includes(key)) ||
     !validContainerImage(value.image) ||
     !Array.isArray(value.command) ||
     !value.command.length ||
     value.command.length > 32 ||
     value.command.some(
       (part) =>
-        typeof part !== "string" ||
-        !part ||
-        part.includes("\0") ||
-        Buffer.byteLength(part) > 2048,
+        typeof part !== "string" || !part || part.includes("\0") || Buffer.byteLength(part) > 2048,
     )
   )
-    throw new Error(
-      "Verification requires a local image and a bounded command argument array",
-    );
+    throw new Error("Verification requires a local image and a bounded command argument array");
   const timeoutMs = value.timeoutMs ?? 60000;
-  if (
-    !Number.isInteger(timeoutMs) ||
-    Number(timeoutMs) < 1000 ||
-    Number(timeoutMs) > 300000
-  )
+  if (!Number.isInteger(timeoutMs) || Number(timeoutMs) < 1000 || Number(timeoutMs) > 300000)
     throw new Error("Verification timeoutMs must be between 1000 and 300000");
   return {
     image: value.image,
@@ -93,11 +81,7 @@ export function parseVerificationResult(value: unknown): VerificationResult {
   const execution = value.execution;
   if (
     Object.keys(value).length !== 11 ||
-    ![
-      value.candidateDigest,
-      value.inputDigest,
-      value.configurationDigest,
-    ].every(
+    ![value.candidateDigest, value.inputDigest, value.configurationDigest].every(
       (part) => typeof part === "string" && /^[a-f0-9]{64}$/.test(part),
     ) ||
     value.configurationDigest !== verificationConfigDigest(configuration) ||
@@ -151,20 +135,14 @@ export function verificationResultDigest(result: VerificationResult) {
     .digest("hex");
 }
 
-export function parseVerificationWorkspaces(
-  value: unknown,
-  keys: Iterable<string>,
-) {
-  if (!object(value))
-    throw new Error("verification must map workspace keys to test settings");
+export function parseVerificationWorkspaces(value: unknown, keys: Iterable<string>) {
+  if (!object(value)) throw new Error("verification must map workspace keys to test settings");
   const allowed = new Set(keys),
     result = new Map<string, VerificationConfig>();
   for (const [key, config] of Object.entries(value)) {
-    if (!allowed.has(key))
-      throw new Error("Verification workspace is not configured");
+    if (!allowed.has(key)) throw new Error("Verification workspace is not configured");
     result.set(key, parseVerificationConfig(config));
   }
-  if (!result.size)
-    throw new Error("verification must contain at least one workspace");
+  if (!result.size) throw new Error("verification must contain at least one workspace");
   return result;
 }

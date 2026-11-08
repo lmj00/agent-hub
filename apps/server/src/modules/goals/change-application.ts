@@ -17,10 +17,7 @@ import {
   parseVerificationResult,
   verificationResultDigest,
 } from "../execution/verification-config.js";
-import {
-  readDevelopmentRepository,
-  readDevelopmentRounds,
-} from "./development-journal.js";
+import { readDevelopmentRepository, readDevelopmentRounds } from "./development-journal.js";
 import { readGoalExecutionBlock } from "./goal-execution-store.js";
 import { readGoalScope } from "./prepared-input-store.js";
 import {
@@ -28,26 +25,20 @@ import {
   validCandidateDigest,
   validInputDigest,
   verifyDevelopmentCandidate,
-} from "./development-workspace.js";
+} from "../workspace/development-workspace.js";
 import { applicationCommit, applyGitChange } from "./change-application-git.js";
 
 type Db = ReturnType<typeof openDatabase>["db"];
 type Reader = Pick<Db, "select">;
 export type ChangeApplication = typeof changeApplications.$inferSelect;
-const same = (a: unknown, b: unknown) =>
-  JSON.stringify(a) === JSON.stringify(b);
-const digest = (value: unknown) =>
-  createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 function fail(): never {
   throw new AnalysisError("input_unavailable");
 }
 
 export function readChangeApplication(db: Reader, runId: string) {
-  return db
-    .select()
-    .from(changeApplications)
-    .where(eq(changeApplications.runId, runId))
-    .get();
+  return db.select().from(changeApplications).where(eq(changeApplications.runId, runId)).get();
 }
 
 // Both normal completion and restart recovery use this gate. A saved developer
@@ -65,7 +56,9 @@ export function settleDevelopmentCompletion(
     // stop or interrupted completion. Its record independently blocks dispatch.
     return completion.status === "succeeded"
       ? { ...completion, status: "blocked", result: null, errorCode: "development_incomplete" }
-      : application ? { ...completion, result: null } : completion;
+      : application
+        ? { ...completion, result: null }
+        : completion;
   }
   const current = evidence(db, run.id);
   if (!matches(application, current)) fail();
@@ -77,12 +70,21 @@ export function settleDevelopmentCompletion(
   const result = current.round.review!.assessment.report;
   if (completion.status === "succeeded" && completion.result !== result)
     return { ...completion, status: "blocked", result: null, errorCode: "invalid_plan" };
-  const history = db.select({ usage: steps.usage }).from(steps).where(eq(steps.runId, run.id)).all();
-  const usage = history.some(step => !step.usage) ? null : history.reduce((total, step) => ({
-    inputTokens: total.inputTokens + step.usage!.inputTokens,
-    cachedInputTokens: total.cachedInputTokens + step.usage!.cachedInputTokens,
-    outputTokens: total.outputTokens + step.usage!.outputTokens,
-  }), { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 });
+  const history = db
+    .select({ usage: steps.usage })
+    .from(steps)
+    .where(eq(steps.runId, run.id))
+    .all();
+  const usage = history.some((step) => !step.usage)
+    ? null
+    : history.reduce(
+        (total, step) => ({
+          inputTokens: total.inputTokens + step.usage!.inputTokens,
+          cachedInputTokens: total.cachedInputTokens + step.usage!.cachedInputTokens,
+          outputTokens: total.outputTokens + step.usage!.outputTokens,
+        }),
+        { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
+      );
   return { ...completion, status: "succeeded", result, errorCode: null, retryAt: null, usage };
 }
 
@@ -109,8 +111,7 @@ function evidence(db: Reader, runId: string) {
     !round.capturedAt
   )
     fail();
-  const { input, candidate, verificationInput, verificationIntent, review } =
-    round;
+  const { input, candidate, verificationInput, verificationIntent, review } = round;
   const result = parseVerificationResult(round.verificationResult);
   const executions = readExecutions(db, runId);
   const history = db
@@ -190,10 +191,7 @@ function evidence(db: Reader, runId: string) {
   };
 }
 
-function matches(
-  application: ChangeApplication,
-  current: ReturnType<typeof evidence>,
-) {
+function matches(application: ChangeApplication, current: ReturnType<typeof evidence>) {
   return (
     application.taskId === current.task.id &&
     application.runId === current.run.id &&
@@ -225,12 +223,7 @@ export async function prepareChangeApplication(
     return existing;
   }
   signal.throwIfAborted();
-  await verifyDevelopmentCandidate(
-    current.repository,
-    current.input,
-    current.candidate,
-    signal,
-  );
+  await verifyDevelopmentCandidate(current.repository, current.input, current.candidate, signal);
   signal.throwIfAborted();
   const intent = {
     id: randomUUID(),
@@ -262,11 +255,7 @@ export async function prepareChangeApplication(
         if (!matches(concurrent, fresh)) fail();
         return concurrent;
       }
-      if (
-        !matches(application, fresh) ||
-        !same(fresh.repository, current.repository)
-      )
-        fail();
+      if (!matches(application, fresh) || !same(fresh.repository, current.repository)) fail();
       if (
         fresh.run.status !== "running" ||
         fresh.task.status !== "running" ||
@@ -333,14 +322,9 @@ export async function applyChangeApplication(
       assertExecutionOwner(tx, ownerToken);
       const fresh = evidence(tx, runId);
       const stored = readChangeApplication(tx, runId);
-      if (!stored || !matches(stored, fresh) || !matches(application, fresh))
-        fail();
+      if (!stored || !matches(stored, fresh) || !matches(application, fresh)) fail();
       if (stored.status === "applied") return stored;
-      if (
-        !same(stored, application) ||
-        !same(fresh.repository, current.repository)
-      )
-        fail();
+      if (!same(stored, application) || !same(fresh.repository, current.repository)) fail();
       tx.update(developmentRepositories)
         .set({ prepared: updated })
         .where(eq(developmentRepositories.id, updated.id))

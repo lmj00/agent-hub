@@ -1,13 +1,7 @@
 import { and, asc, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  recoveryRequests,
-  runExecutions,
-  runs,
-  taskReleases,
-  tasks,
-} from "../../db/schema.js";
-import { allowedGoalPath, privateInputPath } from "./prepared-workspace.js";
+import { recoveryRequests, runExecutions, runs, taskReleases, tasks } from "../../db/schema.js";
+import { allowedGoalPath, privateInputPath } from "../workspace/prepared-workspace.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select">;
 export type SuppressedWork = {
@@ -53,10 +47,7 @@ export function readPlanningWork(db: Db, goalId: string) {
         or(
           eq(runs.status, "running"),
           isNull(runs.terminationConfirmedAt),
-          and(
-            isNotNull(runExecutions.runId),
-            isNull(runExecutions.terminationConfirmedAt),
-          ),
+          and(isNotNull(runExecutions.runId), isNull(runExecutions.terminationConfirmedAt)),
         ),
       ),
     )
@@ -66,37 +57,19 @@ export function readPlanningWork(db: Db, goalId: string) {
     .from(recoveryRequests)
     .innerJoin(tasks, eq(tasks.id, recoveryRequests.taskId))
     .where(
-      and(
-        eq(tasks.goalId, goalId),
-        eq(tasks.kind, "work"),
-        eq(recoveryRequests.status, "pending"),
-      ),
+      and(eq(tasks.goalId, goalId), eq(tasks.kind, "work"), eq(recoveryRequests.status, "pending")),
     )
     .get();
   let unresolved = !!uncertain || !!pendingRecovery;
   for (const task of previous) {
     if (task.status === "succeeded" && !task.cancelRequestedAt) continue;
-    const history = db
-      .select()
-      .from(runs)
-      .where(eq(runs.taskId, task.id))
-      .all();
+    const history = db.select().from(runs).where(eq(runs.taskId, task.id)).all();
     const pending = db
       .select({ id: recoveryRequests.id })
       .from(recoveryRequests)
-      .where(
-        and(
-          eq(recoveryRequests.taskId, task.id),
-          eq(recoveryRequests.status, "pending"),
-        ),
-      )
+      .where(and(eq(recoveryRequests.taskId, task.id), eq(recoveryRequests.status, "pending")))
       .get();
-    if (
-      pending ||
-      history.some(
-        (run) => run.status === "running" || !run.terminationConfirmedAt,
-      )
-    ) {
+    if (pending || history.some((run) => run.status === "running" || !run.terminationConfirmedAt)) {
       unresolved = true;
       continue;
     }

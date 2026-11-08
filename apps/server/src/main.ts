@@ -9,26 +9,49 @@ import { loadServiceConfig } from "./modules/services/service-config.js";
 import { loadNotificationConfig } from "./modules/operations/notification-config.js";
 
 async function startServer() {
-  const { databasePath, executionConfigPath, authConfigPath, serviceConfigPath, notificationConfigPath, localApiOnly, ...listenOptions } = loadConfig(process.env);
-  if (!authConfigPath && !localApiOnly) throw new Error("Set AUTH_CONFIG after pnpm auth:setup, or explicitly use LOCAL_API_ONLY=1 for local API development");
+  const {
+    databasePath,
+    executionConfigPath,
+    authConfigPath,
+    serviceConfigPath,
+    notificationConfigPath,
+    localApiOnly,
+    ...listenOptions
+  } = loadConfig(process.env);
+  if (!authConfigPath && !localApiOnly)
+    throw new Error(
+      "Set AUTH_CONFIG after pnpm auth:setup, or explicitly use LOCAL_API_ONLY=1 for local API development",
+    );
   const auth = authConfigPath ? loadAuthConfig(authConfigPath) : undefined;
   const webDirectory = fileURLToPath(new URL("../../web/dist/", import.meta.url));
   const app = buildApp({
-    databasePath, logger: true,
+    databasePath,
+    logger: true,
     ...(auth ? { auth, trustProxy: auth.origin.startsWith("https:") ? "loopback" : false } : {}),
     ...(auth && existsSync(join(webDirectory, "index.html")) ? { webDirectory } : {}),
-    ...(executionConfigPath ? { execution: { config: loadExecutionConfig(executionConfigPath) } } : {}),
+    ...(executionConfigPath
+      ? { execution: { config: loadExecutionConfig(executionConfigPath) } }
+      : {}),
     ...(serviceConfigPath ? { services: loadServiceConfig(serviceConfigPath) } : {}),
-    ...(notificationConfigPath ? { notifications: loadNotificationConfig(notificationConfigPath) } : {}),
+    ...(notificationConfigPath
+      ? { notifications: loadNotificationConfig(notificationConfigPath) }
+      : {}),
   });
-  if (localApiOnly) app.addHook("onRequest", async (request, reply) => {
-    const host = request.headers.host ?? "";
-    const origin = request.headers.origin;
-    if (!/^(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(host) || request.headers["sec-fetch-site"] === "cross-site"
-      || (origin !== undefined && origin !== `http://${host}`)) {
-      return reply.code(403).send({ error: "ORIGIN_NOT_ALLOWED", message: "Local API requests must use a loopback host and matching origin" });
-    }
-  });
+  if (localApiOnly)
+    app.addHook("onRequest", async (request, reply) => {
+      const host = request.headers.host ?? "";
+      const origin = request.headers.origin;
+      if (
+        !/^(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(host) ||
+        request.headers["sec-fetch-site"] === "cross-site" ||
+        (origin !== undefined && origin !== `http://${host}`)
+      ) {
+        return reply.code(403).send({
+          error: "ORIGIN_NOT_ALLOWED",
+          message: "Local API requests must use a loopback host and matching origin",
+        });
+      }
+    });
   let closing = false;
 
   async function shutdown(signal: NodeJS.Signals) {

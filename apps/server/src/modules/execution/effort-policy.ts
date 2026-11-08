@@ -28,9 +28,7 @@ export function parseEffortPolicy(value: unknown): EffortPolicy {
     !levels.includes(maxEffort as Effort) ||
     (mode === "fixed" && maxEffort !== "medium")
   )
-    throw new Error(
-      "Effort policy must use medium, high or xhigh; fixed mode uses medium",
-    );
+    throw new Error("Effort policy must use medium, high or xhigh; fixed mode uses medium");
   return {
     version: 1,
     mode: mode as EffortPolicy["mode"],
@@ -57,25 +55,16 @@ export function selectInitialEffort(
       label: "보안·인증",
     },
     {
-      pattern:
-        /아키텍처|설계|마이그레이션|트랜잭션|architecture|migration|transaction/i,
+      pattern: /아키텍처|설계|마이그레이션|트랜잭션|architecture|migration|transaction/i,
       label: "설계·데이터 변경",
     },
   ].filter((signal) => signal.pattern.test(instruction));
   const distributedCause =
-    /분산|여러 시스템|다중 시스템|distributed|cross.system/i.test(
-      instruction,
-    ) && /원인|인과|복잡|교착|consistency|causal|deadlock/i.test(instruction);
+    /분산|여러 시스템|다중 시스템|distributed|cross.system/i.test(instruction) &&
+    /원인|인과|복잡|교착|consistency|causal|deadlock/i.test(instruction);
   const suggested: Effort =
-    distributedCause || signals.length >= 3
-      ? "xhigh"
-      : signals.length
-        ? "high"
-        : "medium";
-  const effort =
-    levels[
-      Math.min(levels.indexOf(suggested), levels.indexOf(policy.maxEffort))
-    ]!;
+    distributedCause || signals.length >= 3 ? "xhigh" : signals.length ? "high" : "medium";
+  const effort = levels[Math.min(levels.indexOf(suggested), levels.indexOf(policy.maxEffort))]!;
   const basis = distributedCause
     ? "여러 시스템의 복잡한 원인 분석"
     : signals.length

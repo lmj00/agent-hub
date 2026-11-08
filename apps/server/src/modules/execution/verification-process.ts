@@ -26,9 +26,7 @@ function summarizeOutput(stdout: Buffer[], stderr: Buffer[]) {
     // Each cut may decode to a three-byte UTF-8 replacement character.
     const edge = Math.floor((limit - Buffer.byteLength(marker) - 6) / 2);
     return (
-      value.subarray(0, edge).toString("utf8") +
-      marker +
-      value.subarray(-edge).toString("utf8")
+      value.subarray(0, edge).toString("utf8") + marker + value.subarray(-edge).toString("utf8")
     );
   };
   if (!out.length) return trim(err, maxStoredOutputBytes);
@@ -56,8 +54,7 @@ export function verificationRunnerInput(request: AnalysisRequest) {
     input: request.development,
     command: verification.config.command,
   });
-  if (Buffer.byteLength(input) > 1024 * 1024)
-    throw new AnalysisError("input_unavailable");
+  if (Buffer.byteLength(input) > 1024 * 1024) throw new AnalysisError("input_unavailable");
   return input;
 }
 
@@ -108,8 +105,7 @@ export async function runVerificationContainer(
       if (request.signal.aborted) onAbort();
     });
     clearTimeout(timer);
-    if (stopping && !(await stopping))
-      throw new AnalysisError("provider_error", true);
+    if (stopping && !(await stopping)) throw new AnalysisError("provider_error", true);
     request.signal.throwIfAborted();
     const exit = await readContainerExit(identity);
     const output = summarizeOutput(stdout, stderr);
@@ -120,9 +116,7 @@ export async function runVerificationContainer(
       configuration: verification.config,
       execution: identity,
       ...exit,
-      status:
-        interrupted ??
-        (exit.exitCode === 0 && !exit.oomKilled ? "passed" : "failed"),
+      status: interrupted ?? (exit.exitCode === 0 && !exit.oomKilled ? "passed" : "failed"),
       elapsedMs: Math.ceil(performance.now() - startedAt),
       output,
     };

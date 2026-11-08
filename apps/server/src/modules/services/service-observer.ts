@@ -11,9 +11,7 @@ export function createServiceObserver(options: {
     targetKey: string;
   }) => void;
 }) {
-  const nextChecks = new Map(
-    options.targets.map((target) => [target.key, new Date()]),
-  );
+  const nextChecks = new Map(options.targets.map((target) => [target.key, new Date()]));
   const errors = new Set<string>();
   const lastReported = new Map<string, number>();
   let started = false;
@@ -31,16 +29,13 @@ export function createServiceObserver(options: {
 
   function schedule() {
     if (stopped || !options.targets.length) return;
-    const due = Math.min(
-      ...Array.from(nextChecks.values(), (date) => date.getTime()),
-    );
+    const due = Math.min(...Array.from(nextChecks.values(), (date) => date.getTime()));
     timer = setTimeout(check, Math.max(0, due - Date.now()));
   }
   function check() {
     if (stopped || running) return;
     const target = options.targets.toSorted(
-      (a, b) =>
-        nextChecks.get(a.key)!.getTime() - nextChecks.get(b.key)!.getTime(),
+      (a, b) => nextChecks.get(a.key)!.getTime() - nextChecks.get(b.key)!.getTime(),
     )[0];
     if (!target) return;
     if (nextChecks.get(target.key)!.getTime() > Date.now()) {
@@ -52,10 +47,7 @@ export function createServiceObserver(options: {
     running = (async () => {
       try {
         options.store.assertOwner();
-        const result = await (options.observe ?? observeService)(
-          target,
-          signal,
-        );
+        const result = await (options.observe ?? observeService)(target, signal);
         if (signal.aborted) return;
         options.store.save(target, result);
         if (errors.delete(target.key)) {
@@ -65,10 +57,7 @@ export function createServiceObserver(options: {
       } catch {
         if (!signal.aborted) {
           errors.add(target.key);
-          if (
-            Date.now() - (lastReported.get(target.key) ?? -Infinity) >=
-            60000
-          ) {
+          if (Date.now() - (lastReported.get(target.key) ?? -Infinity) >= 60000) {
             lastReported.set(target.key, Date.now());
             report({ code: "SERVICE_OBSERVER_ERROR", targetKey: target.key });
           }
@@ -97,9 +86,7 @@ export function createServiceObserver(options: {
     getStatus() {
       return {
         enabledKeys: new Set(
-          started && !stopped
-            ? options.targets.map((target) => target.key)
-            : [],
+          started && !stopped ? options.targets.map((target) => target.key) : [],
         ),
         errors: new Set(errors),
         nextChecks: new Map(nextChecks),

@@ -16,25 +16,18 @@ export const budgetRoutes: FastifyPluginAsync<{
     reply.header("Cache-Control", "no-store");
     if (
       request.method === "PUT" &&
-      request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() !==
-        "application/json"
+      request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() !== "application/json"
     )
-      return reply
-        .code(415)
-        .send({
-          error: "INVALID_REQUEST",
-          message: "Content-Type must be application/json",
-        });
+      return reply.code(415).send({
+        error: "INVALID_REQUEST",
+        message: "Content-Type must be application/json",
+      });
   });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof BudgetError)
       return reply
         .code(
-          error.code === "PROJECT_NOT_FOUND"
-            ? 404
-            : error.code === "INVALID_BUDGET"
-              ? 400
-              : 409,
+          error.code === "PROJECT_NOT_FOUND" ? 404 : error.code === "INVALID_BUDGET" ? 400 : 409,
         )
         .send({ error: error.code, message: error.message });
     if (
@@ -44,22 +37,15 @@ export const budgetRoutes: FastifyPluginAsync<{
       error.statusCode >= 400 &&
       error.statusCode < 500
     )
-      return reply
-        .code(error.statusCode)
-        .send({
-          error: "INVALID_REQUEST",
-          message: "Budget request does not match the contract",
-        });
-    request.log.error(
-      { code: "BUDGET_STORAGE_ERROR" },
-      "Budget request failed",
-    );
-    return reply
-      .code(500)
-      .send({
-        error: "INTERNAL_ERROR",
-        message: "Unable to process budget request",
+      return reply.code(error.statusCode).send({
+        error: "INVALID_REQUEST",
+        message: "Budget request does not match the contract",
       });
+    request.log.error({ code: "BUDGET_STORAGE_ERROR" }, "Budget request failed");
+    return reply.code(500).send({
+      error: "INTERNAL_ERROR",
+      message: "Unable to process budget request",
+    });
   });
   app.get<{ Params: { projectId: string } }>(
     "/projects/:projectId/budget",
@@ -84,10 +70,6 @@ export const budgetRoutes: FastifyPluginAsync<{
       },
     },
     async (request) =>
-      store.change(
-        request.params.projectId,
-        request.body.expectedVersion,
-        request.body.policy,
-      ),
+      store.change(request.params.projectId, request.body.expectedVersion, request.body.policy),
   );
 };

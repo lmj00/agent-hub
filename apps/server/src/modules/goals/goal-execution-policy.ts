@@ -24,12 +24,9 @@ export function goalExecutionBlock(
   task: TaskGoalReference,
   goal: GoalReference | undefined,
 ): GoalExecutionBlock | null {
-  if (task.kind !== "planning" && task.kind !== "work")
-    return "GOAL_BINDING_INVALID";
+  if (task.kind !== "planning" && task.kind !== "work") return "GOAL_BINDING_INVALID";
   if (task.goalId === null)
-    return task.kind === "work" && task.goalVersion === null
-      ? null
-      : "GOAL_BINDING_INVALID";
+    return task.kind === "work" && task.goalVersion === null ? null : "GOAL_BINDING_INVALID";
   if (
     !goal ||
     goal.id !== task.goalId ||

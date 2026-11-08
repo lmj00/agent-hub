@@ -13,7 +13,7 @@ import {
   allowedGoalPath,
   privateInputPath,
   type PreparedInput,
-} from "./prepared-workspace.js";
+} from "../workspace/prepared-workspace.js";
 
 export type PlannedWork = {
   planningTaskId: string;
@@ -96,28 +96,18 @@ export function parseGoalPlan(output: string, input: PreparedInput): GoalPlan {
     const selected = new Set<string>();
     for (const task of plan.tasks) {
       if (
-        ![
-          task.title,
-          task.instruction,
-          task.acceptanceCriteria,
-          ...task.evidence,
-        ].every((value) => value.trim())
+        ![task.title, task.instruction, task.acceptanceCriteria, ...task.evidence].every((value) =>
+          value.trim(),
+        )
       )
         throw new Error("Empty task");
       for (const path of task.paths) {
-        if (
-          !allowedGoalPath(path, input.scope) ||
-          privateInputPath(path) ||
-          path === "."
-        )
+        if (!allowedGoalPath(path, input.scope) || privateInputPath(path) || path === ".")
           throw new Error("Outside goal scope");
         const key = path.normalize("NFC").toLowerCase();
         if (
           [...selected].some(
-            (prior) =>
-              prior === key ||
-              prior.startsWith(`${key}/`) ||
-              key.startsWith(`${prior}/`),
+            (prior) => prior === key || prior.startsWith(`${key}/`) || key.startsWith(`${prior}/`),
           )
         )
           throw new Error("Overlapping proposed tasks");
@@ -134,10 +124,7 @@ export function problemKey(goalId: string, paths: string[]) {
   // Titles and wording cannot create a new identity for the same affected paths.
   return createHash("sha256")
     .update(
-      JSON.stringify([
-        goalId,
-        paths.map((path) => path.normalize("NFC").toLowerCase()).sort(),
-      ]),
+      JSON.stringify([goalId, paths.map((path) => path.normalize("NFC").toLowerCase()).sort()]),
     )
     .digest("hex");
 }
@@ -197,9 +184,7 @@ export function boundPlanningEvidence(
   render: (input: PlanningInput) => string,
 ): PlanningInput {
   const input = structuredClone(source);
-  const collections = (
-    ["services", "suppressedWork", "history", "files"] as const
-  ).map((key) => {
+  const collections = (["services", "suppressedWork", "history", "files"] as const).map((key) => {
     const items = input[key];
     input[key] = [];
     input.counts[key].included = 0;
@@ -224,8 +209,7 @@ export function boundPlanningEvidence(
         if (
           !(
             error instanceof AnalysisError &&
-            (error.code === "input_unavailable" ||
-              error.code === "workflow_limit")
+            (error.code === "input_unavailable" || error.code === "workflow_limit")
           )
         )
           throw error;

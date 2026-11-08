@@ -1,11 +1,4 @@
-import {
-  closeSync,
-  constants,
-  fstatSync,
-  openSync,
-  readFileSync,
-  realpathSync,
-} from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync, realpathSync } from "node:fs";
 
 export function readPrivateJson(path: string, label: string, maxBytes = 8192) {
   const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);

@@ -1,11 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  cpSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
@@ -18,13 +12,7 @@ import {
 } from "@agent-hub/contracts";
 import { buildApp } from "../src/app.js";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
-import {
-  budgetPeriods,
-  budgetReservations,
-  projects,
-  runs,
-  tasks,
-} from "../src/db/schema.js";
+import { budgetPeriods, budgetReservations, projects, runs, tasks } from "../src/db/schema.js";
 import { createProjectBudgetStore } from "../src/modules/budgets/project-budget-store.js";
 import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
@@ -39,10 +27,7 @@ import { defaultCapacityPolicy } from "../src/modules/execution/capacity-policy.
 import { createCapacityRecovery } from "../src/modules/execution/capacity-recovery.js";
 import { acquireExecutionOwner } from "../src/modules/execution/execution-owner.js";
 
-let directory: string,
-  path: string,
-  database: ReturnType<typeof openDatabase>,
-  projectId: string;
+let directory: string, path: string, database: ReturnType<typeof openDatabase>, projectId: string;
 let store: ReturnType<typeof createDrizzleRunStore>;
 const policy: PeriodBudgetPolicy = {
   windowMs: 600000,
@@ -93,11 +78,7 @@ function goal(budget = policy, id = projectId) {
     checkIntervalMs: 60000,
     budget,
   };
-  return createDrizzleGoalStore(database.db).register(
-    id,
-    randomUUID(),
-    definition,
-  ).goal;
+  return createDrizzleGoalStore(database.db).register(id, randomUUID(), definition).goal;
 }
 function task(linked?: { id: string; version: number }, project = projectId) {
   const id = randomUUID();
@@ -116,23 +97,12 @@ function task(linked?: { id: string; version: number }, project = projectId) {
   vi.setSystemTime(Date.now() + 1);
   return id;
 }
-const taskRow = (id: string) =>
-  database.db.select().from(tasks).where(eq(tasks.id, id)).get()!;
+const taskRow = (id: string) => database.db.select().from(tasks).where(eq(tasks.id, id)).get()!;
 const summary = () => createProjectBudgetStore(database.db).view(projectId);
-function finish(
-  id: string,
-  errorCode: string | null = null,
-  proof = true,
-  elapsed = 100,
-) {
+function finish(id: string, errorCode: string | null = null, proof = true, elapsed = 100) {
   vi.setSystemTime(Date.now() + elapsed);
   return store.finish(id, {
-    status:
-      errorCode === "capacity"
-        ? "waiting_capacity"
-        : errorCode
-          ? "interrupted"
-          : "succeeded",
+    status: errorCode === "capacity" ? "waiting_capacity" : errorCode ? "interrupted" : "succeeded",
     errorCode,
     result: errorCode ? null : "Done",
     usage: null,
@@ -213,9 +183,7 @@ test("restart and policy edits preserve the old period, and each scope rolls ove
     kind: "claimed",
     run: { taskId: next },
   });
-  expect(summary().accounts.map((a) => a.period!.policy.maxCalls)).toEqual([
-    3, 3,
-  ]);
+  expect(summary().accounts.map((a) => a.period!.policy.maxCalls)).toEqual([3, 3]);
   expect(database.db.select().from(budgetPeriods).all()).toHaveLength(4);
 });
 
@@ -710,9 +678,7 @@ test("upgrading preserves existing tasks and execution history without inventing
   cpSync(migrationsDirectory, folder, { recursive: true });
   const file = join(folder, "meta/_journal.json"),
     journal = JSON.parse(readFileSync(file, "utf8"));
-  journal.entries = journal.entries.filter(
-    (entry: { idx: number }) => entry.idx < 17,
-  );
+  journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 17);
   writeFileSync(file, JSON.stringify(journal));
   const oldPath = join(directory, "old.sqlite"),
     old = openDatabase(oldPath, folder);

@@ -33,6 +33,8 @@ jobs:
         run: npm install --global "$(node -p "require('./package.json').packageManager")"
       - name: Install without changing the lockfile
         run: pnpm install --frozen-lockfile
+      - name: Check code format and basic lint rules
+        run: pnpm check
       - name: Check types
         run: pnpm typecheck
       - name: Build

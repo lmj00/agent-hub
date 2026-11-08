@@ -11,13 +11,24 @@ import { createDrizzleRunStore } from "./modules/execution/drizzle-run-store.js"
 import { executionRoutes } from "./modules/execution/routes.js";
 import { acquireExecutionOwner } from "./modules/execution/execution-owner.js";
 import { createExecutionQueue } from "./modules/execution/execution-queue.js";
-import { validateExecutionEnvironment, type ExecutionConfig } from "./modules/execution/execution-config.js";
+import {
+  validateExecutionEnvironment,
+  type ExecutionConfig,
+} from "./modules/execution/execution-config.js";
 import { createConfiguredExecutor } from "./modules/execution/execution-process.js";
 import type { AnalysisExecutor } from "./modules/execution/analysis.js";
 import { createDrizzleRecoveryStore } from "./modules/execution/drizzle-recovery-store.js";
-import { createRecoveryProcessor, RecoveryError, type ExecutionObserver, type RecoveryStore } from "./modules/execution/recover-task.js";
+import {
+  createRecoveryProcessor,
+  RecoveryError,
+  type ExecutionObserver,
+  type RecoveryStore,
+} from "./modules/execution/recover-task.js";
 import { recoveryRoutes } from "./modules/execution/recovery-routes.js";
-import { removeFinishedContainer, stopAndConfirmContainer } from "./modules/execution/container-runtime.js";
+import {
+  removeFinishedContainer,
+  stopAndConfirmContainer,
+} from "./modules/execution/container-runtime.js";
 import type { AuthConfig } from "./modules/auth/auth-config.js";
 import { createDrizzleSessionStore } from "./modules/auth/drizzle-session-store.js";
 import { installAuthentication } from "./modules/auth/authentication.js";
@@ -31,15 +42,26 @@ import { createDrizzleGoalStore } from "./modules/goals/drizzle-goal-store.js";
 import { goalRoutes } from "./modules/goals/routes.js";
 import { budgetRoutes } from "./modules/budgets/routes.js";
 import { createProjectBudgetStore } from "./modules/budgets/project-budget-store.js";
-import { cleanupConfirmedInputs, cleanupPreparedRun, createPreparedExecutor, verifyPreparedResult } from "./modules/goals/prepared-executor.js";
-import { configuredDevelopmentWorkspaces, createDevelopmentExecutor } from "./modules/goals/development-executor.js";
+import {
+  cleanupConfirmedInputs,
+  cleanupPreparedRun,
+  createPreparedExecutor,
+  verifyPreparedResult,
+} from "./modules/execution/workflows/prepared-executor.js";
+import {
+  configuredDevelopmentWorkspaces,
+  createDevelopmentExecutor,
+} from "./modules/execution/workflows/development-executor.js";
 import { applyChangeApplication } from "./modules/goals/change-application.js";
-import { developmentRoot } from "./modules/goals/development-workspace.js";
-import { preparedInputRoot } from "./modules/goals/prepared-workspace.js";
+import { developmentRoot } from "./modules/workspace/development-workspace.js";
+import { preparedInputRoot } from "./modules/workspace/prepared-workspace.js";
 import { createWorkReleaseStore } from "./modules/goals/work-release-store.js";
 import { workReleaseRoutes } from "./modules/goals/work-release-routes.js";
 import type { NotificationConfig } from "./modules/operations/notification-config.js";
-import { createNotificationStore, listNotifications } from "./modules/operations/notification-store.js";
+import {
+  createNotificationStore,
+  listNotifications,
+} from "./modules/operations/notification-store.js";
 import { createNotificationWorker } from "./modules/operations/notification-worker.js";
 
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
@@ -48,10 +70,23 @@ type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
   webDirectory?: string;
   services?: ServiceConfig;
   notifications?: NotificationConfig;
-  execution?: { config: ExecutionConfig; executor?: AnalysisExecutor; observer?: ExecutionObserver; pollIntervalMs?: number };
+  execution?: {
+    config: ExecutionConfig;
+    executor?: AnalysisExecutor;
+    observer?: ExecutionObserver;
+    pollIntervalMs?: number;
+  };
 };
 
-export function buildApp({ databasePath, execution, auth, webDirectory, services, notifications, ...options }: AppOptions) {
+export function buildApp({
+  databasePath,
+  execution,
+  auth,
+  webDirectory,
+  services,
+  notifications,
+  ...options
+}: AppOptions) {
   if (webDirectory && !auth) throw new Error("The management UI requires authentication");
   const app = Fastify({
     ...options,
@@ -67,15 +102,23 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
     let serviceObserver: ReturnType<typeof createServiceObserver> | undefined;
     let notifier: ReturnType<typeof createNotificationWorker> | undefined;
     let canTrackTermination = false;
-    const protectedFiles = [auth?.sourcePath, services?.sourcePath, notifications?.sourcePath].filter((path): path is string => path !== undefined);
+    const protectedFiles = [
+      auth?.sourcePath,
+      services?.sourcePath,
+      notifications?.sourcePath,
+    ].filter((path): path is string => path !== undefined);
 
     scope.addHook("onClose", async () => {
       try {
         await Promise.all([queue?.stop(), serviceObserver?.stop(), notifier?.stop()]);
         owner?.release();
-      } finally { database.close(); }
+      } finally {
+        database.close();
+      }
     });
-    scope.addHook("preClose", async () => { await Promise.all([queue?.stop(), serviceObserver?.stop(), notifier?.stop()]); });
+    scope.addHook("preClose", async () => {
+      await Promise.all([queue?.stop(), serviceObserver?.stop(), notifier?.stop()]);
+    });
 
     if (execution || services || notifications) {
       try {
@@ -84,56 +127,140 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
         if (services) {
           const serviceStore = createDrizzleServiceStore(database.db, owner.token);
           serviceStore.configure(services.targets);
-          serviceObserver = createServiceObserver({ targets: services.targets, store: serviceStore, report: event => {
-            if (event.code === "SERVICE_OBSERVER_ERROR") scope.log.error(event, "Service observation storage failed");
-            else scope.log.info(event, "Service observation storage recovered");
-          } });
+          serviceObserver = createServiceObserver({
+            targets: services.targets,
+            store: serviceStore,
+            report: (event) => {
+              if (event.code === "SERVICE_OBSERVER_ERROR")
+                scope.log.error(event, "Service observation storage failed");
+              else scope.log.info(event, "Service observation storage recovered");
+            },
+          });
         }
         if (execution) {
           const inputRoot = preparedInputRoot(databasePath);
           cleanupConfirmedInputs(database.db, inputRoot);
           const baseExecutor = execution.executor ?? createConfiguredExecutor(execution.config);
-          const executor = createDevelopmentExecutor({ db: database.db, analysis: createPreparedExecutor(baseExecutor, inputRoot, database.db, execution.config), development: baseExecutor, config: execution.config, inputRoot, repositoryRoot: developmentRoot(databasePath), ownerToken: owner.token });
-          const developmentWorkspaceKeys = configuredDevelopmentWorkspaces(execution.config, baseExecutor);
+          const executor = createDevelopmentExecutor({
+            db: database.db,
+            analysis: createPreparedExecutor(
+              baseExecutor,
+              inputRoot,
+              database.db,
+              execution.config,
+            ),
+            development: baseExecutor,
+            config: execution.config,
+            inputRoot,
+            repositoryRoot: developmentRoot(databasePath),
+            ownerToken: owner.token,
+          });
+          const developmentWorkspaceKeys = configuredDevelopmentWorkspaces(
+            execution.config,
+            baseExecutor,
+          );
           const planning = createPlanningStore(database.db, owner.token);
           canTrackTermination = typeof executor.confirmTermination === "function";
-          if (execution.config.automaticRecovery && !canTrackTermination) throw new Error("Automatic recovery requires execution termination tracking");
+          if (execution.config.automaticRecovery && !canTrackTermination)
+            throw new Error("Automatic recovery requires execution termination tracking");
           recovery = createDrizzleRecoveryStore(database.db, owner.token);
           queue = createExecutionQueue({
             ...execution,
-            store: createDrizzleRunStore(database.db, owner.token, execution.config, { developmentWorkspaceKeys, getObserverStatus: () => serviceObserver?.getStatus() ?? { enabledKeys: new Set(), errors: new Set(), nextChecks: new Map() } }),
+            store: createDrizzleRunStore(database.db, owner.token, execution.config, {
+              developmentWorkspaceKeys,
+              getObserverStatus: () =>
+                serviceObserver?.getStatus() ?? {
+                  enabledKeys: new Set(),
+                  errors: new Set(),
+                  nextChecks: new Map(),
+                },
+            }),
             executor,
-            ...(developmentWorkspaceKeys.length ? { planning: { tick: () => { planning.reserveNext(developmentWorkspaceKeys); } } } : {}),
-            ...(execution.config.automaticRecovery ? { automaticRecovery: createAutomaticRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()], recovery }) } : {}),
-            ...(execution.config.automaticRecovery && execution.config.capacityRecovery ? { capacityRecovery: createCapacityRecovery({ db: database.db, ownerToken: owner.token, policy: execution.config.capacityRecovery, retryPolicy: execution.config.automaticRecovery, workspaceKeys: [...execution.config.workspaces.keys()] }) } : {}),
-            recovery: createRecoveryProcessor(recovery, execution.observer ?? { confirm: stopAndConfirmContainer, cleanup: removeFinishedContainer }, runId => cleanupPreparedRun(database.db, inputRoot, runId), runId => verifyPreparedResult(database.db, runId), async (runId, signal) => { await applyChangeApplication(database.db, runId, signal, owner!.token); }),
-            validate: () => validateExecutionEnvironment(execution.config, databasePath, protectedFiles),
+            ...(developmentWorkspaceKeys.length
+              ? {
+                  planning: {
+                    tick: () => {
+                      planning.reserveNext(developmentWorkspaceKeys);
+                    },
+                  },
+                }
+              : {}),
+            ...(execution.config.automaticRecovery
+              ? {
+                  automaticRecovery: createAutomaticRecovery({
+                    db: database.db,
+                    ownerToken: owner.token,
+                    policy: execution.config.automaticRecovery,
+                    workspaceKeys: [...execution.config.workspaces.keys()],
+                    recovery,
+                  }),
+                }
+              : {}),
+            ...(execution.config.automaticRecovery && execution.config.capacityRecovery
+              ? {
+                  capacityRecovery: createCapacityRecovery({
+                    db: database.db,
+                    ownerToken: owner.token,
+                    policy: execution.config.capacityRecovery,
+                    retryPolicy: execution.config.automaticRecovery,
+                    workspaceKeys: [...execution.config.workspaces.keys()],
+                  }),
+                }
+              : {}),
+            recovery: createRecoveryProcessor(
+              recovery,
+              execution.observer ?? {
+                confirm: stopAndConfirmContainer,
+                cleanup: removeFinishedContainer,
+              },
+              (runId) => cleanupPreparedRun(database.db, inputRoot, runId),
+              (runId) => verifyPreparedResult(database.db, runId),
+              async (runId, signal) => {
+                await applyChangeApplication(database.db, runId, signal, owner!.token);
+              },
+            ),
+            validate: () =>
+              validateExecutionEnvironment(execution.config, databasePath, protectedFiles),
             reportDiagnostic: (diagnostic) => {
-              if (diagnostic.event === "execution_queue.error") scope.log.error(diagnostic, "Execution queue check failed");
+              if (diagnostic.event === "execution_queue.error")
+                scope.log.error(diagnostic, "Execution queue check failed");
               else scope.log.info(diagnostic, "Execution queue check recovered");
             },
           });
         }
-        if (notifications) notifier = createNotificationWorker({
-          config: notifications,
-          store: createNotificationStore(database.db, owner.token, notifications, () => queue?.getStatus()),
-          report: event => {
-            if (event.code === "NOTIFICATION_STORAGE_ERROR") scope.log.error(event, "Notification storage failed");
-            else scope.log.info(event, "Notification storage recovered");
-          },
-        });
+        if (notifications)
+          notifier = createNotificationWorker({
+            config: notifications,
+            store: createNotificationStore(database.db, owner.token, notifications, () =>
+              queue?.getStatus(),
+            ),
+            report: (event) => {
+              if (event.code === "NOTIFICATION_STORAGE_ERROR")
+                scope.log.error(event, "Notification storage failed");
+              else scope.log.info(event, "Notification storage recovered");
+            },
+          });
       } catch (error) {
         owner?.release();
         owner = undefined;
         database.close();
         throw error;
       }
-      scope.addHook("onListen", async () => { queue?.start(); serviceObserver?.start(); notifier?.start(); });
+      scope.addHook("onListen", async () => {
+        queue?.start();
+        serviceObserver?.start();
+        notifier?.start();
+      });
     }
 
     if (auth) await installAuthentication(scope, auth, createDrizzleSessionStore(database.db));
     scope.get("/operations/notifications", async () => ({
-      worker: notifier?.getStatus() ?? { enabled: false, storageError: false, delivering: false, lastCheckedAt: null },
+      worker: notifier?.getStatus() ?? {
+        enabled: false,
+        storageError: false,
+        delivering: false,
+        lastCheckedAt: null,
+      },
       notifications: listNotifications(database.db),
     }));
     if (webDirectory) scope.register(webRoutes, { directory: webDirectory });
@@ -141,11 +268,19 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
     const projectStore = createDrizzleProjectStore(database.db);
     scope.register(projectRoutes, { store: projectStore });
     scope.register(goalRoutes, { store: createDrizzleGoalStore(database.db) });
-    scope.register(workReleaseRoutes, { store: createWorkReleaseStore(database.db, execution?.config.automaticRecovery) });
+    scope.register(workReleaseRoutes, {
+      store: createWorkReleaseStore(database.db, execution?.config.automaticRecovery),
+    });
     scope.register(budgetRoutes, { store: createProjectBudgetStore(database.db) });
     scope.register(serviceRoutes, {
-      store: createDrizzleServiceStore(database.db), projectExists: id => projectStore.findById(id) !== undefined,
-      getObserverStatus: () => serviceObserver?.getStatus() ?? { enabledKeys: new Set<string>(), errors: new Set<string>(), nextChecks: new Map<string, Date>() },
+      store: createDrizzleServiceStore(database.db),
+      projectExists: (id) => projectStore.findById(id) !== undefined,
+      getObserverStatus: () =>
+        serviceObserver?.getStatus() ?? {
+          enabledKeys: new Set<string>(),
+          errors: new Set<string>(),
+          nextChecks: new Map<string, Date>(),
+        },
     });
     const taskStore = createDrizzleTaskStore(database.db);
     scope.register(taskRoutes, {
@@ -155,13 +290,20 @@ export function buildApp({ databasePath, execution, auth, webDirectory, services
     scope.register(executionRoutes, {
       store: createDrizzleRunStore(database.db),
       taskExists: (id) => taskStore.findById(id) !== undefined,
-      getQueueStatus: () => queue?.getStatus() ?? {
-        state: "disabled", runId: null, taskId: null, reason: null, lastCheckedAt: null, automaticRecoveryEnabled: false, capacityRecoveryEnabled: false,
-      },
+      getQueueStatus: () =>
+        queue?.getStatus() ?? {
+          state: "disabled",
+          runId: null,
+          taskId: null,
+          reason: null,
+          lastCheckedAt: null,
+          automaticRecoveryEnabled: false,
+          capacityRecoveryEnabled: false,
+        },
     });
     scope.register(recoveryRoutes, {
       queries: createDrizzleRecoveryStore(database.db),
-      request: input => {
+      request: (input) => {
         if (!recovery || !queue) throw new RecoveryError("EXECUTION_DISABLED");
         const result = recovery.request(input, queue.getActiveRunId(), canTrackTermination);
         if (input.action === "cancel") queue.cancel(input.runId);

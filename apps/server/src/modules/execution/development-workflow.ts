@@ -1,11 +1,8 @@
 import type { AnalysisAssessment, Effort } from "@agent-hub/contracts";
 import { AnalysisError } from "./analysis.js";
-import {
-  parseAssessment,
-  type AnalysisWorkflowPolicy,
-} from "./analysis-workflow.js";
+import { parseAssessment, type AnalysisWorkflowPolicy } from "./analysis-workflow.js";
 import type { VerificationResult } from "./verification-config.js";
-import type { DevelopmentCandidate } from "../goals/development-workspace.js";
+import type { DevelopmentCandidate } from "../workspace/development-workspace.js";
 import type { PlannedWork } from "../goals/goal-plan-policy.js";
 
 export const maxDevelopmentRounds = 3;
@@ -23,17 +20,11 @@ export function readDevelopmentAssessment(output: string) {
   }
 }
 
-export function developerAssessment(
-  value: AnalysisAssessment,
-  effort: Effort,
-): AnalysisAssessment {
+export function developerAssessment(value: AnalysisAssessment, effort: Effort): AnalysisAssessment {
   return parseAssessment({
     ...value,
     complete: false,
-    unresolved: [
-      "실제 테스트와 독립 검토가 필요합니다.",
-      ...value.unresolved,
-    ].slice(0, 8),
+    unresolved: ["실제 테스트와 독립 검토가 필요합니다.", ...value.unresolved].slice(0, 8),
     next: {
       purpose: "테스트 결과와 변경 내용 독립 검토",
       effort: value.next?.effort ?? effort,
@@ -109,23 +100,15 @@ export function developmentInstruction(input: {
             candidateDigest: input.candidate.digest,
             changes: input.candidate.changes.map((change) => ({
               path: change.path,
-              action:
-                change.after === null
-                  ? "delete"
-                  : change.before === null
-                    ? "add"
-                    : "modify",
+              action: change.after === null ? "delete" : change.before === null ? "add" : "modify",
               bytes: change.bytes,
             })),
           }
         : {}),
-      ...(input.verification
-        ? { actualTest: verificationFeedback(input.verification) }
-        : {}),
+      ...(input.verification ? { actualTest: verificationFeedback(input.verification) } : {}),
       ...(input.previousReview ? { previousReview: input.previousReview } : {}),
     }),
   ].join("\n");
-  if (Buffer.byteLength(prompt) > 60000)
-    throw new AnalysisError("workflow_limit");
+  if (Buffer.byteLength(prompt) > 60000) throw new AnalysisError("workflow_limit");
   return prompt;
 }

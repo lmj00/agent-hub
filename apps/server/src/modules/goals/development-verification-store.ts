@@ -19,7 +19,7 @@ import {
   validInputDigest,
   type DevelopmentInputIntent,
   type DevelopmentInput,
-} from "./development-workspace.js";
+} from "../workspace/development-workspace.js";
 
 export type DevelopmentVerificationIntent = {
   candidateDigest: string;
@@ -48,8 +48,7 @@ export type DevelopmentVerificationUpdate =
   | { type: "review.complete"; sequence: number; review: DevelopmentReview };
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update">;
-const same = (a: unknown, b: unknown) =>
-  JSON.stringify(a) === JSON.stringify(b);
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const sameIdentity = (a: ExecutionIdentity, b: ExecutionIdentity) =>
   a.kind === b.kind &&
   a.containerId === b.containerId &&
@@ -98,10 +97,7 @@ export function saveDevelopmentVerification(
       if (!same(current.verificationIntent, intent)) fail();
       return;
     }
-    db.update(developmentRounds)
-      .set({ verificationIntent: intent })
-      .where(where)
-      .run();
+    db.update(developmentRounds).set({ verificationIntent: intent }).where(where).run();
     return;
   }
   if (!current.verificationIntent) fail();
@@ -152,33 +148,23 @@ export function saveDevelopmentVerification(
   const step = db
     .select()
     .from(steps)
-    .where(
-      and(
-        eq(steps.runId, current.runId),
-        eq(steps.sequence, current.sequence * 2),
-      ),
-    )
+    .where(and(eq(steps.runId, current.runId), eq(steps.sequence, current.sequence * 2)))
     .get();
   if (
     count !== 3 ||
     review.candidateDigest !== candidate.digest ||
-    review.verificationDigest !==
-      verificationResultDigest(current.verificationResult) ||
+    review.verificationDigest !== verificationResultDigest(current.verificationResult) ||
     review.stepSequence !== current.sequence * 2 ||
     !step ||
     step.status !== "succeeded" ||
     !same(step.assessment, review.assessment) ||
     !sameIdentity(review.execution, executions.at(-1)!.identity) ||
-    (review.assessment.complete &&
-      current.verificationResult.status !== "passed")
+    (review.assessment.complete && current.verificationResult.status !== "passed")
   )
     fail();
   if (current.review) {
     if (!same(current.review, review)) fail();
     return;
   }
-  db.update(developmentRounds)
-    .set({ review, reviewedAt: now })
-    .where(where)
-    .run();
+  db.update(developmentRounds).set({ review, reviewedAt: now }).where(where).run();
 }

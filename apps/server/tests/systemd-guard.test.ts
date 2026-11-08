@@ -4,9 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
 const exec = promisify(execFile);
-const script = fileURLToPath(
-  new URL("../../../scripts/check-systemd.mjs", import.meta.url),
-);
+const script = fileURLToPath(new URL("../../../scripts/check-systemd.mjs", import.meta.url));
 
 // These refusal checks also run on developer machines. Actual PID 1 behavior runs in Linux CI.
 test.each([

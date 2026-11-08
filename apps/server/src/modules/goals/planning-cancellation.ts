@@ -3,10 +3,7 @@ import { eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { goalRevisions, goals, tasks } from "../../db/schema.js";
 
-type Db = Pick<
-  ReturnType<typeof openDatabase>["db"],
-  "select" | "insert" | "update"
->;
+type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "insert" | "update">;
 
 // The user's plan cancellation and Goal pause are one durable decision.
 export function pauseCancelledPlan(

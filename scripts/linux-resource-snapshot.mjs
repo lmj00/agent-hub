@@ -12,10 +12,15 @@ function integer(text) {
 }
 
 function keyed(text) {
-  return Object.fromEntries(text.trim().split("\n").map((line) => {
-    const [key, value] = line.trim().split(/\s+/);
-    return [key, integer(value)];
-  }));
+  return Object.fromEntries(
+    text
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const [key, value] = line.trim().split(/\s+/);
+        return [key, integer(value)];
+      }),
+  );
 }
 
 export function hostMemory(path = "/proc/meminfo") {
@@ -34,9 +39,13 @@ export function hostMemory(path = "/proc/meminfo") {
 export function cgroupDirectory(pid) {
   assert.ok(Number.isSafeInteger(pid) && pid > 0);
   const path = readFileSync(`/proc/${pid}/cgroup`, "utf8")
-    .split("\n").find((line) => line.startsWith("0::"))?.slice(3);
-  assert.ok(path && path.startsWith("/") && posix.normalize(path) === path,
-    "Expected a normalized cgroup v2 path");
+    .split("\n")
+    .find((line) => line.startsWith("0::"))
+    ?.slice(3);
+  assert.ok(
+    path && path.startsWith("/") && posix.normalize(path) === path,
+    "Expected a normalized cgroup v2 path",
+  );
   return join("/sys/fs/cgroup", path);
 }
 

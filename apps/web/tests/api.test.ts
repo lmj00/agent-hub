@@ -1,10 +1,6 @@
 import { expect, test, vi } from "vitest";
-import {
-  projectsSchema,
-  queueSchema,
-  recoverySchema,
-} from "@agent-hub/contracts";
-import { ApiError, createApiClient, errorMessage } from "../src/api.js";
+import { projectsSchema, queueSchema, recoverySchema } from "@agent-hub/contracts";
+import { ApiError, createApiClient, errorMessage } from "../src/shared/api.js";
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -62,30 +58,24 @@ test("unexpected status values, extra properties and invalid timestamps are reje
     { ...normal, secret: "should-not-be-rendered" },
     { ...normal, lastCheckedAt: "yesterday" },
   ]) {
-    const client = createApiClient(
-      vi.fn<typeof fetch>().mockResolvedValueOnce(json(value)),
-    );
-    await expect(
-      client.request("/execution", queueSchema),
-    ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    const client = createApiClient(vi.fn<typeof fetch>().mockResolvedValueOnce(json(value)));
+    await expect(client.request("/execution", queueSchema)).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
   }
 });
 
 test("server HTML, error details and unknown errors are never surfaced as user-facing text", async () => {
   const fetcher = vi
     .fn<typeof fetch>()
-    .mockResolvedValueOnce(
-      new Response("<html>private error</html>", { status: 502 }),
-    );
+    .mockResolvedValueOnce(new Response("<html>private error</html>", { status: 502 }));
   const client = createApiClient(fetcher);
-  const failure = await client
-    .request("/projects", projectsSchema)
-    .catch((error) => error);
+  const failure = await client.request("/projects", projectsSchema).catch((error) => error);
   expect(failure).toBeInstanceOf(ApiError);
   expect(errorMessage(failure)).not.toContain("private error");
-  expect(
-    errorMessage(new ApiError(409, "<script>private payload</script>")),
-  ).not.toContain("private payload");
+  expect(errorMessage(new ApiError(409, "<script>private payload</script>"))).not.toContain(
+    "private payload",
+  );
 });
 
 test("a pending recovery receipt is returned as pending, without retries or premature success", async () => {
@@ -102,9 +92,7 @@ test("a pending recovery receipt is returned as pending, without retries or prem
     createdAt: "2026-11-03T01:00:00Z",
     finishedAt: null,
   };
-  const fetcher = vi
-    .fn<typeof fetch>()
-    .mockResolvedValueOnce(json(receipt, 202));
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(json(receipt, 202));
   const client = createApiClient(fetcher);
   expect(
     await client.request("/tasks/fixture/recovery-requests", recoverySchema, {
@@ -117,13 +105,11 @@ test("a pending recovery receipt is returned as pending, without retries or prem
 
 test("caller cancellation reaches fetch and a failed write is not automatically repeated", async () => {
   const controller = new AbortController();
-  const fetcher = vi
-    .fn<typeof fetch>()
-    .mockImplementation(async (_input, init) => {
-      controller.abort();
-      expect(init?.signal?.aborted).toBe(true);
-      throw new TypeError("offline");
-    });
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_input, init) => {
+    controller.abort();
+    expect(init?.signal?.aborted).toBe(true);
+    throw new TypeError("offline");
+  });
   const client = createApiClient(fetcher);
   await expect(
     client.request("/projects", projectsSchema, {

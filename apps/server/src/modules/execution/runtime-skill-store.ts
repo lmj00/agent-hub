@@ -13,12 +13,11 @@ import type { RunCompletion } from "./run-task.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update">;
 
-function expectedRole(
-  task: typeof tasks.$inferSelect,
-  sequence: number,
-): RuntimeSkillRole {
+function expectedRole(task: typeof tasks.$inferSelect, sequence: number): RuntimeSkillRole {
   return task.kind === "planning"
-    ? sequence === 1 ? "planner" : "reviewer"
+    ? sequence === 1
+      ? "planner"
+      : "reviewer"
     : task.plannedWork
       ? sequence % 2 === 1
         ? "developer"
@@ -75,12 +74,7 @@ export function saveRuntimeSkillUpdate(
     throw new AnalysisError("unsupported_settings");
   if (update.type === "selected") {
     if (step.runtimeSkill) {
-      if (
-        !sameRuntimeSkill(
-          { sequence: step.sequence, selection: step.runtimeSkill },
-          context,
-        )
-      )
+      if (!sameRuntimeSkill({ sequence: step.sequence, selection: step.runtimeSkill }, context))
         throw new AnalysisError("unsupported_settings");
       return; // The initial child-managed Step starts after the parent selected it.
     }
@@ -92,16 +86,10 @@ export function saveRuntimeSkillUpdate(
     if (
       !step.runtimeSkill ||
       !step.runtimeSkillSelectedAt ||
-      !sameRuntimeSkill(
-        { sequence: step.sequence, selection: step.runtimeSkill },
-        context,
-      )
+      !sameRuntimeSkill({ sequence: step.sequence, selection: step.runtimeSkill }, context)
     )
       throw new AnalysisError("unsupported_settings");
-    db.update(steps)
-      .set({ runtimeSkillLoadedAt: now })
-      .where(eq(steps.id, step.id))
-      .run();
+    db.update(steps).set({ runtimeSkillLoadedAt: now }).where(eq(steps.id, step.id)).run();
   }
 }
 
@@ -110,17 +98,13 @@ export function requireRuntimeSkillEvidence(
   run: typeof runs.$inferSelect,
   completion: RunCompletion,
 ): RunCompletion {
-  if (run.runtimeSkillVersion === null || completion.status !== "succeeded")
-    return completion;
+  if (run.runtimeSkillVersion === null || completion.status !== "succeeded") return completion;
   const history = db.select().from(steps).where(eq(steps.runId, run.id)).all();
   if (
     run.runtimeSkillVersion !== runtimeSkillPolicyVersion ||
     !history.length ||
     history.some(
-      (step) =>
-        !step.runtimeSkill ||
-        !step.runtimeSkillSelectedAt ||
-        !step.runtimeSkillLoadedAt,
+      (step) => !step.runtimeSkill || !step.runtimeSkillSelectedAt || !step.runtimeSkillLoadedAt,
     )
   )
     return {
@@ -135,18 +119,13 @@ export function requireRuntimeSkillEvidence(
 // For new adapters, no durable load ACK means no SDK call could start. Container
 // recovery also requires an empty execution journal; direct SDK calls with an
 // acknowledged load remain uncertain and never gain container termination proof.
-export function runtimeSkillNotStarted(
-  db: Pick<Db, "select">,
-  run: typeof runs.$inferSelect,
-) {
+export function runtimeSkillNotStarted(db: Pick<Db, "select">, run: typeof runs.$inferSelect) {
   return (
     run.runtimeSkillVersion === runtimeSkillPolicyVersion &&
     !db
       .select({ id: steps.id })
       .from(steps)
-      .where(
-        and(eq(steps.runId, run.id), isNotNull(steps.runtimeSkillLoadedAt)),
-      )
+      .where(and(eq(steps.runId, run.id), isNotNull(steps.runtimeSkillLoadedAt)))
       .get()
   );
 }

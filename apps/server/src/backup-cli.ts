@@ -22,28 +22,17 @@ async function main() {
     positionals.length !== 1 ||
     !["create", "inspect", "restore"].includes(action ?? "") ||
     (action === "create" &&
-      (!values.database ||
-        !values.destination ||
-        values.backup ||
-        values.apply)) ||
+      (!values.database || !values.destination || values.backup || values.apply)) ||
     (action === "inspect" &&
-      (!values.backup ||
-        values.database ||
-        values.destination ||
-        values.apply)) ||
-    (action === "restore" &&
-      (!values.backup || !values.database || values.destination))
+      (!values.backup || values.database || values.destination || values.apply)) ||
+    (action === "restore" && (!values.backup || !values.database || values.destination))
   )
     throw new Error(
       "Use backup create --database PATH --destination PATH; inspect --backup PATH; or restore --backup PATH --database ORIGINAL_PATH [--apply]",
     );
   const cancelled = new AbortController();
-  const stop = () =>
-    cancelled.abort(new BackupError("Backup operation cancelled"));
-  const signal = AbortSignal.any([
-    cancelled.signal,
-    AbortSignal.timeout(10 * 60 * 1000),
-  ]);
+  const stop = () => cancelled.abort(new BackupError("Backup operation cancelled"));
+  const signal = AbortSignal.any([cancelled.signal, AbortSignal.timeout(10 * 60 * 1000)]);
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try {
@@ -54,16 +43,11 @@ async function main() {
           ? await inspectStateBackup(values.backup!, signal)
           : values.apply
             ? await restoreStateBackup(values.backup!, values.database!, signal)
-            : await previewStateRestore(
-                values.backup!,
-                values.database!,
-                signal,
-              );
+            : await previewStateRestore(values.backup!, values.database!, signal);
     // Paths are for this operator's review. Contents, credentials and model output never go to stdout.
     console.log(
       JSON.stringify({
-        action:
-          action === "restore" && !values.apply ? "restore-preview" : action,
+        action: action === "restore" && !values.apply ? "restore-preview" : action,
         createdAt: manifest.createdAt,
         originalDatabasePath: manifest.databasePath,
         schemaDigest: manifest.schemaDigest,

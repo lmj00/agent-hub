@@ -1,9 +1,16 @@
 import { and, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import { changeApplications, developmentRepositories, goals, planningCycles, runs, tasks } from "../../db/schema.js";
+import {
+  changeApplications,
+  developmentRepositories,
+  goals,
+  planningCycles,
+  runs,
+  tasks,
+} from "../../db/schema.js";
 import { AnalysisError, redactOutput } from "../execution/analysis.js";
 import { readGoalExecutionBlock } from "./goal-execution-store.js";
-import type { GoalScope, PreparedInput } from "./prepared-workspace.js";
+import type { GoalScope, PreparedInput } from "../workspace/prepared-workspace.js";
 import { planningInstruction, type PlanningInput } from "./goal-plan-policy.js";
 import { readExecutions } from "../execution/execution-record-store.js";
 
@@ -18,30 +25,35 @@ export function planningSourceChanged(db: Pick<Db, "select">, run: Run) {
   const input = run.preparedInput;
   if (!task || !input) return true;
   if (task.kind !== "planning") return !!input.developmentRepository;
-  const repository = db.select().from(developmentRepositories).where(eq(developmentRepositories.projectId, task.projectId)).get();
+  const repository = db
+    .select()
+    .from(developmentRepositories)
+    .where(eq(developmentRepositories.projectId, task.projectId))
+    .get();
   if (!repository) return !!input.developmentRepository;
-  const pending = db.select({ id: changeApplications.id }).from(changeApplications).where(and(eq(changeApplications.repositoryId, repository.id), eq(changeApplications.status, "pending"))).get();
+  const pending = db
+    .select({ id: changeApplications.id })
+    .from(changeApplications)
+    .where(
+      and(
+        eq(changeApplications.repositoryId, repository.id),
+        eq(changeApplications.status, "pending"),
+      ),
+    )
+    .get();
   if (pending) return true;
-  return !repository.prepared || !input.developmentRepository ||
+  return (
+    !repository.prepared ||
+    !input.developmentRepository ||
     input.source !== repository.prepared.source ||
     JSON.stringify(input.developmentRepository) !== JSON.stringify(repository.prepared) ||
-    (input.phase === "ready" && input.revision !== repository.prepared.head);
+    (input.phase === "ready" && input.revision !== repository.prepared.head)
+  );
 }
 
-export function savePlanningInput(
-  db: Db,
-  run: Run,
-  input: PlanningInput,
-  kind: string,
-) {
-  const cycle = db
-    .select()
-    .from(planningCycles)
-    .where(eq(planningCycles.taskId, run.taskId))
-    .get();
-  const goal = cycle
-    ? db.select().from(goals).where(eq(goals.id, cycle.goalId)).get()
-    : null;
+export function savePlanningInput(db: Db, run: Run, input: PlanningInput, kind: string) {
+  const cycle = db.select().from(planningCycles).where(eq(planningCycles.taskId, run.taskId)).get();
+  const goal = cycle ? db.select().from(goals).where(eq(goals.id, cycle.goalId)).get() : null;
   if (
     kind !== "planning.input_ready" ||
     !goal ||
@@ -62,10 +74,7 @@ export function savePlanningInput(
   )
     throw new AnalysisError("input_unavailable");
   planningInstruction(input);
-  db.update(runs)
-    .set({ planningInput: input })
-    .where(eq(runs.id, run.id))
-    .run();
+  db.update(runs).set({ planningInput: input }).where(eq(runs.id, run.id)).run();
 }
 
 export function readGoalScope(
@@ -92,17 +101,11 @@ export function preparedGoalChanged(db: Db, run: Run) {
     !!readGoalExecutionBlock(db, task) ||
     task.goalVersion !== run.goalVersion ||
     task.goalId !== input.scope.goalId ||
-    JSON.stringify(readGoalScope(db, task.goalId)) !==
-      JSON.stringify(input.scope)
+    JSON.stringify(readGoalScope(db, task.goalId)) !== JSON.stringify(input.scope)
   );
 }
 
-export function savePreparedInput(
-  db: Db,
-  run: Run,
-  input: PreparedInput,
-  kind: string,
-) {
+export function savePreparedInput(db: Db, run: Run, input: PreparedInput, kind: string) {
   const task = db.select().from(tasks).where(eq(tasks.id, run.taskId)).get();
   if (
     !task ||
@@ -111,8 +114,7 @@ export function savePreparedInput(
     readGoalExecutionBlock(db, task) ||
     run.goalVersion !== input.scope.goalVersion ||
     task.goalId !== input.scope.goalId ||
-    JSON.stringify(readGoalScope(db, task.goalId)) !==
-      JSON.stringify(input.scope)
+    JSON.stringify(readGoalScope(db, task.goalId)) !== JSON.stringify(input.scope)
   )
     throw new AnalysisError("goal_changed");
   if (
@@ -123,12 +125,7 @@ export function savePreparedInput(
   )
     throw new AnalysisError("input_unavailable");
   if (input.phase === "preparing") {
-    if (
-      run.preparedInput ||
-      input.revision ||
-      input.digest ||
-      input.files.length
-    )
+    if (run.preparedInput || input.revision || input.digest || input.files.length)
       throw new AnalysisError("input_unavailable");
   } else {
     const prior = run.preparedInput;
@@ -145,23 +142,11 @@ export function savePreparedInput(
     )
       throw new AnalysisError("input_unavailable");
   }
-  db.update(runs)
-    .set({ preparedInput: input })
-    .where(eq(runs.id, run.id))
-    .run();
+  db.update(runs).set({ preparedInput: input }).where(eq(runs.id, run.id)).run();
 }
 
-export function savePlanningProposal(
-  db: Db,
-  run: Run,
-  proposal: string,
-  kind: string,
-) {
-  const cycle = db
-    .select()
-    .from(planningCycles)
-    .where(eq(planningCycles.taskId, run.taskId))
-    .get();
+export function savePlanningProposal(db: Db, run: Run, proposal: string, kind: string) {
+  const cycle = db.select().from(planningCycles).where(eq(planningCycles.taskId, run.taskId)).get();
   if (
     !cycle ||
     cycle.status !== "reserved" ||

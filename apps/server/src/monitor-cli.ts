@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { loadAuthConfig } from "./modules/auth/auth-config.js";
 import { readinessToken } from "./modules/auth/readiness-token.js";
-import {
-  checkHealth,
-  loadHealthMonitorConfig,
-} from "./modules/operations/health-monitor.js";
+import { checkHealth, loadHealthMonitorConfig } from "./modules/operations/health-monitor.js";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 async function main() {
@@ -20,12 +17,7 @@ async function main() {
     },
   });
   if (positionals.length !== 1) throw new Error("Invalid monitor command");
-  if (
-    positionals[0] === "setup" &&
-    values["auth-config"] &&
-    values.destination &&
-    !values.config
-  ) {
+  if (positionals[0] === "setup" && values["auth-config"] && values.destination && !values.config) {
     const auth = loadAuthConfig(resolve(root, values["auth-config"]));
     const destination = resolve(root, values.destination);
     mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
@@ -48,12 +40,7 @@ async function main() {
     );
     return;
   }
-  if (
-    positionals[0] !== "check" ||
-    !values.config ||
-    values["auth-config"] ||
-    values.destination
-  )
+  if (positionals[0] !== "check" || !values.config || values["auth-config"] || values.destination)
     throw new Error("Invalid monitor command");
   const config = loadHealthMonitorConfig(resolve(root, values.config));
   const controller = new AbortController();

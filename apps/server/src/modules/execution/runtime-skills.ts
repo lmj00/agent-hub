@@ -1,7 +1,15 @@
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
-import { runtimeSkillRoles, type RuntimeSkillRole, type RuntimeSkillSelection } from "@agent-hub/contracts";
-export { runtimeSkillRoles, type RuntimeSkillRole, type RuntimeSkillSelection } from "@agent-hub/contracts";
+import {
+  runtimeSkillRoles,
+  type RuntimeSkillRole,
+  type RuntimeSkillSelection,
+} from "@agent-hub/contracts";
+export {
+  runtimeSkillRoles,
+  type RuntimeSkillRole,
+  type RuntimeSkillSelection,
+} from "@agent-hub/contracts";
 import {
   AnalysisError,
   maxRunExecutions,
@@ -15,8 +23,7 @@ export const maxRuntimeSkillBundleBytes = 128 * 1024;
 
 // This pins the manifest itself, including provenance, notices and profile hashes.
 // A deployment upgrade must change this value together with the packaged assets.
-const manifestDigest =
-  "ac5f2e47e1cb6ca2869238eec9be3c96e5f1385ce941cf6d0186aee122b78599";
+const manifestDigest = "ac5f2e47e1cb6ca2869238eec9be3c96e5f1385ce941cf6d0186aee122b78599";
 const assetRoot = new URL("../../../skills/gstack/", import.meta.url);
 
 export type RuntimeSkillContext = {
@@ -74,19 +81,11 @@ export function parseRuntimeSkillContext(value: unknown): RuntimeSkillContext {
   return { sequence: raw.sequence!, selection: { ...selection } };
 }
 
-export function sameRuntimeSkill(
-  left: RuntimeSkillContext,
-  right: RuntimeSkillContext,
-) {
-  return (
-    left.sequence === right.sequence &&
-    matchesSelection(left.selection, right.selection)
-  );
+export function sameRuntimeSkill(left: RuntimeSkillContext, right: RuntimeSkillContext) {
+  return left.sequence === right.sequence && matchesSelection(left.selection, right.selection);
 }
 
-export function runtimeSkillRoleForRequest(
-  request: AnalysisRequest,
-): RuntimeSkillRole {
+export function runtimeSkillRoleForRequest(request: AnalysisRequest): RuntimeSkillRole {
   return request.development
     ? "developer"
     : request.responseMode === "goal-plan"
@@ -104,10 +103,7 @@ export async function selectRuntimeSkill(
     if (request.runtimeSkill) throw new AnalysisError("unsupported_settings");
     return request;
   }
-  if (
-    request.runtimeSkillVersion !== runtimeSkillPolicyVersion ||
-    request.verification
-  )
+  if (request.runtimeSkillVersion !== runtimeSkillPolicyVersion || request.verification)
     throw new AnalysisError("unsupported_settings");
   request.signal.throwIfAborted();
   const loaded = loadRuntimeSkill(runtimeSkillRoleForRequest(request));
@@ -150,8 +146,7 @@ function readAsset(name: string, limit: number): Buffer {
   );
   try {
     const stat = fstatSync(fd);
-    if (!stat.isFile() || stat.size > limit)
-      throw new Error("Invalid skill asset");
+    if (!stat.isFile() || stat.size > limit) throw new Error("Invalid skill asset");
     const buffer = Buffer.alloc(limit + 1);
     let bytes = 0;
     while (bytes < buffer.length) {
@@ -167,15 +162,13 @@ function readAsset(name: string, limit: number): Buffer {
 }
 
 function matchesSelection(expected: unknown, actual: RuntimeSkillSelection) {
-  if (!expected || typeof expected !== "object" || Array.isArray(expected))
-    return false;
+  if (!expected || typeof expected !== "object" || Array.isArray(expected)) return false;
   const keys = Object.keys(actual) as Array<keyof RuntimeSkillSelection>;
   return (
     Object.keys(expected).length === keys.length &&
     keys.every(
       (key) =>
-        Object.hasOwn(expected, key) &&
-        (expected as Record<string, unknown>)[key] === actual[key],
+        Object.hasOwn(expected, key) && (expected as Record<string, unknown>)[key] === actual[key],
     )
   );
 }
@@ -192,11 +185,9 @@ export function loadRuntimeSkill(
   bytes: number;
 } {
   try {
-    if (!runtimeSkillRoles.includes(role))
-      throw new Error("Unknown skill role");
+    if (!runtimeSkillRoles.includes(role)) throw new Error("Unknown skill role");
     const manifestBytes = readAsset("manifest.json", 16 * 1024);
-    if (digest(manifestBytes) !== manifestDigest)
-      throw new Error("Skill manifest differs");
+    if (digest(manifestBytes) !== manifestDigest) throw new Error("Skill manifest differs");
     // Only these exact, pinned bytes are parsed. Filenames are still fixed here.
     const manifest = JSON.parse(manifestBytes.toString("utf8")) as Manifest;
     if (
@@ -209,20 +200,15 @@ export function loadRuntimeSkill(
     const readVerified = (name: string, expectedDigest: string) => {
       const bytes = readAsset(name, maxRuntimeSkillBytes);
       total += bytes.length;
-      if (
-        total > maxRuntimeSkillBundleBytes ||
-        digest(bytes) !== expectedDigest
-      )
+      if (total > maxRuntimeSkillBundleBytes || digest(bytes) !== expectedDigest)
         throw new Error("Skill asset differs");
       return bytes;
     };
-    for (const notice of ["LICENSE", "NOTICE.md"])
-      readVerified(notice, manifest.notices[notice]!);
+    for (const notice of ["LICENSE", "NOTICE.md"]) readVerified(notice, manifest.notices[notice]!);
     const profiles = new Map<RuntimeSkillRole, Buffer>();
     for (const key of runtimeSkillRoles) {
       const profile = manifest.profiles[key];
-      if (profile.file !== `${key}.md`)
-        throw new Error("Unsupported skill filename");
+      if (profile.file !== `${key}.md`) throw new Error("Unsupported skill filename");
       profiles.set(key, readVerified(`${key}.md`, profile.sha256));
     }
     const selection: RuntimeSkillSelection = {

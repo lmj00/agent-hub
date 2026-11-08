@@ -3,7 +3,7 @@ import { constants, createWriteStream } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { safeGitPath } from "../goals/workspace-git.js";
+import { safeGitPath } from "../workspace/workspace-git.js";
 
 export class BackupError extends Error {}
 
@@ -36,23 +36,13 @@ function safeEntryPath(path: string) {
   return safeGitPath(path) && Buffer.byteLength(path) <= 1024;
 }
 
-async function readFileDigest(
-  path: string,
-  signal: AbortSignal,
-  destination?: string,
-) {
+async function readFileDigest(path: string, signal: AbortSignal, destination?: string) {
   signal.throwIfAborted();
   const input = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const before = await input.stat();
-    if (
-      !before.isFile() ||
-      before.uid !== process.getuid?.() ||
-      before.nlink !== 1
-    )
-      throw new BackupError(
-        "Backup files must be owned regular files without hard links",
-      );
+    if (!before.isFile() || before.uid !== process.getuid?.() || before.nlink !== 1)
+      throw new BackupError("Backup files must be owned regular files without hard links");
     const sha = createHash("sha256");
     let bytes = 0;
     const source = input.createReadStream({ autoClose: false });
@@ -74,10 +64,7 @@ async function readFileDigest(
         }),
         { signal },
       );
-      const output = await open(
-        destination,
-        constants.O_RDONLY | constants.O_NOFOLLOW,
-      );
+      const output = await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         await output.sync();
       } finally {
@@ -110,30 +97,18 @@ async function readFileDigest(
 }
 
 // The traversal deliberately rejects links and special files rather than following them outside state.
-export async function inventoryBackupTree(
-  root: string,
-  signal: AbortSignal,
-  destination?: string,
-) {
+export async function inventoryBackupTree(root: string, signal: AbortSignal, destination?: string) {
   await privateBackupDirectory(root);
   const entries: BackupEntry[] = [];
   async function visit(directory: string, prefix: string) {
     signal.throwIfAborted();
     const info = await lstat(directory);
-    if (
-      !info.isDirectory() ||
-      info.uid !== process.getuid?.() ||
-      (info.mode & 0o022) !== 0
-    )
-      throw new BackupError(
-        "Backup state directory is not owned or permits other writers",
-      );
+    if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o022) !== 0)
+      throw new BackupError("Backup state directory is not owned or permits other writers");
     for (const name of (await readdir(directory)).sort()) {
       const path = prefix ? `${prefix}/${name}` : name;
       if (!safeEntryPath(path) || entries.length >= maxBackupEntries)
-        throw new BackupError(
-          "Backup file inventory exceeds its supported shape or count",
-        );
+        throw new BackupError("Backup file inventory exceeds its supported shape or count");
       const source = join(root, path),
         stat = await lstat(source);
       if (stat.isDirectory()) {
@@ -150,10 +125,7 @@ export async function inventoryBackupTree(
             destination ? join(destination, path) : undefined,
           )),
         });
-      } else
-        throw new BackupError(
-          "Backup state cannot contain symbolic links or special files",
-        );
+      } else throw new BackupError("Backup state cannot contain symbolic links or special files");
     }
     if (destination) await syncBackupDirectory(join(destination, prefix));
   }
@@ -170,14 +142,8 @@ export async function syncBackupDirectory(path: string) {
   }
 }
 
-export function validateBackupEntries(
-  value: unknown,
-): asserts value is BackupEntry[] {
-  if (
-    !Array.isArray(value) ||
-    value.length < 1 ||
-    value.length > maxBackupEntries
-  )
+export function validateBackupEntries(value: unknown): asserts value is BackupEntry[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > maxBackupEntries)
     throw new BackupError("Invalid backup inventory");
   const seen = new Set<string>();
   const directories = new Set(["."]);
@@ -192,8 +158,7 @@ export function validateBackupEntries(
     )
       throw new BackupError("Invalid backup entry path or ordering");
     seen.add(entry.path);
-    if (entry.kind === "directory" && Object.keys(entry).length === 2)
-      directories.add(entry.path);
+    if (entry.kind === "directory" && Object.keys(entry).length === 2) directories.add(entry.path);
     else if (
       entry.kind !== "file" ||
       Object.keys(entry).length !== 5 ||

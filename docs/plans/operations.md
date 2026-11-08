@@ -19,7 +19,7 @@ O1~O4의 승인된 설계·완료 기준입니다. 진행 요약은 [현재 진�
 | --- | --- | --- |
 | API는 loopback으로만 수신하고 HTTPS 프록시를 지원한다 | `apps/server/src/config.ts`, `apps/server/src/main.ts` | 코드 확인 |
 | 종료 처리와 실행 소유권·재시작 대조가 있다 | `apps/server/src/app.ts`, `modules/execution/execution-owner.ts` | 기존 통합 검사·F3 재시작 확인 |
-| DB 외에 개발 Git·준비한 입력도 영속 상태다 | `modules/goals/development-workspace.ts`, `prepared-workspace.ts` | 저장 경로·DB 참조 확인 |
+| DB 외에 개발 Git·준비한 입력도 영속 상태다 | `modules/workspace/development-workspace.ts`, `prepared-workspace.ts` | 저장 경로·DB 참조 확인 |
 | `/health/live`와 `/health/ready`는 작업 진척을 증명하지 않는다 | `modules/health/routes.ts`, `execution-queue.ts` | 생존·DB 접근·대기열 상태가 별개임을 확인 |
 | Linux의 실제 systemd 기동·재시작 | macOS에서 아직 수행하지 않음 | 미검증 |
 | 실제 도메인의 공개 인증서·외부 감시·알림 수신 | 대상 서버·도메인·채널을 적용하지 않음 | 미검증 |

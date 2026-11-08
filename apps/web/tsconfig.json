@@ -9,11 +9,5 @@
     "skipLibCheck": true,
     "types": ["vite/client"]
   },
-  "include": [
-    "src",
-    "tests",
-    "e2e/**/*.ts",
-    "vite.config.ts",
-    "playwright.config.ts"
-  ]
+  "include": ["src", "tests", "e2e/**/*.ts", "vite.config.ts", "playwright.config.ts"]
 }

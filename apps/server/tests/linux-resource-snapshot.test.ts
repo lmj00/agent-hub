@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { linkSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -7,7 +15,9 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { afterEach, expect, test } from "vitest";
 // The CI script is native JavaScript; load its real exports without a TS-only copy.
-const { cgroupUsage, hostMemory, treeSize } = createRequire(import.meta.url)("../../../scripts/linux-resource-snapshot.mjs");
+const { cgroupUsage, hostMemory, treeSize } = createRequire(import.meta.url)(
+  "../../../scripts/linux-resource-snapshot.mjs",
+);
 
 const directories: string[] = [];
 function fixture() {
@@ -21,9 +31,14 @@ afterEach(() => {
 
 test("host memory uses available memory, not free memory, and reports bytes", () => {
   const path = join(fixture(), "meminfo");
-  writeFileSync(path, "MemTotal:       1024 kB\nMemFree:          16 kB\nMemAvailable:    256 kB\n");
+  writeFileSync(
+    path,
+    "MemTotal:       1024 kB\nMemFree:          16 kB\nMemAvailable:    256 kB\n",
+  );
   expect(hostMemory(path)).toEqual({
-    totalBytes: 1048576, availableBytes: 262144, usedEstimateBytes: 786432,
+    totalBytes: 1048576,
+    availableBytes: 262144,
+    usedEstimateBytes: 786432,
   });
   writeFileSync(path, "MemTotal:       1024 kB\nMemFree:          16 kB\n");
   expect(() => hostMemory(path)).toThrow("Missing MemAvailable");
@@ -54,29 +69,44 @@ test("disk accounting skips symlink targets, deduplicates hardlinks and distingu
   symlinkSync(outside, join(tree, "external-link"));
   symlinkSync("missing", join(tree, "dangling-link"));
   expect(treeSize(tree)).toEqual({
-    exists: true, files: 1, bytes: 7, allocatedBytes: lstatSync(file).blocks * 512, vanishedEntries: 0,
+    exists: true,
+    files: 1,
+    bytes: 7,
+    allocatedBytes: lstatSync(file).blocks * 512,
+    vanishedEntries: 0,
   });
   expect(treeSize(join(path, "absent"))).toEqual({
-    exists: false, files: 0, bytes: 0, allocatedBytes: 0, vanishedEntries: 0,
+    exists: false,
+    files: 0,
+    bytes: 0,
+    allocatedBytes: 0,
+    vanishedEntries: 0,
   });
 });
 
-test.each(["WAL", "DELETE"])("metadata measurement preserves actual SQLite %s write locks", (mode) => {
-  const directory = fixture();
-  const path = join(directory, "hub.sqlite");
-  const db = new Database(path);
-  const writer = fileURLToPath(new URL("./fixtures/database-lock-probe.mjs", import.meta.url));
-  const competingWrite = () => JSON.parse(execFileSync(process.execPath, [writer, "writer", path], {
-    encoding: "utf8", timeout: 5000,
-  })).outcome;
-  try {
-    db.pragma(`journal_mode = ${mode}`);
-    db.exec("CREATE TABLE fixture (id INTEGER); BEGIN IMMEDIATE");
-    expect(competingWrite()).toBe("SQLITE_BUSY");
-    expect(treeSize(directory).bytes).toBeGreaterThan(0);
-    expect(competingWrite()).toBe("SQLITE_BUSY");
-  } finally {
-    if (db.inTransaction) db.exec("ROLLBACK");
-    db.close();
-  }
-});
+test.each(["WAL", "DELETE"])(
+  "metadata measurement preserves actual SQLite %s write locks",
+  (mode) => {
+    const directory = fixture();
+    const path = join(directory, "hub.sqlite");
+    const db = new Database(path);
+    const writer = fileURLToPath(new URL("./fixtures/database-lock-probe.mjs", import.meta.url));
+    const competingWrite = () =>
+      JSON.parse(
+        execFileSync(process.execPath, [writer, "writer", path], {
+          encoding: "utf8",
+          timeout: 5000,
+        }),
+      ).outcome;
+    try {
+      db.pragma(`journal_mode = ${mode}`);
+      db.exec("CREATE TABLE fixture (id INTEGER); BEGIN IMMEDIATE");
+      expect(competingWrite()).toBe("SQLITE_BUSY");
+      expect(treeSize(directory).bytes).toBeGreaterThan(0);
+      expect(competingWrite()).toBe("SQLITE_BUSY");
+    } finally {
+      if (db.inTransaction) db.exec("ROLLBACK");
+      db.close();
+    }
+  },
+);

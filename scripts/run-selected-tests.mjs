@@ -5,15 +5,34 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const groups = [
-  { prefix: "apps/server/tests/", pattern: /\.test\.ts$/, package: "@agent-hub/server", command: ["vitest", "run"], files: [] },
-  { prefix: "apps/web/tests/", pattern: /\.test\.ts$/, package: "@agent-hub/web", command: ["vitest", "run"], files: [] },
-  { prefix: "apps/web/e2e/", pattern: /\.spec\.ts$/, package: "@agent-hub/web", command: ["playwright", "test"], files: [] },
+  {
+    prefix: "apps/server/tests/",
+    pattern: /\.test\.ts$/,
+    package: "@agent-hub/server",
+    command: ["vitest", "run"],
+    files: [],
+  },
+  {
+    prefix: "apps/web/tests/",
+    pattern: /\.test\.ts$/,
+    package: "@agent-hub/web",
+    command: ["vitest", "run"],
+    files: [],
+  },
+  {
+    prefix: "apps/web/e2e/",
+    pattern: /\.spec\.ts$/,
+    package: "@agent-hub/web",
+    command: ["playwright", "test"],
+    files: [],
+  },
 ];
 const files = [...new Set(process.argv.slice(2))];
 if (!files.length) throw new Error("No test files selected");
 for (const file of files) {
-  const group = groups.find(group => file.startsWith(group.prefix) && group.pattern.test(file));
-  if (!group || file.split("/").some(part => !part || part === "." || part === "..")) throw new Error(`Unsupported test file: ${file}`);
+  const group = groups.find((group) => file.startsWith(group.prefix) && group.pattern.test(file));
+  if (!group || file.split("/").some((part) => !part || part === "." || part === ".."))
+    throw new Error(`Unsupported test file: ${file}`);
   group.files.push(file.split("/").slice(2).join("/"));
 }
 function run(args) {

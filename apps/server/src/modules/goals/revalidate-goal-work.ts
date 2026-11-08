@@ -1,13 +1,7 @@
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
-import {
-  goalRevisions,
-  goals,
-  recoveryRequests,
-  runs,
-  tasks,
-} from "../../db/schema.js";
-import { allowedGoalPath, privateInputPath } from "./prepared-workspace.js";
+import { goalRevisions, goals, recoveryRequests, runs, tasks } from "../../db/schema.js";
+import { allowedGoalPath, privateInputPath } from "../workspace/prepared-workspace.js";
 import { narrowsGoalScope } from "./goal-scope-policy.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update">;
@@ -18,10 +12,7 @@ export function revalidateGoalWork(db: Db, goalId?: string, now = new Date()) {
   const candidates = db
     .select({ task: tasks, goal: goals })
     .from(tasks)
-    .innerJoin(
-      goals,
-      and(eq(goals.id, tasks.goalId), eq(goals.projectId, tasks.projectId)),
-    )
+    .innerJoin(goals, and(eq(goals.id, tasks.goalId), eq(goals.projectId, tasks.projectId)))
     .where(
       and(
         eq(goals.status, "active"),
@@ -54,24 +45,14 @@ export function revalidateGoalWork(db: Db, goalId?: string, now = new Date()) {
       db
         .select({ id: recoveryRequests.id })
         .from(recoveryRequests)
-        .where(
-          and(
-            eq(recoveryRequests.taskId, task.id),
-            eq(recoveryRequests.status, "pending"),
-          ),
-        )
+        .where(and(eq(recoveryRequests.taskId, task.id), eq(recoveryRequests.status, "pending")))
         .get()
     )
       continue;
     const previous = db
       .select()
       .from(goalRevisions)
-      .where(
-        and(
-          eq(goalRevisions.goalId, goal.id),
-          eq(goalRevisions.version, task.goalVersion!),
-        ),
-      )
+      .where(and(eq(goalRevisions.goalId, goal.id), eq(goalRevisions.version, task.goalVersion!)))
       .get()?.snapshot;
     const paths = task.plannedWork?.paths;
     // Legacy/manual tasks or broken provenance stay held; do not guess their scope.

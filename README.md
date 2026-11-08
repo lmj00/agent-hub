@@ -39,6 +39,7 @@ flowchart LR
 
 | 알고 싶은 것 | 문서 |
 | --- | --- |
+| 코드 변경·검사·리뷰 방법 | [개발 참여 안내](CONTRIBUTING.md) |
 | 전체 문서 중 필요한 것 찾기 | [문서 길잡이](docs/README.md) |
 | Goal·Task·Run이 무엇이고 어떻게 연결되는지 | [구조와 동작 요약](docs/01-architecture.md) |
 | 어디까지 끝났고 무엇이 남았는지 | [진행 상태와 완료 기준](docs/02-implementation-plan.md) |
@@ -65,6 +66,8 @@ LOCAL_API_ONLY=1 pnpm dev
 
 | 개발 명령 | 용도 |
 | --- | --- |
+| `pnpm format` | 코드 형식 정리 |
+| `pnpm check` | 형식·기본 오류·모듈 참조 방향 검사 |
 | `pnpm typecheck` | 타입 검사 |
 | `pnpm test` | 자동 테스트 |
 | `pnpm build` | 배포할 JavaScript와 화면 빌드 |

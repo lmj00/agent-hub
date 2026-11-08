@@ -9,17 +9,12 @@ const contains = (parent: string, child: string) =>
 // permission to create or read its future contents.
 export function narrowsGoalScope(previous: Scope, next: Scope): boolean {
   return previous.allowedPaths.some((allowed) => {
-    if (previous.excludedPaths.some((excluded) => contains(excluded, allowed)))
-      return false;
-    if (!next.allowedPaths.some((parent) => contains(parent, allowed)))
-      return true;
+    if (previous.excludedPaths.some((excluded) => contains(excluded, allowed))) return false;
+    if (!next.allowedPaths.some((parent) => contains(parent, allowed))) return true;
     return next.excludedPaths.some((excluded) => {
-      if (!contains(allowed, excluded) && !contains(excluded, allowed))
-        return false;
+      if (!contains(allowed, excluded) && !contains(excluded, allowed)) return false;
       const intersection = contains(allowed, excluded) ? excluded : allowed;
-      return !previous.excludedPaths.some((parent) =>
-        contains(parent, intersection),
-      );
+      return !previous.excludedPaths.some((parent) => contains(parent, intersection));
     });
   });
 }

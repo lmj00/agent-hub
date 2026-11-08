@@ -64,28 +64,16 @@ export function initialRetryState(policy: RetryPolicy): RetryState {
 export function retryLimitReason(state: RetryState): string | null {
   if (state.totalRunMs >= state.policy.maxTotalRunMs) return "task_time_limit";
   if (state.retries >= state.policy.maxRetries) return "retry_limit";
-  if (state.consecutiveErrors >= state.policy.maxConsecutiveErrors)
-    return "repeated_error_limit";
+  if (state.consecutiveErrors >= state.policy.maxConsecutiveErrors) return "repeated_error_limit";
   return null;
 }
-export function retryDelay(
-  policy: RetryPolicy,
-  retries: number,
-  random: number,
-): number {
-  const base = Math.min(
-    policy.maxDelayMs,
-    policy.initialDelayMs * 2 ** Math.min(20, retries),
-  );
+export function retryDelay(policy: RetryPolicy, retries: number, random: number): number {
+  const base = Math.min(policy.maxDelayMs, policy.initialDelayMs * 2 ** Math.min(20, retries));
   return Math.min(
     policy.maxDelayMs,
-    Math.ceil(
-      base * (1 + Math.max(0, Math.min(1, random)) * policy.jitterRatio),
-    ),
+    Math.ceil(base * (1 + Math.max(0, Math.min(1, random)) * policy.jitterRatio)),
   );
 }
 export function retryableError(code: string | null) {
-  return (
-    code === "transient" || code === "server_shutdown" || code === "owner_lost"
-  );
+  return code === "transient" || code === "server_shutdown" || code === "owner_lost";
 }

@@ -1,12 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  chmodSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -17,10 +10,7 @@ import {
   loadServiceConfig,
   type ServiceTargetConfig,
 } from "../src/modules/services/service-config.js";
-import {
-  interpretObservation,
-  observeService,
-} from "../src/modules/services/observe-service.js";
+import { interpretObservation, observeService } from "../src/modules/services/observe-service.js";
 
 let directory: string;
 let server: Server;
@@ -83,17 +73,13 @@ beforeEach(async () => {
     }
     if (mode === "bad_date") {
       response.end(
-        JSON.stringify(
-          snapshot({ observedAt: "2026-02-30T00:00:00Z", lastSuccessAt: null }),
-        ),
+        JSON.stringify(snapshot({ observedAt: "2026-02-30T00:00:00Z", lastSuccessAt: null })),
       );
       return;
     }
     if (mode === "future") {
       response.end(
-        JSON.stringify(
-          snapshot({ observedAt: new Date(Date.now() + 60000).toISOString() }),
-        ),
+        JSON.stringify(snapshot({ observedAt: new Date(Date.now() + 60000).toISOString() })),
       );
       return;
     }
@@ -141,9 +127,7 @@ test("reads an actual HTTP status endpoint with GET and redacts its echoed crede
     errorCode: null,
     snapshot: { processState: "running", activityState: "working" },
   });
-  expect(seen).toEqual([
-    { method: "GET", url: "/status", authorization: `Bearer ${token}` },
-  ]);
+  expect(seen).toEqual([{ method: "GET", url: "/status", authorization: `Bearer ${token}` }]);
   expect(JSON.stringify(result)).not.toContain(token);
   expect(result.snapshot?.summary).not.toContain("other-secret");
   expect(result.snapshot?.summary).not.toContain("sk-example-secret");
@@ -229,16 +213,12 @@ test("separates normal waiting, missing progress and overdue work without treati
       now,
     ).state,
   ).toBe("unknown");
+  expect(interpretObservation(target, latest({ processState: "stopped" }), now).state).toBe(
+    "stopped",
+  );
   expect(
-    interpretObservation(target, latest({ processState: "stopped" }), now)
-      .state,
-  ).toBe("stopped");
-  expect(
-    interpretObservation(
-      target,
-      latest({ activityState: "waiting", nextExpectedAt: old }),
-      now,
-    ).reason,
+    interpretObservation(target, latest({ activityState: "waiting", nextExpectedAt: old }), now)
+      .reason,
   ).toBe("scheduled_work_overdue");
 });
 test("both stale source timestamps and stale collection timestamps override a past healthy result", () => {
@@ -251,9 +231,7 @@ test("both stale source timestamps and stale collection timestamps override a pa
     errorCode: null,
     snapshot: snapshot(),
   };
-  expect(
-    interpretObservation(target, { ...latest, receivedAt: old }, now).state,
-  ).toBe("stale");
+  expect(interpretObservation(target, { ...latest, receivedAt: old }, now).state).toBe("stale");
   expect(
     interpretObservation(
       target,
@@ -292,16 +270,10 @@ test("config requires a private file and rejects ambiguous, credential-bearing o
     "https://example.com/status?token=private",
     "https://example.com/#fragment",
   ]) {
-    writeFileSync(
-      path,
-      JSON.stringify({ ...value, targets: [{ ...value.targets[0], url }] }),
-    );
+    writeFileSync(path, JSON.stringify({ ...value, targets: [{ ...value.targets[0], url }] }));
     expect(() => loadServiceConfig(path)).toThrow();
   }
-  writeFileSync(
-    path,
-    JSON.stringify({ ...value, targets: [value.targets[0], value.targets[0]] }),
-  );
+  writeFileSync(path, JSON.stringify({ ...value, targets: [value.targets[0], value.targets[0]] }));
   expect(() => loadServiceConfig(path)).toThrow("unique");
   writeFileSync(path, JSON.stringify(value));
   chmodSync(path, 0o644);

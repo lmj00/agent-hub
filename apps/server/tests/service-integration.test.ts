@@ -1,11 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -15,10 +9,7 @@ import { parseResponse, servicesSchema } from "@agent-hub/contracts";
 import { buildApp } from "../src/app.js";
 import { openDatabase } from "../src/db/connection.js";
 import { projects, tasks } from "../src/db/schema.js";
-import {
-  loadServiceConfig,
-  type ServiceConfig,
-} from "../src/modules/services/service-config.js";
+import { loadServiceConfig, type ServiceConfig } from "../src/modules/services/service-config.js";
 import { loadExecutionConfig } from "../src/modules/execution/execution-config.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 
@@ -95,10 +86,7 @@ beforeEach(async () => {
   services = loadServiceConfig(file);
   mkdirSync(join(directory, "workspace"));
   mkdirSync(join(directory, "codex"));
-  writeFileSync(
-    join(directory, "codex/auth.json"),
-    JSON.stringify({ auth_mode: "chatgpt" }),
-  );
+  writeFileSync(join(directory, "codex/auth.json"), JSON.stringify({ auth_mode: "chatgpt" }));
   const executionFile = join(directory, "execution.json");
   writeFileSync(
     executionFile,
@@ -144,10 +132,7 @@ test("service query returns stored observations, a failed read keeps historical 
   await app.listen({ host: "127.0.0.1", port: 0 });
   await vi.waitFor(async () => expect((await list()).state).toBe("waiting"));
   mode = "failure";
-  await vi.waitFor(
-    async () => expect((await list()).state).toBe("unavailable"),
-    { timeout: 3000 },
-  );
+  await vi.waitFor(async () => expect((await list()).state).toBe("unavailable"), { timeout: 3000 });
   expect(await list()).toMatchObject({
     latest: { success: false, errorCode: "http_error" },
     lastSuccessful: { success: true },
@@ -165,9 +150,7 @@ test("service query returns stored observations, a failed read keeps historical 
     reason: "observer_disabled",
     lastSuccessful: { success: true },
   });
-  expect(
-    (await app.inject(`/projects/${randomUUID()}/services`)).statusCode,
-  ).toBe(404);
+  expect((await app.inject(`/projects/${randomUUID()}/services`)).statusCode).toBe(404);
 });
 test("an unresolved AI run holds new execution while independent service observation continues", async () => {
   const taskId = registerTask();
@@ -215,19 +198,15 @@ test("cancelling analysis leaves the observed service alive and its next observa
   });
   expect(accepted.statusCode).toBe(202);
   await vi.waitFor(() =>
-    expect(createDrizzleRunStore(database.db).findById(run.id)?.status).toBe(
-      "cancelled",
-    ),
+    expect(createDrizzleRunStore(database.db).findById(run.id)?.status).toBe("cancelled"),
   );
   const count = methods.length;
   await vi.waitFor(() => expect(methods.length).toBeGreaterThan(count), {
     timeout: 3000,
   });
-  expect(
-    await (
-      await fetch(services.targets[0]!.url.replace("/status", "/alive"))
-    ).text(),
-  ).toBe("alive");
+  expect(await (await fetch(services.targets[0]!.url.replace("/status", "/alive"))).text()).toBe(
+    "alive",
+  );
   expect((await list()).state).toBe("waiting");
   expect(methods.every((method) => method === "GET")).toBe(true);
 });
@@ -244,9 +223,7 @@ test("a slow status endpoint does not hold API responses or prevent bounded shut
   app = undefined;
   expect(performance.now() - start).toBeLessThan(1500);
   expect(
-    database.client
-      .prepare("SELECT count(*) AS count FROM service_observations")
-      .get(),
+    database.client.prepare("SELECT count(*) AS count FROM service_observations").get(),
   ).toEqual({ count: 0 });
 });
 test("service-only ownership prevents duplicate observers and initialization failure releases its ownership", async () => {
@@ -266,17 +243,12 @@ test("service-only ownership prevents duplicate observers and initialization fai
   });
   await expect(invalid.ready()).rejects.toThrow("unknown project");
   await invalid.close();
-  expect(
-    database.client
-      .prepare("SELECT count(*) AS count FROM execution_owner")
-      .get(),
-  ).toEqual({ count: 0 });
+  expect(database.client.prepare("SELECT count(*) AS count FROM execution_owner").get()).toEqual({
+    count: 0,
+  });
 });
 test("service credentials inside an analysis workspace are rejected before any execution or observation", async () => {
-  const privatePath = join(
-    execution.workspaces.get("example")!,
-    "services.json",
-  );
+  const privatePath = join(execution.workspaces.get("example")!, "services.json");
   writeFileSync(privatePath, "private config", { mode: 0o600 });
   app = buildApp({
     databasePath,

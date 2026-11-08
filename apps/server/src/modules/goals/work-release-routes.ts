@@ -6,10 +6,7 @@ import {
   taskReleaseSchema,
   type ReleaseTask,
 } from "@agent-hub/contracts";
-import {
-  WorkReleaseError,
-  type createWorkReleaseStore,
-} from "./work-release-store.js";
+import { WorkReleaseError, type createWorkReleaseStore } from "./work-release-store.js";
 
 export const workReleaseRoutes: FastifyPluginAsync<{
   store: ReturnType<typeof createWorkReleaseStore>;
@@ -27,12 +24,10 @@ export const workReleaseRoutes: FastifyPluginAsync<{
         .send({ error: "INVALID_REQUEST", message: error.message });
     }
     request.log.error({ err: error }, "Work release request failed");
-    return reply
-      .code(500)
-      .send({
-        error: "INTERNAL_ERROR",
-        message: "Unable to release cancelled work",
-      });
+    return reply.code(500).send({
+      error: "INTERNAL_ERROR",
+      message: "Unable to release cancelled work",
+    });
   });
   app.post<{ Params: { id: string }; Body: ReleaseTask }>(
     "/tasks/:id/release",
@@ -40,17 +35,13 @@ export const workReleaseRoutes: FastifyPluginAsync<{
       onRequest: async (request, reply) => {
         reply.header("Cache-Control", "no-store");
         if (
-          request.headers["content-type"]
-            ?.split(";")[0]
-            ?.trim()
-            .toLowerCase() !== "application/json"
+          request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() !==
+          "application/json"
         )
-          return reply
-            .code(415)
-            .send({
-              error: "INVALID_REQUEST",
-              message: "Content-Type must be application/json",
-            });
+          return reply.code(415).send({
+            error: "INVALID_REQUEST",
+            message: "Content-Type must be application/json",
+          });
       },
       schema: {
         params: idParamsSchema,
@@ -75,12 +66,10 @@ export const workReleaseRoutes: FastifyPluginAsync<{
             .code(error.code === "TASK_NOT_FOUND" ? 404 : 409)
             .send({ error: error.code, message: error.message });
         request.log.error({ err: error }, "Work release failed");
-        return reply
-          .code(500)
-          .send({
-            error: "INTERNAL_ERROR",
-            message: "Unable to release cancelled work",
-          });
+        return reply.code(500).send({
+          error: "INTERNAL_ERROR",
+          message: "Unable to release cancelled work",
+        });
       }
     },
   );

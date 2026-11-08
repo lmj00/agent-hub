@@ -16,8 +16,8 @@ import {
   privateInputPath,
   type GoalScope,
   type ScopedGitFile,
-} from "../goals/prepared-workspace.js";
-import { safeGitPath } from "../goals/workspace-git.js";
+} from "../workspace/prepared-workspace.js";
+import { safeGitPath } from "../workspace/workspace-git.js";
 
 export const maxDevelopmentRequestBytes = 1024 * 1024;
 export const maxDevelopmentArtifactBytes = 12 * 1024 * 1024;
@@ -57,8 +57,7 @@ export function developmentWriteDirectories(input: DevelopmentExecutionInput) {
   const directories = new Set(["."]);
   for (const file of input.files) {
     const parts = file.path.split("/");
-    for (let i = 1; i < parts.length; i++)
-      directories.add(parts.slice(0, i).join("/"));
+    for (let i = 1; i < parts.length; i++) directories.add(parts.slice(0, i).join("/"));
   }
   const roots = [
     ...new Set(
@@ -72,10 +71,7 @@ export function developmentWriteDirectories(input: DevelopmentExecutionInput) {
   return roots
     .filter(
       (path) =>
-        !roots.some(
-          (other) =>
-            other !== path && (other === "." || path.startsWith(`${other}/`)),
-        ),
+        !roots.some((other) => other !== path && (other === "." || path.startsWith(`${other}/`))),
     )
     .sort();
 }
@@ -112,10 +108,7 @@ export function parseDevelopmentInput(
   const scope = value.scope as GoalScope;
   if (
     value.writePaths.some(
-      (path) =>
-        !validPath(path) ||
-        !allowedGoalPath(path, scope) ||
-        privateInputPath(path),
+      (path) => !validPath(path) || !allowedGoalPath(path, scope) || privateInputPath(path),
     )
   )
     throw new Error("Invalid development write scope");
@@ -141,10 +134,7 @@ export function parseDevelopmentInput(
       throw new Error("Invalid development input manifest");
     paths.add(file.path.normalize("NFC").toLowerCase());
   }
-  if (
-    Buffer.byteLength(JSON.stringify(value)) >
-    maxDevelopmentRequestBytes - 65536
-  )
+  if (Buffer.byteLength(JSON.stringify(value)) > maxDevelopmentRequestBytes - 65536)
     throw new Error("Development input exceeds transport limits");
   return structuredClone(value) as DevelopmentExecutionInput;
 }
@@ -216,10 +206,7 @@ const blobHash = (content: Buffer, base: string) =>
 function readFiles(root: string): CapturedFile[] {
   if (process.platform !== "linux")
     throw new Error("Development capture requires the Linux container");
-  const rootFd = openSync(
-    root,
-    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-  );
+  const rootFd = openSync(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   const files: CapturedFile[] = [];
   let total = 0,
     entries = 0;
@@ -300,8 +287,7 @@ export function initializeDevelopmentWorkspace(
     throw new Error("Development workspace must be an empty tmpfs");
   const files = readFiles(source),
     expected = new Map(input.files.map((file) => [file.path, file]));
-  if (files.length !== expected.size)
-    throw new Error("Development input files changed");
+  if (files.length !== expected.size) throw new Error("Development input files changed");
   for (const file of files) {
     const base = expected.get(file.path);
     if (

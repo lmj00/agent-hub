@@ -15,11 +15,8 @@ import {
   retryLimitReason,
   type RetryPolicy,
 } from "../execution/retry-policy.js";
-import {
-  ensureRetryState,
-  readRetryBaseline,
-} from "../execution/retry-state-store.js";
-import { allowedGoalPath, privateInputPath } from "./prepared-workspace.js";
+import { ensureRetryState, readRetryBaseline } from "../execution/retry-state-store.js";
+import { allowedGoalPath, privateInputPath } from "../workspace/prepared-workspace.js";
 import { narrowsGoalScope } from "./goal-scope-policy.js";
 import { revalidateGoalWork } from "./revalidate-goal-work.js";
 
@@ -73,11 +70,7 @@ export function createWorkReleaseStore(
               throw new WorkReleaseError("REQUEST_KEY_CONFLICT");
             return { release: receipt(existing), created: false };
           }
-          const source = tx
-            .select()
-            .from(tasks)
-            .where(eq(tasks.id, sourceTaskId))
-            .get();
+          const source = tx.select().from(tasks).where(eq(tasks.id, sourceTaskId)).get();
           if (!source) throw new WorkReleaseError("TASK_NOT_FOUND");
           if (
             source.status !== "cancelled" ||
@@ -87,29 +80,15 @@ export function createWorkReleaseStore(
             !source.goalVersion
           )
             throw new WorkReleaseError("TASK_NOT_RELEASABLE");
-          const goal = tx
-            .select()
-            .from(goals)
-            .where(eq(goals.id, source.goalId))
-            .get();
+          const goal = tx.select().from(goals).where(eq(goals.id, source.goalId)).get();
           if (!goal || goal.projectId !== source.projectId)
             throw new WorkReleaseError("GOAL_BINDING_INVALID");
           if (goal.version !== input.expectedGoalVersion)
             throw new WorkReleaseError("GOAL_VERSION_CHANGED");
-          if (goal.status === "paused")
-            throw new WorkReleaseError("GOAL_PAUSED");
-          if (goal.status === "completed")
-            throw new WorkReleaseError("GOAL_COMPLETED");
-          const history = tx
-            .select()
-            .from(runs)
-            .where(eq(runs.taskId, sourceTaskId))
-            .all();
-          if (
-            history.some(
-              (run) => run.status === "running" || !run.terminationConfirmedAt,
-            )
-          )
+          if (goal.status === "paused") throw new WorkReleaseError("GOAL_PAUSED");
+          if (goal.status === "completed") throw new WorkReleaseError("GOAL_COMPLETED");
+          const history = tx.select().from(runs).where(eq(runs.taskId, sourceTaskId)).all();
+          if (history.some((run) => run.status === "running" || !run.terminationConfirmedAt))
             throw new WorkReleaseError("TERMINATION_UNCONFIRMED");
           if (
             tx
@@ -128,10 +107,7 @@ export function createWorkReleaseStore(
             .select()
             .from(goalRevisions)
             .where(
-              and(
-                eq(goalRevisions.goalId, goal.id),
-                eq(goalRevisions.version, source.goalVersion),
-              ),
+              and(eq(goalRevisions.goalId, goal.id), eq(goalRevisions.version, source.goalVersion)),
             )
             .get()?.snapshot;
           const paths = source.plannedWork.paths;
@@ -158,14 +134,12 @@ export function createWorkReleaseStore(
           )
             throw new WorkReleaseError("TASK_SCOPE_CHANGED");
           const priorAttempts =
-            (readRetryBaseline(tx, sourceTaskId)?.priorAttempts ?? 0) +
-            history.length;
+            (readRetryBaseline(tx, sourceTaskId)?.priorAttempts ?? 0) + history.length;
           const priorRetryState = ensureRetryState(tx, sourceTaskId, policy)!;
           if (
             priorAttempts
               ? retryLimitReason(priorRetryState)
-              : priorRetryState.totalRunMs >=
-                priorRetryState.policy.maxTotalRunMs
+              : priorRetryState.totalRunMs >= priorRetryState.policy.maxTotalRunMs
           )
             throw new WorkReleaseError("RECOVERY_LIMIT_REACHED");
           const now = new Date(),

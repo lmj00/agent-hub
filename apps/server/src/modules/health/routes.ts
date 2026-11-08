@@ -62,7 +62,11 @@ export const healthRoutes: FastifyPluginAsync<HealthOptions> = async (app, { che
       } catch (error) {
         request.log.error({ err: error }, "Database readiness check failed");
         reply.code(503);
-        return { status: "unavailable", database: "unavailable", checkedAt: new Date().toISOString() };
+        return {
+          status: "unavailable",
+          database: "unavailable",
+          checkedAt: new Date().toISOString(),
+        };
       }
     },
   );

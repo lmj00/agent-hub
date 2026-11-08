@@ -12,10 +12,7 @@ export const defaultProjectBudget: PeriodBudgetPolicy = {
 };
 export class BudgetError extends Error {
   constructor(
-    public readonly code:
-      | "INVALID_BUDGET"
-      | "BUDGET_VERSION_CHANGED"
-      | "PROJECT_NOT_FOUND",
+    public readonly code: "INVALID_BUDGET" | "BUDGET_VERSION_CHANGED" | "PROJECT_NOT_FOUND",
   ) {
     super(code);
   }
