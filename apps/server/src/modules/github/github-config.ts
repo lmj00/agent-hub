@@ -7,6 +7,7 @@ export type GitHubConfig = {
   installationId: number;
   ownerId: number;
   privateKey: KeyObject;
+  allowRepositoryCreation?: boolean;
 };
 
 export function loadGitHubConfig(path: string): GitHubConfig {
@@ -17,10 +18,23 @@ export function loadGitHubConfig(path: string): GitHubConfig {
   if (
     config.version !== 1 ||
     Object.keys(config).some(
-      (key) => !["version", "appId", "installationId", "ownerId", "privateKey"].includes(key),
+      (key) =>
+        ![
+          "version",
+          "appId",
+          "installationId",
+          "ownerId",
+          "privateKey",
+          "allowRepositoryCreation",
+        ].includes(key),
     )
   )
     throw new Error("Unsupported GitHub config");
+  if (
+    config.allowRepositoryCreation !== undefined &&
+    typeof config.allowRepositoryCreation !== "boolean"
+  )
+    throw new Error("GitHub allowRepositoryCreation must be a boolean");
   for (const key of ["appId", "installationId", "ownerId"]) {
     if (!Number.isSafeInteger(config[key]) || (config[key] as number) < 1)
       throw new Error(`GitHub ${key} must be a positive integer`);
@@ -43,5 +57,6 @@ export function loadGitHubConfig(path: string): GitHubConfig {
     installationId: config.installationId as number,
     ownerId: config.ownerId as number,
     privateKey,
+    allowRepositoryCreation: config.allowRepositoryCreation === true,
   };
 }

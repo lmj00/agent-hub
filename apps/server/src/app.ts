@@ -1,3 +1,6 @@
+import { createCreationStore } from "./modules/github/creation-store.js";
+import { createCreationWorker } from "./modules/github/creation-worker.js";
+import { creationRoutes } from "./modules/github/creation-routes.js";
 import { hydrateImports } from "./modules/github/import-runtime.js";
 import { createImportStore } from "./modules/github/import-store.js";
 import { createImportWorker } from "./modules/github/import-worker.js";
@@ -118,6 +121,8 @@ export function buildApp({
     const githubClient = github ? createGitHubClient(github) : undefined;
     let importStore: ReturnType<typeof createImportStore> | undefined;
     let importer: ReturnType<typeof createImportWorker> | undefined;
+    let creationStore: ReturnType<typeof createCreationStore> | undefined;
+    let creator: ReturnType<typeof createCreationWorker> | undefined;
     const protectedFiles = [
       auth?.sourcePath,
       services?.sourcePath,
@@ -132,6 +137,7 @@ export function buildApp({
           serviceObserver?.stop(),
           notifier?.stop(),
           importer?.stop(),
+          creator?.stop(),
         ]);
         owner?.release();
       } finally {
@@ -144,6 +150,7 @@ export function buildApp({
         serviceObserver?.stop(),
         notifier?.stop(),
         importer?.stop(),
+        creator?.stop(),
       ]);
     });
 
@@ -151,6 +158,8 @@ export function buildApp({
       try {
         if (execution) validateExecutionEnvironment(execution.config, databasePath, protectedFiles);
         owner = acquireExecutionOwner(database.db);
+        creationStore = createCreationStore(database.db, owner.token);
+        creationStore.recover();
         if (services) {
           const serviceStore = createDrizzleServiceStore(database.db, owner.token);
           serviceStore.configure(services.targets);
@@ -184,6 +193,20 @@ export function buildApp({
                   "Repository import storage failed",
                 ),
             });
+            if (github?.allowRepositoryCreation) {
+              creator = createCreationWorker({
+                store: creationStore,
+                imports: importStore,
+                client: githubClient,
+                profiles: new Set(execution.config.importProfiles.keys()),
+                wakeImporter: () => importer?.wake(),
+                report: () =>
+                  scope.log.error(
+                    { code: "CREATION_STORAGE_ERROR" },
+                    "Repository creation storage failed",
+                  ),
+              });
+            }
           }
           const inputRoot = preparedInputRoot(databasePath);
           cleanupConfirmedInputs(database.db, inputRoot);
@@ -300,6 +323,7 @@ export function buildApp({
       scope.addHook("onListen", async () => {
         queue?.start();
         importer?.start();
+        creator?.start();
         serviceObserver?.start();
         notifier?.start();
       });
@@ -307,6 +331,12 @@ export function buildApp({
 
     if (auth) await installAuthentication(scope, auth, createDrizzleSessionStore(database.db));
     scope.register(githubRoutes, githubClient ? { client: githubClient } : {});
+    scope.register(creationRoutes, {
+      db: database.db,
+      profiles: [...(execution?.config.importProfiles?.keys() ?? [])],
+      ...(creationStore ? { store: creationStore } : {}),
+      ...(creator ? { worker: creator } : {}),
+    });
     scope.register(importRoutes, {
       db: database.db,
       profiles: [...(execution?.config.importProfiles?.keys() ?? [])],

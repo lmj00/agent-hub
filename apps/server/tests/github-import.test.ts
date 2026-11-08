@@ -87,6 +87,7 @@ test("imports real files and Git, deduplicates a lost response and restores the 
       throw new Error("unexpected storage failure");
     },
     client: {
+      isBusy: () => false,
       downloadRepository: async () => ({
         repositoryId: 78,
         fullName: "fixture/example",
@@ -149,6 +150,7 @@ test("cancel aborts an in-flight download without creating a project", async () 
     runtime: importRuntime(config(), databasePath, []),
     report: () => {},
     client: {
+      isBusy: () => false,
       downloadRepository: async (_id, signal) => {
         seenSignal = signal;
         return new Promise((_resolve, reject) =>
@@ -166,6 +168,37 @@ test("cancel aborts an in-flight download without creating a project", async () 
   expect(seenSignal!.aborted).toBe(true);
   expect(store.find(job.id)?.status).toBe("cancelled");
   expect(database.db.select().from(projects).all()).toEqual([]);
+});
+
+test("keeps imports queued without consuming attempts while another GitHub operation owns the client", async () => {
+  const store = createImportStore(database.db, owner.token),
+    job = store.register(input());
+  let busy = true;
+  const downloadRepository = vi.fn(async () => ({
+    repositoryId: 78,
+    fullName: "fixture/example",
+    revision,
+    archive: githubArchive(),
+  }));
+  const runtime = importRuntime(config(), databasePath, []);
+  const worker = createImportWorker({
+    store,
+    runtime,
+    client: { isBusy: () => busy, downloadRepository },
+    report: () => {
+      throw new Error("unexpected storage error");
+    },
+  });
+  workers.push(worker);
+  worker.wake();
+  await worker.stop();
+  expect(store.find(job.id)).toMatchObject({ status: "queued", attempt: 0 });
+  expect(downloadRepository).not.toHaveBeenCalled();
+  busy = false;
+  worker.start();
+  await expect.poll(() => store.find(job.id)?.status, { timeout: 5000 }).toBe("ready");
+  expect(downloadRepository).toHaveBeenCalledOnce();
+  expect(store.find(job.id)?.attempt).toBe(1);
 });
 
 test.each(
@@ -217,160 +250,185 @@ test("rejects root symlinks, conflicting requests and missing trusted profiles",
   expect(config).toThrow("importProfiles requires");
 });
 
-test("authenticated API imports into an initially empty running server and planning/retry/capacity see the new project", async () => {
-  owner.release();
-  database.close();
-  const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  const auth = {
-    sourcePath: join(directory, "login.json"),
-    origin: "http://localhost",
-    sessionSecret: "a".repeat(64),
-    password: await hashPassword("fixture-password"),
-  };
-  writeFileSync(auth.sourcePath, "{}", { mode: 0o600 });
-  const github = {
-    sourcePath: join(directory, "github.json"),
-    appId: 12,
-    installationId: 34,
-    ownerId: 56,
-    privateKey: keys.privateKey,
-  };
-  writeFileSync(github.sourcePath, "{}", { mode: 0o600 });
-  const repo = {
-    id: 78,
-    name: "example",
-    full_name: "fixture/example",
-    owner: { id: 56, login: "fixture" },
-    private: true,
-    archived: false,
-    default_branch: "main",
-  };
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>(async (url) => {
-      const path = String(url);
-      const json = (value: unknown) => new Response(JSON.stringify(value));
-      if (path.includes("codeload.github.com"))
-        return new Response(new Uint8Array(githubArchive()));
-      if (path.includes("/tarball/"))
-        return new Response(null, {
-          status: 302,
-          headers: {
-            location: `https://codeload.github.com/fixture/example/legacy.tar.gz/${revision}`,
-          },
-        });
-      if (path.includes("/commits/")) return json({ sha: revision });
-      if (path.endsWith("access_tokens"))
-        return json({
-          token: "ghs_fixture_not_a_real_access_token",
-          expires_at: new Date(Date.now() + 3600000).toISOString(),
-        });
-      if (path.includes("/installation/repositories"))
-        return json({ total_count: 1, repositories: [repo] });
-      return json({
-        id: 34,
-        app_id: 12,
-        account: { id: 56, login: "fixture", type: "User" },
-        suspended_at: null,
-        repository_selection: "selected",
-      });
-    }),
-  );
-  let calls = 0;
-  const app = buildApp({
-    databasePath,
-    auth,
-    github,
-    execution: {
-      config: config(),
-      pollIntervalMs: 25,
-      executor: {
-        async analyze(request) {
-          expect(request.responseMode).toBe("goal-plan");
-          expect(readFileSync(join(request.workspace, "src/main.ts"), "utf8")).toContain("42");
-          calls++;
-          throw new AnalysisError(
-            calls === 1 ? "transient" : calls === 2 ? "capacity" : "provider_error",
-          );
-        },
-        confirmTermination: async () => new Date(),
-      },
-    },
-  });
-  try {
-    await app.listen({ host: "127.0.0.1", port: 0 });
-    expect((await app.inject("/integrations/github/imports")).statusCode).toBe(401);
-    const anonymous = await app.inject("/auth/session");
-    const login = await app.inject({
-      method: "POST",
-      url: "/auth/login",
-      headers: {
-        cookie: anonymous.headers["set-cookie"]!.toString().split(";")[0]!,
-        "x-csrf-token": anonymous.json().csrfToken,
-      },
-      payload: { password: "fixture-password" },
-    });
-    const headers = {
-      cookie: login.headers["set-cookie"]!.toString().split(";")[0]!,
-      "x-csrf-token": login.json().csrfToken,
+test.each([false, true])(
+  "authenticated import/creation (create=%s) connects to planning/retry/capacity in an initially empty server",
+  async (create) => {
+    owner.release();
+    database.close();
+    const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const auth = {
+      sourcePath: join(directory, "login.json"),
+      origin: "http://localhost",
+      sessionSecret: "a".repeat(64),
+      password: await hashPassword("fixture-password"),
     };
-    const command = input();
-    expect(
-      (
-        await app.inject({
-          method: "POST",
-          url: "/integrations/github/imports",
-          headers: { cookie: headers.cookie },
-          payload: command,
-        })
-      ).statusCode,
-    ).toBe(403);
-    const registered = await app.inject({
-      method: "POST",
-      url: "/integrations/github/imports",
-      headers,
-      payload: command,
-    });
-    expect(registered.statusCode).toBe(202);
-    const id = registered.json().id;
-    await expect
-      .poll(
-        async () =>
-          (await app.inject({ url: "/integrations/github/imports", headers })).json().imports[0]
-            .status,
-      )
-      .toBe("ready");
-    const goal = await app.inject({
-      method: "POST",
-      url: `/projects/${id}/goals`,
-      headers,
-      payload: {
-        requestKey: "goal",
-        definition: {
-          description: "Improve example",
-          completionCriteria: "Tests pass",
-          kind: "finite",
-          priority: 50,
-          allowedPaths: ["src"],
-          excludedPaths: [],
-          checkIntervalMs: 60000,
-          budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
+    writeFileSync(auth.sourcePath, "{}", { mode: 0o600 });
+    const github = {
+      sourcePath: join(directory, "github.json"),
+      appId: 12,
+      installationId: 34,
+      ownerId: 56,
+      privateKey: keys.privateKey,
+      allowRepositoryCreation: create,
+    };
+    writeFileSync(github.sourcePath, "{}", { mode: 0o600 });
+    const repo = {
+      id: 78,
+      name: "example",
+      full_name: "fixture/example",
+      owner: { id: 56, login: "fixture" },
+      private: true,
+      archived: false,
+      default_branch: "main",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (url, options) => {
+        const path = String(url);
+        const json = (value: unknown) => new Response(JSON.stringify(value));
+        if (path.endsWith("/user/repos")) {
+          expect(create).toBe(true);
+          expect(JSON.parse(options!.body as string)).toEqual({
+            name: "example",
+            private: true,
+            auto_init: true,
+          });
+          return new Response(JSON.stringify(repo), { status: 201 });
+        }
+        if (path.includes("codeload.github.com"))
+          return new Response(new Uint8Array(githubArchive()));
+        if (path.includes("/tarball/"))
+          return new Response(null, {
+            status: 302,
+            headers: {
+              location: `https://codeload.github.com/fixture/example/legacy.tar.gz/${revision}`,
+            },
+          });
+        if (path.includes("/commits/")) return json({ sha: revision });
+        if (path.endsWith("access_tokens"))
+          return json({
+            token: "ghs_fixture_not_a_real_access_token",
+            expires_at: new Date(Date.now() + 3600000).toISOString(),
+            permissions: { repository_creation: "write" },
+          });
+        if (path.includes("/installation/repositories"))
+          return json({ total_count: 1, repositories: [repo] });
+        return json({
+          id: 34,
+          app_id: 12,
+          account: { id: 56, login: "fixture", type: "User" },
+          suspended_at: null,
+          repository_selection: "selected",
+          permissions: { repository_creation: "write" },
+        });
+      }),
+    );
+    let calls = 0;
+    const app = buildApp({
+      databasePath,
+      auth,
+      github,
+      execution: {
+        config: config(),
+        pollIntervalMs: 25,
+        executor: {
+          async analyze(request) {
+            expect(request.responseMode).toBe("goal-plan");
+            expect(readFileSync(join(request.workspace, "src/main.ts"), "utf8")).toContain("42");
+            calls++;
+            throw new AnalysisError(
+              calls === 1 ? "transient" : calls === 2 ? "capacity" : "provider_error",
+            );
+          },
+          confirmTermination: async () => new Date(),
         },
       },
     });
-    expect(goal.statusCode).toBe(201);
-    await expect.poll(() => calls, { timeout: 15000 }).toBeGreaterThanOrEqual(3);
-    const again = await app.inject({
-      method: "POST",
-      url: "/integrations/github/imports",
-      headers,
-      payload: command,
-    });
-    expect(again.json().projectId).toBe(id);
-  } finally {
-    await app.close();
-  }
-}, 25000);
+    try {
+      await app.listen({ host: "127.0.0.1", port: 0 });
+      expect((await app.inject("/integrations/github/imports")).statusCode).toBe(401);
+      const anonymous = await app.inject("/auth/session");
+      const login = await app.inject({
+        method: "POST",
+        url: "/auth/login",
+        headers: {
+          cookie: anonymous.headers["set-cookie"]!.toString().split(";")[0]!,
+          "x-csrf-token": anonymous.json().csrfToken,
+        },
+        payload: { password: "fixture-password" },
+      });
+      const headers = {
+        cookie: login.headers["set-cookie"]!.toString().split(";")[0]!,
+        "x-csrf-token": login.json().csrfToken,
+      };
+      const endpoint = create ? "/integrations/github/creations" : "/integrations/github/imports";
+      expect((await app.inject("/integrations/github/creations")).statusCode).toBe(401);
+      const command = create
+        ? { requestKey: randomUUID(), repositoryName: "example", name: "Example", profile: "node" }
+        : input();
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: endpoint,
+            headers: { cookie: headers.cookie },
+            payload: command,
+          })
+        ).statusCode,
+      ).toBe(403);
+      const registered = await app.inject({
+        method: "POST",
+        url: endpoint,
+        headers,
+        payload: command,
+      });
+      expect(registered.statusCode).toBe(202);
+      const registeredId = registered.json().id;
+      await expect
+        .poll(
+          async () =>
+            (await app.inject({ url: "/integrations/github/imports", headers })).json().imports[0]
+              ?.status,
+          // Creation adds a worker handoff at the 1s cadence; keep the existing import-only bound.
+          { timeout: create ? 10000 : 1000 },
+        )
+        .toBe("ready");
+      const id = (await app.inject({ url: "/integrations/github/imports", headers })).json()
+        .imports[0].projectId;
+      const goal = await app.inject({
+        method: "POST",
+        url: `/projects/${id}/goals`,
+        headers,
+        payload: {
+          requestKey: "goal",
+          definition: {
+            description: "Improve example",
+            completionCriteria: "Tests pass",
+            kind: "finite",
+            priority: 50,
+            allowedPaths: ["src"],
+            excludedPaths: [],
+            checkIntervalMs: 60000,
+            budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
+          },
+        },
+      });
+      expect(goal.statusCode).toBe(201);
+      await expect.poll(() => calls, { timeout: 15000 }).toBeGreaterThanOrEqual(3);
+      const again = await app.inject({
+        method: "POST",
+        url: endpoint,
+        headers,
+        payload: command,
+      });
+      expect(again.json().id).toBe(registeredId);
+      expect(create ? again.json().importId : again.json().projectId).toBe(id);
+    } finally {
+      await app.close();
+    }
+  },
+  25000,
+);
 
 test("backup restores the imported source and identity alongside its project, and rejects modified source", async () => {
   const state = join(directory, "state");

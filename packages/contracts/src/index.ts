@@ -1,4 +1,11 @@
 export {
+  repositoryCreationInputSchema,
+  repositoryCreationSchema,
+  repositoryCreationsSchema,
+  type RepositoryCreationInput,
+  type RepositoryCreation,
+} from "./repository-creations.js";
+export {
   repositoryImportInputSchema,
   repositoryImportSchema,
   repositoryImportsSchema,

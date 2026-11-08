@@ -6,7 +6,7 @@ import { GitHubError, type createGitHubClient } from "./github-client.js";
 export function createImportWorker(options: {
   store: ReturnType<typeof createImportStore>;
   runtime: ReturnType<typeof importRuntime>;
-  client: Pick<ReturnType<typeof createGitHubClient>, "downloadRepository">;
+  client: Pick<ReturnType<typeof createGitHubClient>, "downloadRepository" | "isBusy">;
   report: () => void;
 }) {
   let stopping = false,
@@ -14,6 +14,7 @@ export function createImportWorker(options: {
     timer: ReturnType<typeof setInterval> | undefined;
   let active: { id: string; controller: AbortController } | undefined;
   async function tick() {
+    if (options.client.isBusy()) return;
     const job = options.store.claim();
     if (!job) return;
     const controller = new AbortController();

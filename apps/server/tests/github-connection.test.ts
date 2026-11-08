@@ -44,6 +44,151 @@ afterEach(() => {
 });
 const response = (value: unknown, status = 200, headers?: Record<string, string>) =>
   new Response(JSON.stringify(value), { status, ...(headers ? { headers } : {}) });
+
+test("creates only a private repository after durable dispatch intent, with the narrow permission", async () => {
+  const fetcher = transport([
+    { ...installation, permissions: { repository_creation: "write" } },
+    {
+      token,
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+      permissions: { repository_creation: "write" },
+    },
+    response(repository, 201),
+  ]);
+  const beforeCreate = vi.fn(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  const result = await createGitHubClient(
+    { ...config, allowRepositoryCreation: true },
+    fetcher,
+  ).createRepository("example", new AbortController().signal, beforeCreate);
+  expect(result).toEqual({ repositoryId: 78, fullName: "fixture-owner/example" });
+  expect(beforeCreate).toHaveBeenCalledOnce();
+  expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string)).toEqual({
+    permissions: { metadata: "read", repository_creation: "write" },
+  });
+  const [url, request] = fetcher.mock.calls[2]!;
+  expect(url).toBe("https://api.github.com/user/repos");
+  expect(request).toMatchObject({ method: "POST", redirect: "error" });
+  expect(JSON.parse(request!.body as string)).toEqual({
+    name: "example",
+    private: true,
+    auto_init: true,
+  });
+  expect(JSON.stringify(result)).not.toContain(token);
+});
+
+test("requires opt-in, a granted creation permission and durable intent before a remote write", async () => {
+  const signal = new AbortController().signal;
+  const disabled = transport();
+  await expect(
+    createGitHubClient(config, disabled).createRepository("example", signal, () => {}),
+  ).rejects.toMatchObject({ code: "GITHUB_CREATION_DISABLED" });
+  expect(disabled).not.toHaveBeenCalled();
+  for (const values of [
+    [{ ...installation, permissions: { repository_creation: "read" } }],
+    [
+      { ...installation, permissions: { repository_creation: "write" } },
+      { token, expires_at: new Date(Date.now() + 3600000).toISOString(), permissions: {} },
+    ],
+    [
+      { ...installation, permissions: { repository_creation: "write" } },
+      {
+        token,
+        expires_at: new Date(Date.now() + 3600000).toISOString(),
+        permissions: { repository_creation: "write" },
+      },
+    ],
+  ]) {
+    const fetcher = transport(values);
+    await expect(
+      createGitHubClient({ ...config, allowRepositoryCreation: true }, fetcher).createRepository(
+        "example",
+        signal,
+        () => {
+          throw new Error("private storage failure");
+        },
+      ),
+    ).rejects.toBeInstanceOf(Error);
+    expect(fetcher.mock.calls.every(([url]) => url !== "https://api.github.com/user/repos")).toBe(
+      true,
+    );
+  }
+  writeFileSync(
+    join(directory, "github.json"),
+    JSON.stringify({ ...input, allowRepositoryCreation: "true" }),
+  );
+  expect(() => loadGitHubConfig(join(directory, "github.json"))).toThrow("must be a boolean");
+});
+
+test("distinguishes explicit creation rejection from unknown outcomes without leaking provider errors", async () => {
+  const results = [
+    response(repository, 422),
+    response(repository, 500),
+    response(repository, 200),
+    response({ ...repository, private: false }, 201),
+    response({ ...repository, owner: { ...repository.owner, id: 99 } }, 201),
+    response({ ...repository, name: "wrong" }, 201),
+    new Response("secret malformed", { status: 201 }),
+    new Response("x".repeat(2 * 1024 * 1024 + 1), { status: 201 }),
+  ];
+  for (const result of results) {
+    const status = result.status;
+    const fetcher = transport([
+      { ...installation, permissions: { repository_creation: "write" } },
+      {
+        token,
+        expires_at: new Date(Date.now() + 3600000).toISOString(),
+        permissions: { repository_creation: "write" },
+      },
+      result,
+    ]);
+    const code = status === 422 ? "GITHUB_CREATE_REJECTED" : "GITHUB_CREATE_UNCERTAIN";
+    await expect(
+      createGitHubClient({ ...config, allowRepositoryCreation: true }, fetcher).createRepository(
+        "example",
+        new AbortController().signal,
+        () => {},
+      ),
+    ).rejects.toMatchObject({ code, message: code });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  }
+});
+
+test("aborting creation after dispatch leaves an uncertain result and releases the shared client", async () => {
+  const fetcher = transport([
+    { ...installation, permissions: { repository_creation: "write" } },
+    {
+      token,
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+      permissions: { repository_creation: "write" },
+    },
+  ]);
+  const controller = new AbortController();
+  const client = createGitHubClient({ ...config, allowRepositoryCreation: true }, fetcher);
+  const dispatch = vi.fn(() => {
+    fetcher.mockImplementation(
+      (_url, options) =>
+        new Promise((_resolve, reject) =>
+          options!.signal!.addEventListener(
+            "abort",
+            () => reject(new Error("private transport detail")),
+            { once: true },
+          ),
+        ),
+    );
+  });
+  const pending = client.createRepository("example", controller.signal, dispatch);
+  const rejected = expect(pending).rejects.toMatchObject({
+    code: "GITHUB_CREATE_UNCERTAIN",
+    message: "GITHUB_CREATE_UNCERTAIN",
+  });
+  // Abort after the actual fetch starts; do not assert elapsed time or wait for a real network.
+  await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
+  expect(client.isBusy()).toBe(true);
+  controller.abort();
+  await rejected;
+  expect(client.isBusy()).toBe(false);
+  expect(dispatch).toHaveBeenCalledOnce();
+});
 function transport(overrides: unknown[] = []) {
   const values = [
     installation,
@@ -166,12 +311,14 @@ test("allows only one in-flight operation and releases it after timeout", async 
   );
   const client = createGitHubClient(config, fetcher);
   const pending = client.listRepositories(1);
+  expect(client.isBusy()).toBe(true);
   const rejected = expect(pending).rejects.toMatchObject({
     code: "GITHUB_UNAVAILABLE",
     message: "GITHUB_UNAVAILABLE",
   });
   await expect(client.listRepositories(1)).rejects.toMatchObject({ code: "GITHUB_BUSY" });
   await rejected;
+  expect(client.isBusy()).toBe(false);
   fetcher.mockImplementation(async () => response(installation));
   await expect(client.listRepositories(1)).rejects.toMatchObject({
     code: "GITHUB_INVALID_RESPONSE",

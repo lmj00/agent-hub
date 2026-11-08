@@ -90,6 +90,24 @@ export function createApiClient(fetcher: typeof fetch = fetch) {
 export const api = createApiClient();
 
 const messages: Record<string, string> = {
+  GITHUB_CREATION_DISABLED: "서버에서 새 저장소 생성을 허용하지 않았습니다.",
+  GITHUB_CREATE_REJECTED:
+    "GitHub가 생성 요청을 거절했습니다. 같은 이름의 저장소와 생성 권한을 확인해 주세요.",
+  GITHUB_CREATE_UNCERTAIN:
+    "GitHub 응답을 확정하지 못했습니다. 중복 요청을 막기 위해 생성을 보류했습니다.",
+  CREATION_REQUEST_CONFLICT:
+    "같은 생성 요청에 다른 내용이 전달됐습니다. 생성 기록을 확인해 주세요.",
+  CREATION_NAME_RESERVED:
+    "이 이름으로 요청한 기록이 있습니다. 기존 생성 기록이나 GitHub 저장소를 확인해 주세요.",
+  CREATION_QUEUE_FULL:
+    "준비 중인 생성 요청이 20건입니다. 진행 상태를 확인한 뒤 다시 요청해 주세요.",
+  CREATION_ATTEMPT_LIMIT: "생성 요청 5회에 도달했습니다. GitHub 권한과 실패 기록을 확인해 주세요.",
+  CREATION_NOT_CONFIGURED: "서버에 GitHub 생성 권한·생성 허용·개발 환경 설정이 필요합니다.",
+  CREATION_PROFILE_UNAVAILABLE: "선택한 검증 환경을 사용할 수 없습니다. 서버 설정을 확인해 주세요.",
+  CREATION_INTERRUPTED:
+    "저장소 생성 요청을 보내기 전에 작업이 중단됐습니다. 상태를 확인하고 다시 요청할 수 있습니다.",
+  CREATION_IMPORT_FAILED:
+    "저장소는 생성됐지만 가져오기 연결을 마치지 못했습니다. 연결만 다시 시도할 수 있습니다.",
   GITHUB_REPOSITORY_UNAVAILABLE:
     "저장소의 접근 권한·보관 상태·기본 브랜치를 확인해 주세요. 선택 목록이 바뀌었다면 다시 조회하세요.",
   IMPORT_NOT_CONFIGURED: "서버에 GitHub 연결과 가져오기 검증 환경이 필요합니다.",

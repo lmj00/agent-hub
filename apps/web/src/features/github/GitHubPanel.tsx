@@ -1,4 +1,5 @@
 import { RepositoryImports } from "./RepositoryImports.js";
+import { RepositoryCreations } from "./RepositoryCreations.js";
 import { useEffect, useRef, useState } from "react";
 import {
   githubConnectionSchema,
@@ -76,7 +77,8 @@ export function GitHubPanel({
       <details>
         <summary>GitHub 저장소 연결</summary>
         <p className="subtle-note">
-          허용한 저장소를 확인하고 프로젝트로 가져옵니다. 새 저장소 생성은 아직 연결되지 않았습니다.
+          허용한 저장소를 가져오거나 새 비공개 저장소를 만듭니다. 준비한 프로젝트에 목표를 맡길 수
+          있습니다.
         </p>
         {configured === false ? (
           <p>
@@ -146,6 +148,7 @@ export function GitHubPanel({
             </nav>
           </>
         ) : null}
+        <RepositoryCreations onExpired={onExpired} />
         <RepositoryImports selected={selected} onExpired={onExpired} onOpen={onOpen} />
       </details>
     </section>

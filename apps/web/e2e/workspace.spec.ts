@@ -51,6 +51,83 @@ async function createTask(page: Page, instruction: string) {
   await expect(page.locator("#detail-heading")).toHaveText(instruction);
 }
 
+test("creates a private project with a stable request key and explains uncertain writes without a retry button", async ({
+  page,
+}, testInfo) => {
+  await login(page);
+  const id = "b3b0d7b5-35ac-4b12-a6b5-6b8061cb3e41";
+  const posts: Record<string, unknown>[] = [];
+  let job: Record<string, unknown> | undefined;
+  await page.route("**/integrations/github", (route) =>
+    route.fulfill({ json: { configured: true } }),
+  );
+  await page.route("**/integrations/github/creations", async (route) => {
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataJSON();
+      posts.push(body);
+      job ??= {
+        id,
+        repositoryName: body.repositoryName,
+        name: body.name,
+        profile: body.profile,
+        status: "creating",
+        attempt: 1,
+        repositoryId: null,
+        fullName: null,
+        importId: null,
+        errorCode: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      if (posts.length === 1) await route.abort("failed");
+      else await route.fulfill({ status: 202, json: job });
+    } else
+      await route.fulfill({
+        json: { enabled: true, profiles: ["node"], creations: job ? [job] : [] },
+      });
+  });
+  await page.reload();
+  const panel = page.getByRole("region", { name: "GitHub 저장소 연결", exact: true });
+  await panel.locator("summary").click();
+  const creation = panel.getByRole("region", { name: "새 프로젝트 만들기", exact: true });
+  await creation.getByLabel("GitHub 저장소 이름", { exact: true }).fill("language-app");
+  await creation.getByLabel("화면에 표시할 프로젝트 이름").fill("내 언어 공부 앱");
+  await creation.getByRole("button", { name: "비공개 저장소 만들기", exact: true }).click();
+  await expect(creation.getByRole("alert")).toBeVisible();
+  await creation.getByRole("button", { name: "비공개 저장소 만들기", exact: true }).click();
+  await expect(creation).toContainText("GitHub 저장소 생성 중");
+  expect(posts).toHaveLength(2);
+  expect(posts[0]).toEqual(posts[1]);
+  expect(posts[0]).toMatchObject({
+    repositoryName: "language-app",
+    name: "내 언어 공부 앱",
+    profile: "node",
+  });
+  job = { ...job, status: "uncertain", errorCode: "GITHUB_CREATE_UNCERTAIN" };
+  await creation.getByRole("button", { name: "생성 상태 새로고침" }).click();
+  await expect(creation).toContainText("GitHub에서 이 저장소의 생성 여부를 직접 확인");
+  await expect(creation.getByRole("button", { name: "생성 다시 요청", exact: true })).toHaveCount(
+    0,
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("github-creation-mobile.png"),
+    fullPage: true,
+  });
+  job = {
+    ...job,
+    status: "linked",
+    repositoryId: 78,
+    fullName: "fixture-owner/language-app",
+    importId: "a3b0d7b5-35ac-4b12-a6b5-6b8061cb3e41",
+    errorCode: null,
+  };
+  await creation.getByRole("button", { name: "생성 상태 새로고침" }).click();
+  await expect(creation).toContainText("가져오기 요청 완료");
+  await expect(creation).toContainText("준비 상태를 확인하고 프로젝트를 여세요");
+});
+
 test("distinguishes Goal completion from successful review and incomplete checks on desktop and mobile", async ({
   page,
 }, testInfo) => {

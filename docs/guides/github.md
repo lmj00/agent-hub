@@ -1,6 +1,6 @@
 # GitHub 저장소 연결
 
-**현재 지원:** GitHub App을 설치한 개인 계정이 본인 계정인지 확인하고, 허용한 저장소 목록을 관리 화면에서 조회합니다. 허용한 저장소의 특정 커밋 소스를 가져와 프로젝트로 등록할 수 있습니다. 개발 환경과 목표를 설정해야 AI 개발이 시작됩니다. 새 GitHub 저장소 생성은 후속 단계입니다.
+**현재 지원:** 본인 개인 계정의 허용한 저장소를 가져오거나, 새 비공개 저장소를 만들어 프로젝트로 등록합니다. 개발 환경과 목표를 설정해야 AI 개발이 시작됩니다. 자동 테스트는 외부 응답 대역을 사용하므로 실제 계정의 설치·생성·가져오기는 별도로 확인해야 합니다.
 
 관리 화면 로그인과 GitHub 저장소 권한은 별개입니다. 관리 화면은 기존 비밀번호·세션을 사용합니다. GitHub 키는 서버의 비공개 파일에 두고, 브라우저나 AI 작업 폴더에 전달하지 않습니다.
 
@@ -14,7 +14,7 @@ GitHub의 **Settings → Developer settings → GitHub Apps → New GitHub App**
 | Homepage URL | 자신의 프로젝트 소개 또는 저장소 주소 |
 | Webhook Active | 끔 |
 | OAuth during installation · Device Flow | 사용하지 않음 |
-| Repository permissions | Metadata 읽기, 가져오기에는 Contents 읽기 추가. 쓰기·Administration 권한은 필요 없음 |
+| Repository permissions | Metadata 읽기, 가져오기에는 Contents 읽기 추가. 새 저장소 생성에는 Repository creation 쓰기 추가. Administration은 필요 없음 |
 | 설치 저장소 | Only select repositories에서 직접 선택 |
 
 앱의 App ID를 기록하고 **Generate a private key**로 PEM 파일을 발급받습니다. **Install App**에서 본인 개인 계정에 설치합니다. 설치 설정 주소의 마지막 숫자가 Installation ID입니다. `https://api.github.com/users/YOUR_ACCOUNT`의 `id`가 계정의 숫자 ID이며, 로그인 이름과 다릅니다.
@@ -124,6 +124,31 @@ Git LFS 파일은 포인터로 남고 하위 모듈은 지원하지 않습니다
 
 화면은 로컬 가져오기 상태를 3초 간격으로 확인합니다. GitHub 저장소 목록은 자동 반복 조회하지 않습니다. 가져오기 토큰은 해당 저장소 ID 하나에 읽기 권한만 주며, 압축 다운로드 호스트에 인증 헤더를 전달하지 않습니다.
 
+## 6. 새 비공개 프로젝트 만들기
+
+GitHub App에 **Repository creation: write** 권한을 추가하고 설치 계정에서 변경된 권한을 승인합니다. 기존 비공개 GitHub 설정 파일에 `"allowRepositoryCreation": true`를 추가한 뒤 서버를 재시작합니다. 기본값은 꺼짐이며 가져오기 환경도 필요합니다. [GitHub의 생성 권한 안내](https://github.blog/changelog/2026-10-13-github-app-improvements-for-least-privilege-and-management/)와 [개인 저장소 생성 API](https://docs.github.com/en/rest/repos/repos#create-a-repository-for-the-authenticated-user)를 따릅니다. 더 넓은 Administration 권한으로 자동 전환하지 않습니다.
+
+1. **새 프로젝트 만들기**에서 저장소 이름·표시 이름·검증 환경을 입력합니다.
+2. **비공개 저장소 만들기**를 누르면 본인 계정에 README가 있는 비공개 저장소를 만듭니다. 공개 저장소 생성 옵션은 없습니다.
+3. 생성 후 아래 **프로젝트 가져오기**에서 준비 상태를 확인합니다. 완료되면 프로젝트를 열고 원하는 앱과 완료 기준을 목표로 입력합니다. 처음 생성한 README만으로 앱이 완성되는 것은 아닙니다.
+
+서버는 생성 의도를 먼저 DB에 저장하고, 생성된 저장소 번호를 보존한 뒤 기존 가져오기로 연결합니다. 같은 요청을 다시 제출하면 기존 기록을 반환합니다. 같은 저장소 이름은 대소문자를 구분하지 않고 예약하므로 다른 요청으로 중복 생성할 수 없습니다.
+
+| 상태 | 의미와 조치 |
+| --- | --- |
+| 생성 대기 | 원격 생성 전입니다. 대기를 취소할 수 있습니다. |
+| 권한 확인·생성 중 | 요청 결과를 기다립니다. 이 단계에서 취소를 저장소 삭제로 처리하지 않습니다. |
+| 생성 요청 실패 | 요청 전 실패 또는 GitHub의 명시적인 거절입니다. 이름·권한을 확인한 뒤 최대 5회까지 직접 다시 요청할 수 있습니다. |
+| GitHub에서 생성 여부 확인 필요 | 요청 후 응답 유실·서버 중단 등으로 결과가 불확실합니다. 자동 재요청하지 않습니다. GitHub에서 확인하고 저장소가 있다면 기존 목록에서 선택해 가져오세요. |
+| 저장소 생성 완료 · 가져오기 연결 실패 | 저장소는 보존됩니다. 연결만 재시도하며 저장소를 다시 만들지 않습니다. |
+| 가져오기 요청 완료 | 아래 가져오기 기록에서 실패·취소·완료를 확인합니다. 가져오기를 취소해도 GitHub 저장소는 남습니다. |
+
+한 번에 생성 작업 하나를 처리하며 준비 중인 기록은 최대 20개입니다. 생성 요청은 권한 확인을 포함해 30초로 제한합니다. 실제 원격 생성 결과가 불확실한 기록은 재시작 뒤에도 유지합니다. 작업 중 창을 닫아도 서버가 기록된 요청을 처리합니다.
+
+다른 GitHub 통신이 진행 중이면 생성·가져오기 작업은 시도 횟수를 소비하지 않고 기다립니다. 대기 중 서버 설정을 바꿔 선택한 검증 환경이 사라졌다면 저장소를 만들기 전에 실패로 기록합니다.
+
+백업·복원은 생성 대기·권한 확인·생성 중인 기록이 있으면 거부합니다. 먼저 대기를 취소하거나 결과를 정리하고 백업합니다. 이전 DB 상태를 복원하면서 원격 생성 요청을 반복하는 일을 막기 위한 기준입니다. 생성 기능을 다시 끄면 신규 요청은 받지 않으며 남은 기록은 보존합니다.
+
 ## API
 
 모든 요청은 기존 관리 화면 인증이 필요합니다. POST는 세션 쿠키와 CSRF 토큰도 필요합니다.
@@ -135,5 +160,8 @@ Git LFS 파일은 포인터로 남고 하위 모듈은 지원하지 않습니다
 | `GET /integrations/github/imports` | 설정 여부·검증 환경 이름·최근 가져오기 20개. 진행 중 기록 우선 |
 | `POST /integrations/github/imports` | UUID `requestKey`, 숫자 `repositoryId`, `name`, `profile`로 등록. 202는 접수이며 완료를 뜻하지 않음 |
 | `POST /integrations/github/imports/:id` | `{ "action": "cancel" }` 또는 `{ "action": "retry" }` |
+| `GET /integrations/github/creations` | 생성 허용 여부·검증 환경·최근 생성 기록 20개. 진행·확인 필요 기록 우선 |
+| `POST /integrations/github/creations` | UUID `requestKey`, `repositoryName`, 표시 `name`, `profile`. 202는 접수이며 완료를 뜻하지 않음 |
+| `POST /integrations/github/creations/:id` | `{ "action": "cancel" }` 또는 `{ "action": "retry" }`. 불확실한 생성은 재요청하지 않음 |
 
-조회와 가져오기의 GitHub 통신은 동시에 하나이며, 목록 조회에는 전체 8초 제한을 적용합니다. 응답 본문은 요청당 최대 2MiB입니다. 연결 오류는 외부 응답 원문이나 인증 헤더 없이 안전한 오류 코드로만 반환합니다.
+조회·가져오기·생성의 GitHub 통신은 동시에 하나이며, 목록 조회에는 전체 8초 제한을 적용합니다. 응답 본문은 요청당 최대 2MiB입니다. 연결 오류는 외부 응답 원문이나 인증 헤더 없이 안전한 오류 코드로만 반환합니다.

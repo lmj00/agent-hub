@@ -12,6 +12,9 @@ export class GitHubError extends Error {
       | "GITHUB_RATE_LIMIT"
       | "GITHUB_BUSY"
       | "GITHUB_INVALID_RESPONSE"
+      | "GITHUB_CREATION_DISABLED"
+      | "GITHUB_CREATE_REJECTED"
+      | "GITHUB_CREATE_UNCERTAIN"
       | "GITHUB_REPOSITORY_UNAVAILABLE",
   ) {
     super(code);
@@ -32,13 +35,13 @@ function login(value: unknown): value is string {
 // No token is retained in the DB, returned to the browser or inserted into a URL.
 export function createGitHubClient(config: GitHubConfig, fetcher: typeof fetch = fetch) {
   let busy = false;
-  async function json(
+  function request(
     path: string,
     token: string,
     signal: AbortSignal,
     body?: unknown,
-  ): Promise<Record<string, unknown>> {
-    const response = await fetcher(`https://api.github.com${path}`, {
+  ): Promise<Response> {
+    return fetcher(`https://api.github.com${path}`, {
       method: body === undefined ? "GET" : "POST",
       redirect: "error",
       signal,
@@ -51,6 +54,14 @@ export function createGitHubClient(config: GitHubConfig, fetcher: typeof fetch =
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
+  }
+  async function json(
+    path: string,
+    token: string,
+    signal: AbortSignal,
+    body?: unknown,
+  ): Promise<Record<string, unknown>> {
+    const response = await request(path, token, signal, body);
     if (!response.ok) {
       await response.body?.cancel();
       if (
@@ -63,6 +74,9 @@ export function createGitHubClient(config: GitHubConfig, fetcher: typeof fetch =
       if ([401, 403, 404].includes(response.status)) throw new GitHubError("GITHUB_PERMISSION");
       throw new GitHubError("GITHUB_UNAVAILABLE");
     }
+    return readJson(response);
+  }
+  async function readJson(response: Response): Promise<Record<string, unknown>> {
     const reader = response.body?.getReader();
     if (!reader) throw new GitHubError("GITHUB_INVALID_RESPONSE");
     const chunks: Uint8Array[] = [];
@@ -109,6 +123,11 @@ export function createGitHubClient(config: GitHubConfig, fetcher: typeof fetch =
     if (installation.suspended_at !== null) throw new GitHubError("GITHUB_PERMISSION");
     if (installation.repository_selection !== "selected")
       throw new GitHubError("GITHUB_SELECTED_REPOSITORIES_REQUIRED");
+    if (
+      permissions.repository_creation &&
+      record(installation.permissions).repository_creation !== "write"
+    )
+      throw new GitHubError("GITHUB_PERMISSION");
     const access = await json(
       `/app/installations/${config.installationId}/access_tokens`,
       jwt,
@@ -122,9 +141,64 @@ export function createGitHubClient(config: GitHubConfig, fetcher: typeof fetch =
       !(Date.parse(access.expires_at) > Date.now())
     )
       throw new GitHubError("GITHUB_INVALID_RESPONSE");
+    if (
+      permissions.repository_creation &&
+      record(access.permissions).repository_creation !== "write"
+    )
+      throw new GitHubError("GITHUB_PERMISSION");
     return { token: access.token, owner: account.login };
   }
   return {
+    isBusy: () => busy,
+    async createRepository(name: string, callerSignal: AbortSignal, beforeCreate: () => void) {
+      if (!config.allowRepositoryCreation) throw new GitHubError("GITHUB_CREATION_DISABLED");
+      if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(name))
+        throw new GitHubError("GITHUB_INVALID_RESPONSE");
+      if (busy) throw new GitHubError("GITHUB_BUSY");
+      busy = true;
+      const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(30000)]);
+      let dispatched = false;
+      try {
+        const access = await authorize({ metadata: "read", repository_creation: "write" }, signal);
+        signal.throwIfAborted();
+        // Persist remote intent synchronously before dispatch. A thrown callback prevents the write.
+        beforeCreate();
+        dispatched = true;
+        const response = await request("/user/repos", access.token, signal, {
+          name,
+          private: true,
+          auto_init: true,
+        });
+        if (response.status !== 201) {
+          const rejected = [400, 401, 403, 404, 422, 429].includes(response.status);
+          await response.body?.cancel();
+          if (rejected) throw new GitHubError("GITHUB_CREATE_REJECTED");
+          throw new GitHubError("GITHUB_CREATE_UNCERTAIN");
+        }
+        const repo = await readJson(response),
+          owner = record(repo.owner);
+        if (
+          !positiveId(repo.id) ||
+          owner.id !== config.ownerId ||
+          owner.login !== access.owner ||
+          repo.name !== name ||
+          repo.full_name !== `${access.owner}/${name}` ||
+          repo.private !== true ||
+          repo.archived !== false
+        )
+          throw new GitHubError("GITHUB_CREATE_UNCERTAIN");
+        return { repositoryId: repo.id, fullName: repo.full_name as string };
+      } catch (error) {
+        if (dispatched) {
+          if (error instanceof GitHubError && error.code === "GITHUB_CREATE_REJECTED") throw error;
+          throw new GitHubError("GITHUB_CREATE_UNCERTAIN");
+        }
+        if (error instanceof GitHubError) throw error;
+        throw new GitHubError("GITHUB_UNAVAILABLE");
+      } finally {
+        busy = false;
+      }
+    },
     async downloadRepository(repositoryId: number, callerSignal: AbortSignal) {
       if (!positiveId(repositoryId)) throw new GitHubError("GITHUB_INVALID_RESPONSE");
       if (busy) throw new GitHubError("GITHUB_BUSY");

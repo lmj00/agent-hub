@@ -88,7 +88,12 @@ function validateDatabase(client: Database.Database, expected: string) {
       .prepare("SELECT 1 FROM run_executions WHERE termination_confirmed_at IS NULL LIMIT 1")
       .get() ||
     client.prepare("SELECT 1 FROM change_applications WHERE status = 'pending' LIMIT 1").get() ||
-    client.prepare("SELECT 1 FROM repository_imports WHERE status = 'preparing' LIMIT 1").get()
+    client.prepare("SELECT 1 FROM repository_imports WHERE status = 'preparing' LIMIT 1").get() ||
+    client
+      .prepare(
+        "SELECT 1 FROM repository_creations WHERE status IN ('queued', 'authorizing', 'creating') LIMIT 1",
+      )
+      .get()
   )
     throw new BackupError(
       "Stop and reconcile all executions and pending changes before backup or restore",
