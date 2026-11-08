@@ -1,3 +1,4 @@
+import { createImportStore } from "./modules/github/import-store.js";
 import { hydrateImports } from "./modules/github/import-runtime.js";
 import { parseArgs } from "node:util";
 import { loadConfig } from "./config.js";
@@ -53,6 +54,7 @@ async function main() {
       ),
     );
     owner = acquireExecutionOwner(database.db);
+    createImportStore(database.db, owner.token).recover();
     await hydrateImports(
       database.db,
       config,

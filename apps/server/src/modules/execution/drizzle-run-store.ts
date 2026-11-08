@@ -15,6 +15,7 @@ import {
   events,
   projects,
   providerGates,
+  repositoryImports,
   runs,
   steps,
   tasks,
@@ -61,7 +62,7 @@ import { developmentWorkflowPolicy } from "./development-workflow.js";
 
 import type { ObserverStatus } from "../services/drizzle-service-store.js";
 
-export const unresolvedRun = sql`${runs.status} = 'running' OR (${runs.status} IN ('interrupted', 'blocked', 'waiting_capacity') AND ${runs.terminationConfirmedAt} IS NULL)`;
+import { unresolvedRun } from "./execution-slot.js";
 
 export function createDrizzleRunStore(
   db: ReturnType<typeof openDatabase>["db"],
@@ -72,7 +73,11 @@ export function createDrizzleRunStore(
       "automaticRecovery" | "capacityRecovery" | "effortPolicy" | "analysisWorkflow" | "timeoutMs"
     >
   > = {},
-  runtime: { getObserverStatus?: () => ObserverStatus; developmentWorkspaceKeys?: string[] } = {},
+  runtime: {
+    getObserverStatus?: () => ObserverStatus;
+    developmentWorkspaceKeys?: string[];
+    repositoryImportsEnabled?: boolean;
+  } = {},
 ) {
   const instanceId = ownerToken ?? randomUUID();
   type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -98,6 +103,18 @@ export function createDrizzleRunStore(
           .orderBy(asc(runs.startedAt), asc(runs.id))
           .get();
         if (held) return { kind: "held", runId: held.id, reason: held.status };
+        if (
+          tx
+            .select({ id: repositoryImports.id })
+            .from(repositoryImports)
+            .where(
+              runtime.repositoryImportsEnabled
+                ? inArray(repositoryImports.status, ["queued", "preparing"])
+                : eq(repositoryImports.status, "preparing"),
+            )
+            .get()
+        )
+          return { kind: "idle", reason: "repository_import" };
         revalidateGoalWork(tx);
         const gate = readProviderGate(tx);
         const probing = gate?.blocked === true;
@@ -474,6 +491,8 @@ export function createDrizzleRunStore(
       const result = claim(model, { taskId }, skillVersion);
       if (result.kind === "idle" && result.reason === "period_budget")
         throw new Error("PERIOD_BUDGET_EXHAUSTED");
+      if (result.kind === "idle" && result.reason === "repository_import")
+        throw new Error("Repository source preparation must finish before starting a run");
       if (result.kind !== "claimed")
         throw new Error("A previous run needs completion or recovery before starting another run");
       return result.run;

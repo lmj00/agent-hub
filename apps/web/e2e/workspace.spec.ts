@@ -829,6 +829,7 @@ test("selects a repository, retries and cancels an import, then opens its ready 
         name: body.name,
         profile: body.profile,
         status: "preparing",
+        cancelRequestedAt: null,
         attempt: 1,
         fullName: null,
         revision: null,
@@ -849,7 +850,8 @@ test("selects a repository, retries and cancels an import, then opens its ready 
     actions.push(action);
     job = {
       ...job,
-      status: action === "cancel" ? "cancelled" : "preparing",
+      status: "preparing",
+      cancelRequestedAt: action === "cancel" ? new Date().toISOString() : null,
       errorCode: null,
       attempt: action === "retry" ? 2 : 1,
     };
@@ -867,6 +869,15 @@ test("selects a repository, retries and cancels an import, then opens its ready 
   expect(posts[0]).toMatchObject({ repositoryId: 78, name: "내 학습 앱", profile: "node" });
   expect(posts[0]!.requestKey).toMatch(/^[a-f0-9-]{36}$/);
   await panel.getByRole("button", { name: "가져오기 취소", exact: true }).click();
+  await expect(panel).toContainText("취소 처리 중");
+  await page.screenshot({
+    path: testInfo.outputPath("github-import-cancelling.png"),
+    fullPage: true,
+  });
+  await expect(panel.getByRole("button", { name: "다시 가져오기", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "가져오기 취소", exact: true })).toHaveCount(0);
+  job = { ...job, status: "cancelled" };
+  await panel.getByRole("button", { name: "가져오기 상태 새로고침" }).click();
   await expect(panel).toContainText("취소됨");
   await panel.getByRole("button", { name: "다시 가져오기", exact: true }).click();
   await expect(panel).toContainText("소스 준비 중");
@@ -890,4 +901,21 @@ test("selects a repository, retries and cancels an import, then opens its ready 
   await panel.getByRole("button", { name: "프로젝트 열기", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`#project/${project.id}$`));
   await expect(page.getByRole("heading", { name: project.name, exact: true })).toBeVisible();
+});
+
+test("explains why AI execution waits while repository source preparation owns capacity", async ({
+  page,
+}) => {
+  await login(page);
+  await page.route("**/execution", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    await route.fulfill({
+      json: { ...data, state: "idle", reason: "repository_import", runId: null, taskId: null },
+    });
+  });
+  await page.reload();
+  const status = page.getByRole("region", { name: "자동 실행 상태" });
+  await expect(status).toContainText("저장소 준비 대기");
+  await expect(status).toContainText("저장소 소스 준비가 끝나면 AI 작업을 이어갑니다.");
 });

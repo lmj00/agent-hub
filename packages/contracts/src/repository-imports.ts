@@ -15,6 +15,7 @@ export const repositoryImportSchema = object({
   profile: text,
   status: enumeration(["queued", "preparing", "ready", "failed", "cancelled"] as const),
   attempt: Type.Integer(),
+  cancelRequestedAt: nullable(date),
   fullName: nullable(text),
   revision: nullable(text),
   errorCode: nullable(text),

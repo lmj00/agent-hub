@@ -110,6 +110,8 @@ const messages: Record<string, string> = {
     "저장소는 생성됐지만 가져오기 연결을 마치지 못했습니다. 연결만 다시 시도할 수 있습니다.",
   GITHUB_REPOSITORY_UNAVAILABLE:
     "저장소의 접근 권한·보관 상태·기본 브랜치를 확인해 주세요. 선택 목록이 바뀌었다면 다시 조회하세요.",
+  IMPORT_TERMINATION_PENDING:
+    "이전 소스 준비 프로세스의 종료를 확인하고 있습니다. 확인 전에는 다음 실행을 시작하지 않습니다.",
   IMPORT_NOT_CONFIGURED: "서버에 GitHub 연결과 가져오기 검증 환경이 필요합니다.",
   IMPORT_PROFILE_UNAVAILABLE: "선택한 검증 환경을 사용할 수 없습니다. 서버 설정을 확인해 주세요.",
   IMPORT_REQUEST_CONFLICT: "같은 요청에 다른 내용이 전달됐습니다. 가져오기 기록을 확인해 주세요.",

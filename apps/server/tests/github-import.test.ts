@@ -1,5 +1,10 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { createImportGit } from "../src/modules/github/import-git.js";
 import { randomUUID, generateKeyPairSync } from "node:crypto";
 import {
+  chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -13,7 +18,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { openDatabase } from "../src/db/connection.js";
-import { projects } from "../src/db/schema.js";
+import { projects, tasks, runs } from "../src/db/schema.js";
+import { eq } from "drizzle-orm";
+import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { acquireExecutionOwner } from "../src/modules/execution/execution-owner.js";
 import { loadExecutionConfig } from "../src/modules/execution/execution-config.js";
 import { createImportStore, importedWorkspaceKey } from "../src/modules/github/import-store.js";
@@ -515,3 +522,373 @@ function githubArchive(
   blocks.push(Buffer.alloc(1024));
   return gzipSync(Buffer.concat(blocks));
 }
+
+test("waits without consuming an import attempt until the previous AI execution terminates", () => {
+  const projectId = randomUUID(),
+    taskId = randomUUID();
+  database.db
+    .insert(projects)
+    .values({ id: projectId, name: "Existing", workspaceKey: "existing", createdAt: new Date() })
+    .run();
+  database.db
+    .insert(tasks)
+    .values({
+      id: taskId,
+      projectId,
+      instruction: "Review",
+      requestKey: randomUUID(),
+      createdAt: new Date(),
+    })
+    .run();
+  const runStore = createDrizzleRunStore(database.db, owner.token);
+  const run = runStore.claim(taskId, "fixture");
+  const imports = createImportStore(database.db, owner.token);
+  const job = imports.register(input());
+  expect(imports.claim()).toBeUndefined();
+  expect(imports.find(job.id)).toMatchObject({ status: "queued", attempt: 0 });
+  database.db.update(runs).set({ status: "blocked" }).where(eq(runs.id, run.id)).run();
+  expect(imports.claim()).toBeUndefined();
+  database.db
+    .update(runs)
+    .set({ terminationConfirmedAt: new Date() })
+    .where(eq(runs.id, run.id))
+    .run();
+  expect(imports.claim()).toMatchObject({ id: job.id, attempt: 1 });
+});
+
+function existingTask() {
+  const projectId = randomUUID(),
+    id = randomUUID();
+  database.db
+    .insert(projects)
+    .values({ id: projectId, name: "Existing", workspaceKey: "existing", createdAt: new Date() })
+    .run();
+  database.db
+    .insert(tasks)
+    .values({
+      id,
+      projectId,
+      instruction: "Review",
+      requestKey: randomUUID(),
+      createdAt: new Date(),
+    })
+    .run();
+  return id;
+}
+
+test("reserves source preparation across DB connections until cancellation is acknowledged", () => {
+  const taskId = existingTask();
+  const imports = createImportStore(database.db, owner.token);
+  const job = imports.register(input());
+  const second = openDatabase(databasePath);
+  try {
+    const runStore = createDrizzleRunStore(
+      second.db,
+      owner.token,
+      {},
+      { repositoryImportsEnabled: true },
+    );
+    expect(runStore.claimNext("fixture", ["existing"])).toEqual({
+      kind: "idle",
+      reason: "repository_import",
+    });
+    const active = imports.claim()!;
+    expect(runStore.claimNext("fixture", ["existing"])).toEqual({
+      kind: "idle",
+      reason: "repository_import",
+    });
+    const cancelling = imports.action(job.id, "cancel");
+    expect(cancelling).toMatchObject({
+      status: "preparing",
+      attempt: 1,
+      cancelRequestedAt: expect.any(Date),
+    });
+    expect(imports.action(job.id, "retry").status).toBe("preparing");
+    expect(imports.claim()).toBeUndefined();
+    expect(() => runStore.claim(taskId, "fixture")).toThrow("Repository source preparation");
+    imports.fail(active, "IMPORT_FAILED");
+    expect(imports.find(job.id)).toMatchObject({ status: "cancelled", errorCode: null });
+    expect(runStore.claimNext("fixture", ["existing"]).kind).toBe("claimed");
+  } finally {
+    second.close();
+  }
+});
+
+test("does not block standalone runs on queued imports without an importer", () => {
+  existingTask();
+  const imports = createImportStore(database.db, owner.token);
+  imports.register(input());
+  const standalone = createDrizzleRunStore(database.db, owner.token);
+  expect(standalone.claimNext("fixture", ["existing"]).kind).toBe("claimed");
+  expect(imports.claim()).toBeUndefined();
+});
+
+test("keeps a cancelled download's slot until the worker actually returns", async () => {
+  existingTask();
+  const imports = createImportStore(database.db, owner.token);
+  const job = imports.register(input());
+  let release: (() => void) | undefined;
+  let signal: AbortSignal | undefined;
+  const worker = createImportWorker({
+    store: imports,
+    runtime: importRuntime(config(), databasePath, []),
+    report: () => {},
+    client: {
+      isBusy: () => false,
+      downloadRepository: async (_id, value) => {
+        signal = value;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        throw new Error("download stopped");
+      },
+    },
+  });
+  workers.push(worker);
+  worker.start();
+  await expect.poll(() => !!release).toBe(true);
+  const runStore = createDrizzleRunStore(database.db, owner.token);
+  try {
+    imports.action(job.id, "cancel");
+    worker.cancel(job.id);
+    expect(signal!.aborted).toBe(true);
+    expect(runStore.claimNext("fixture", ["existing"])).toEqual({
+      kind: "idle",
+      reason: "repository_import",
+    });
+    expect(imports.find(job.id)?.status).toBe("preparing");
+  } finally {
+    release!();
+    await worker.stop();
+  }
+  expect(imports.find(job.id)?.status).toBe("cancelled");
+  expect(runStore.claimNext("fixture", ["existing"]).kind).toBe("claimed");
+});
+
+test("settles persisted cancellation on owner restart and clears it only on explicit retry", () => {
+  const imports = createImportStore(database.db, owner.token);
+  const job = imports.register(input());
+  imports.claim();
+  imports.action(job.id, "cancel");
+  owner.release();
+  database.close();
+  database = openDatabase(databasePath);
+  owner = acquireExecutionOwner(database.db);
+  const restarted = createImportStore(database.db, owner.token);
+  restarted.recover();
+  expect(restarted.find(job.id)).toMatchObject({
+    status: "cancelled",
+    cancelRequestedAt: expect.any(Date),
+    errorCode: null,
+  });
+  expect(restarted.action(job.id, "retry")).toMatchObject({
+    status: "queued",
+    cancelRequestedAt: null,
+  });
+  expect(restarted.claim()).toMatchObject({ id: job.id, attempt: 2, cancelRequestedAt: null });
+});
+
+test("recovers interrupted imports when the next server disables GitHub importing", async () => {
+  const imports = createImportStore(database.db, owner.token);
+  const job = imports.register(input());
+  imports.claim();
+  imports.action(job.id, "cancel");
+  owner.release();
+  database.close();
+  const settings = config();
+  settings.importProfiles?.clear();
+  const app = buildApp({
+    databasePath,
+    execution: {
+      config: settings,
+      executor: {
+        analyze: async () => {
+          throw new Error("no work should execute");
+        },
+        confirmTermination: async () => new Date(),
+      },
+    },
+  });
+  try {
+    await app.ready();
+    const response = await app.inject("/integrations/github/imports");
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      enabled: false,
+      imports: [{ id: job.id, status: "cancelled", cancelRequestedAt: expect.any(String) }],
+    });
+  } finally {
+    await app.close();
+  }
+});
+
+test("records a gated Git PID before work starts and acknowledges only the close event", async () => {
+  const workspace = join(directory, "tracked-git");
+  mkdirSync(workspace);
+  let pid: number | undefined,
+    closed = false;
+  const run = createImportGit({
+    started(value) {
+      pid = value;
+      expect(existsSync(join(workspace, ".git"))).toBe(false);
+    },
+    closed(value) {
+      expect(value).toBe(pid);
+      expect(() => process.kill(value, 0)).toThrow();
+      closed = true;
+    },
+  });
+  await run(
+    workspace,
+    ["init", "--template=", "--initial-branch=main"],
+    new AbortController().signal,
+  );
+  expect(closed).toBe(true);
+  expect(existsSync(join(workspace, ".git"))).toBe(true);
+});
+
+test.each(["storage", "cancel"] as const)(
+  "never starts Git when pre-start %s prevents durable authorization",
+  async (mode) => {
+    const workspace = join(directory, "gated-git");
+    mkdirSync(workspace);
+    const controller = new AbortController();
+    let pid: number | undefined;
+    const run = createImportGit({
+      started(value) {
+        pid = value;
+        if (mode === "storage") throw new Error("write failed");
+        controller.abort();
+      },
+      closed(value) {
+        expect(() => process.kill(value, 0)).toThrow();
+      },
+    });
+    await expect(
+      run(workspace, ["init", "--template=", "--initial-branch=main"], controller.signal),
+    ).rejects.toThrow();
+    expect(existsSync(join(workspace, ".git"))).toBe(false);
+    expect(pid).toBeTypeOf("number");
+    expect(() => process.kill(pid!, 0)).toThrow();
+  },
+);
+
+test("retains a live Git PID across DB reopen and resumes only after observed process exit", async () => {
+  const taskId = existingTask();
+  const imports = createImportStore(database.db, owner.token);
+  const job = imports.register(input()),
+    active = imports.claim()!;
+  // Controlled real child represents a still-running registered Git PID; no provider call.
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  const closed = once(child, "close");
+  try {
+    imports.trackGit(active, child.pid!);
+    imports.action(job.id, "cancel");
+    owner.release();
+    database.close();
+    database = openDatabase(databasePath);
+    owner = acquireExecutionOwner(database.db);
+    const restarted = createImportStore(database.db, owner.token);
+    restarted.recover();
+    expect(restarted.find(job.id)).toMatchObject({
+      status: "preparing",
+      gitPid: child.pid,
+      errorCode: "IMPORT_TERMINATION_PENDING",
+    });
+    const runStore = createDrizzleRunStore(database.db, owner.token);
+    expect(() => runStore.claim(taskId, "fixture")).toThrow("Repository source preparation");
+    child.kill("SIGKILL");
+    await closed;
+    restarted.reconcileInterrupted();
+    expect(restarted.find(job.id)).toMatchObject({
+      status: "cancelled",
+      gitPid: null,
+      errorCode: null,
+    });
+    expect(runStore.claim(taskId, "fixture").taskId).toBe(taskId);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await closed;
+  }
+});
+
+test.each([false, true])(
+  "preserves an orphaned preparation PID after abrupt parent death (cancel after restart: %s)",
+  async (cancelAfterRestart) => {
+    const bin = join(directory, "bin"),
+      workspace = join(directory, "crash-workspace"),
+      marker = join(directory, "git-started");
+    mkdirSync(bin);
+    mkdirSync(workspace);
+    // The controlled Git stand-in remains alive so parent death is deterministic.
+    const shim = join(bin, "git");
+    writeFileSync(
+      shim,
+      `#!${process.execPath}\nrequire("node:fs").writeFileSync(${JSON.stringify(marker)}, String(process.pid));setInterval(() => {}, 1000);\n`,
+    );
+    chmodSync(shim, 0o700);
+    const imports = createImportStore(database.db, owner.token),
+      job = imports.register(input());
+    owner.release();
+    const parent = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        new URL("./fixtures/import-git-parent.mjs", import.meta.url).pathname,
+        databasePath,
+        workspace,
+      ],
+      {
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        stdio: "ignore",
+      },
+    );
+    const parentClosed = once(parent, "close");
+    let gitPid: number | undefined;
+    const isAlive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      await expect.poll(() => existsSync(marker), { timeout: 10000 }).toBe(true);
+      gitPid = Number(readFileSync(marker, "utf8"));
+      expect(imports.find(job.id)?.gitPid).toBe(gitPid);
+      parent.kill("SIGKILL");
+      await parentClosed;
+      owner = acquireExecutionOwner(database.db);
+      const recovered = createImportStore(database.db, owner.token);
+      recovered.recover();
+      expect(isAlive(gitPid)).toBe(true);
+      expect(recovered.find(job.id)).toMatchObject({
+        status: "preparing",
+        errorCode: "IMPORT_TERMINATION_PENDING",
+        gitPid,
+      });
+      if (cancelAfterRestart) {
+        expect(recovered.action(job.id, "cancel")).toMatchObject({
+          status: "preparing",
+          errorCode: "IMPORT_TERMINATION_PENDING",
+          cancelRequestedAt: expect.any(Date),
+        });
+      }
+      process.kill(gitPid, "SIGKILL");
+      await expect.poll(() => isAlive(gitPid!), { timeout: 10000 }).toBe(false);
+      recovered.reconcileInterrupted();
+      expect(recovered.find(job.id)).toMatchObject({
+        status: cancelAfterRestart ? "cancelled" : "failed",
+        errorCode: cancelAfterRestart ? null : "IMPORT_INTERRUPTED",
+        gitPid: null,
+      });
+    } finally {
+      if (parent.exitCode === null && parent.signalCode === null) parent.kill("SIGKILL");
+      await parentClosed;
+      if (gitPid && isAlive(gitPid)) process.kill(gitPid, "SIGKILL");
+    }
+  },
+  20000,
+);

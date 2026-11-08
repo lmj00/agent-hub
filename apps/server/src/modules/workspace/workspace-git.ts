@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
 
-const gitEnv = {
+export const gitEnv = {
   PATH: process.env.PATH ?? "/usr/bin:/bin",
   LANG: "C",
   LC_ALL: "C",
@@ -13,7 +13,11 @@ const gitEnv = {
   GIT_NO_LAZY_FETCH: "1",
   GIT_ALLOW_PROTOCOL: "",
 };
-const gitOptions = [
+export const gitOptions = [
+  "-c",
+  "gc.auto=0",
+  "-c",
+  "maintenance.auto=false",
   "-c",
   "core.fsmonitor=false",
   "-c",
@@ -55,29 +59,33 @@ export function git(
   });
 }
 
-export async function sourceRevision(source: string, signal: AbortSignal) {
+export type SourceGit = (source: string, args: string[], signal: AbortSignal) => Promise<Buffer>;
+
+export async function sourceRevision(source: string, signal: AbortSignal, runGit: SourceGit = git) {
   // Even status may execute a repository's clean filter. Inspect names without
   // returning config values, and reject filters before touching the worktree.
-  const configNames = (await git(source, ["config", "--null", "--name-only", "--list"], signal))
+  const configNames = (await runGit(source, ["config", "--null", "--name-only", "--list"], signal))
     .toString()
     .split("\0");
   if (configNames.some((name) => /^filter\./i.test(name)))
     throw new Error("Goal source cannot configure Git filters");
-  const top = (await git(source, ["rev-parse", "--show-toplevel"], signal)).toString().trim();
+  const top = (await runGit(source, ["rev-parse", "--show-toplevel"], signal)).toString().trim();
   if (realpathSync(top) !== source) throw new Error("Goal source must be a Git working tree root");
-  const tracked = (await git(source, ["ls-files", "-v", "-z"], signal))
+  const tracked = (await runGit(source, ["ls-files", "-v", "-z"], signal))
     .toString()
     .split("\0")
     .filter(Boolean);
   if (tracked.some((entry) => /^[a-zS]/.test(entry)))
     throw new Error("Goal source cannot hide worktree changes");
-  const status = await git(
+  const status = await runGit(
     source,
     ["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignore-submodules=all"],
     signal,
   );
   if (status.length) throw new Error("Goal source must have committed changes before preparation");
-  const revision = (await git(source, ["rev-parse", "--verify", "HEAD"], signal)).toString().trim();
+  const revision = (await runGit(source, ["rev-parse", "--verify", "HEAD"], signal))
+    .toString()
+    .trim();
   if (!/^[a-f0-9]{40,64}$/.test(revision))
     throw new Error("Goal source requires an initial commit");
   return revision;

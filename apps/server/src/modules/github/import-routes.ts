@@ -23,6 +23,7 @@ function response(job: ImportJob) {
     profile: job.profile,
     status: job.status,
     attempt: job.attempt,
+    cancelRequestedAt: job.cancelRequestedAt?.toISOString() ?? null,
     fullName: job.fullName,
     revision: job.revision,
     errorCode: job.errorCode,

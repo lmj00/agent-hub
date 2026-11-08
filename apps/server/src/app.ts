@@ -158,6 +158,8 @@ export function buildApp({
       try {
         if (execution) validateExecutionEnvironment(execution.config, databasePath, protectedFiles);
         owner = acquireExecutionOwner(database.db);
+        importStore = createImportStore(database.db, owner.token);
+        importStore.recover();
         creationStore = createCreationStore(database.db, owner.token);
         creationStore.recover();
         if (services) {
@@ -181,8 +183,6 @@ export function buildApp({
             protectedFiles,
           );
           if (managed && githubClient && execution.config.importProfiles?.size) {
-            importStore = createImportStore(database.db, owner.token);
-            importStore.recover();
             importer = createImportWorker({
               store: importStore,
               runtime: managed,
@@ -235,6 +235,7 @@ export function buildApp({
           queue = createExecutionQueue({
             ...execution,
             store: createDrizzleRunStore(database.db, owner.token, execution.config, {
+              repositoryImportsEnabled: !!importer,
               get developmentWorkspaceKeys() {
                 return developmentWorkspaceKeys();
               },
@@ -293,8 +294,10 @@ export function buildApp({
                 await applyChangeApplication(database.db, runId, signal, owner!.token);
               },
             ),
-            validate: () =>
-              validateExecutionEnvironment(execution.config, databasePath, protectedFiles),
+            validate: () => {
+              importStore?.reconcileInterrupted();
+              validateExecutionEnvironment(execution.config, databasePath, protectedFiles);
+            },
             reportDiagnostic: (diagnostic) => {
               if (diagnostic.event === "execution_queue.error")
                 scope.log.error(diagnostic, "Execution queue check failed");

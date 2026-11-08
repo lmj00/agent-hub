@@ -225,6 +225,13 @@
       "when": 1794159760036,
       "tag": "0031_amused_magus",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1794162179541,
+      "tag": "0032_low_emma_frost",
+      "breakpoints": true
     }
   ]
 }

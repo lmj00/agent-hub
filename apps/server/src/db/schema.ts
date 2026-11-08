@@ -108,6 +108,8 @@ export const repositoryImports = sqliteTable(
     }).notNull(),
     attempt: integer("attempt").notNull().default(0),
     attemptId: text("attempt_id"),
+    cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
+    gitPid: integer("git_pid"),
     fullName: text("full_name"),
     revision: text("revision"),
     localRevision: text("local_revision"),

@@ -5,7 +5,7 @@ import type { CapacityState } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
 import { events, projects, providerGates, recoveryRequests, runs, tasks } from "../../db/schema.js";
 import { assertExecutionOwner } from "./execution-owner.js";
-import { unresolvedRun } from "./drizzle-run-store.js";
+import { unresolvedRun } from "./execution-slot.js";
 import { providerScope, readProviderGate, reserveProviderCheck } from "./provider-gate.js";
 import { ensureRetryState } from "./retry-state-store.js";
 import { retryLimitReason, type RetryPolicy } from "./retry-policy.js";

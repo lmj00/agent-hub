@@ -138,12 +138,22 @@ export function RepositoryImports({
           <li key={job.id}>
             <div>
               <strong>{job.name}</strong>
-              <span className="muted">{labels[job.status]}</span>
+              <span className="muted">
+                {job.status === "preparing" && job.cancelRequestedAt
+                  ? "취소 처리 중"
+                  : labels[job.status]}
+              </span>
             </div>
             <small>
               {job.fullName ?? `저장소 번호 ${job.repositoryId}`} · 시도 {job.attempt}/5 ·{" "}
               {dateTime(job.updatedAt)}
             </small>
+            {job.status === "queued" ? (
+              <small>다른 가져오기나 AI 실행이 끝나면 시작합니다.</small>
+            ) : null}
+            {job.status === "preparing" && job.cancelRequestedAt ? (
+              <small>소스 준비가 멈춘 것을 확인하고 실행 자원을 반환합니다.</small>
+            ) : null}
             {job.revision ? <small>원본 커밋 {job.revision.slice(0, 12)}</small> : null}
             {job.errorCode ? (
               <p className="error-text">{errorMessage(new ApiError(409, job.errorCode))}</p>
@@ -154,7 +164,7 @@ export function RepositoryImports({
                   프로젝트 열기
                 </button>
               ) : null}
-              {["queued", "preparing"].includes(job.status) ? (
+              {["queued", "preparing"].includes(job.status) && !job.cancelRequestedAt ? (
                 <button
                   className="secondary"
                   disabled={busy || !poll.data?.enabled}

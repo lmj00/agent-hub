@@ -1,3 +1,4 @@
+import { createImportGit } from "./import-git.js";
 import { createImportStore } from "./import-store.js";
 import type { importRuntime } from "./import-runtime.js";
 import { ImportError, prepareImportedSource } from "./import-workspace.js";
@@ -14,6 +15,7 @@ export function createImportWorker(options: {
     timer: ReturnType<typeof setInterval> | undefined;
   let active: { id: string; controller: AbortController } | undefined;
   async function tick() {
+    options.store.reconcileInterrupted();
     if (options.client.isBusy()) return;
     const job = options.store.claim();
     if (!job) return;
@@ -33,6 +35,10 @@ export function createImportWorker(options: {
         },
         source.archive,
         signal,
+        createImportGit({
+          started: (pid) => options.store.trackGit(job, pid),
+          closed: (pid) => options.store.releaseGit(job, pid),
+        }),
       );
       signal.throwIfAborted();
       const activate = options.runtime.prepare(job, prepared.workspace);

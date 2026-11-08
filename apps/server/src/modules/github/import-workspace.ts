@@ -4,7 +4,7 @@ import { lstatSync, mkdirSync, realpathSync, statfsSync } from "node:fs";
 import { writeFile, unlink } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { extract } from "tar";
-import { git, safeGitPath, sourceRevision } from "../workspace/workspace-git.js";
+import { git, safeGitPath, sourceRevision, type SourceGit } from "../workspace/workspace-git.js";
 import { readPrivateJson } from "../../private-config.js";
 
 const unzip = promisify(gunzip);
@@ -61,6 +61,7 @@ export async function prepareImportedSource(
   identity: Omit<SourceIdentity, "localRevision">,
   archive: Buffer,
   signal: AbortSignal,
+  runGit: SourceGit = git,
 ) {
   signal.throwIfAborted();
   if (archive.length > 16 * 1048576) throw new ImportError("IMPORT_SOURCE_LIMIT");
@@ -142,9 +143,9 @@ export async function prepareImportedSource(
   }
   if (invalid || count < 1) throw new ImportError("IMPORT_ARCHIVE_INVALID");
   signal.throwIfAborted();
-  await git(paths.workspace, ["init", "--template=", "--initial-branch=main"], signal);
-  await git(paths.workspace, ["add", "--all", "--force", "--", "."], signal);
-  await git(
+  await runGit(paths.workspace, ["init", "--template=", "--initial-branch=main"], signal);
+  await runGit(paths.workspace, ["add", "--all", "--force", "--", "."], signal);
+  await runGit(
     paths.workspace,
     [
       "-c",
@@ -160,7 +161,7 @@ export async function prepareImportedSource(
     ],
     signal,
   );
-  const localRevision = await sourceRevision(paths.workspace, signal);
+  const localRevision = await sourceRevision(paths.workspace, signal, runGit);
   const marker: SourceIdentity = { ...identity, localRevision };
   await writeFile(paths.marker, JSON.stringify(marker), { mode: 0o600, flag: "wx" });
   return { workspace: paths.workspace, localRevision };
