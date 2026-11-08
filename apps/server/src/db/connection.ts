@@ -23,6 +23,7 @@ export function openDatabase(databasePath: string, migrationsFolder = migrations
       client,
       checkReady() {
         db.select().from(schema.projects).limit(1).all();
+        db.select().from(schema.repositoryImports).limit(1).all();
         db.select().from(schema.tasks).limit(1).all();
         db.select().from(schema.runs).limit(1).all();
         db.select().from(schema.runExecutions).limit(1).all();

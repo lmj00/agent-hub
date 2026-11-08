@@ -1,3 +1,4 @@
+import { RepositoryImports } from "./RepositoryImports.js";
 import { useEffect, useRef, useState } from "react";
 import {
   githubConnectionSchema,
@@ -7,7 +8,16 @@ import {
 import { api, ApiError, errorMessage } from "../../shared/api.js";
 import { dateTime } from "../../shared/format.js";
 
-export function GitHubPanel({ onExpired }: { onExpired: () => void }) {
+export function GitHubPanel({
+  onExpired,
+  onOpen,
+}: {
+  onExpired: () => void;
+  onOpen: (id: string) => void;
+}) {
+  const [selected, setSelected] = useState<{ id: number; name: string; fullName: string } | null>(
+    null,
+  );
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [data, setData] = useState<GitHubRepositories | null>(null);
   const [page, setPage] = useState(1);
@@ -41,6 +51,7 @@ export function GitHubPanel({ onExpired }: { onExpired: () => void }) {
     setError(null);
     // Old repository access may have been revoked; do not retain it after a failed check.
     setData(null);
+    setSelected(null);
     try {
       const result = await api.request(
         "/integrations/github/repositories",
@@ -65,7 +76,7 @@ export function GitHubPanel({ onExpired }: { onExpired: () => void }) {
       <details>
         <summary>GitHub 저장소 연결</summary>
         <p className="subtle-note">
-          허용한 저장소를 확인합니다. 저장소 가져오기와 새 프로젝트 생성은 아직 연결되지 않았습니다.
+          허용한 저장소를 확인하고 프로젝트로 가져옵니다. 새 저장소 생성은 아직 연결되지 않았습니다.
         </p>
         {configured === false ? (
           <p>
@@ -101,6 +112,13 @@ export function GitHubPanel({ onExpired }: { onExpired: () => void }) {
                     {repo.private ? "비공개" : "공개"}
                     {repo.archived ? " · 보관됨" : ""}
                   </small>
+                  <button
+                    className="secondary"
+                    disabled={repo.archived}
+                    onClick={() => setSelected(repo)}
+                  >
+                    가져오기 선택
+                  </button>
                 </li>
               ))}
             </ul>
@@ -128,6 +146,7 @@ export function GitHubPanel({ onExpired }: { onExpired: () => void }) {
             </nav>
           </>
         ) : null}
+        <RepositoryImports selected={selected} onExpired={onExpired} onOpen={onOpen} />
       </details>
     </section>
   );

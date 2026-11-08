@@ -172,7 +172,13 @@ export function Workspace({
           ) : null}
           {!projectId ? (
             <>
-              <GitHubPanel onExpired={onExpired} />
+              <GitHubPanel
+                onExpired={onExpired}
+                onOpen={(id) => {
+                  refresh();
+                  selectProject(id);
+                }}
+              />
               <ProjectOverview onSelect={selectProject} onExpired={onExpired} />
             </>
           ) : null}

@@ -179,9 +179,9 @@ test("preserves existing state when the notification migration is applied, inclu
   cpSync(migrationsDirectory, legacyFolder, { recursive: true });
   const journalPath = join(legacyFolder, "meta/_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8"));
-  journal.entries = journal.entries.filter(
-    (entry: { tag: string }) => entry.tag !== "0029_notifications",
-  );
+  // Recreate the version before notifications, excluding all later migrations too.
+  // Drizzle advances from the latest recorded timestamp, not from missing tags.
+  journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 29);
   writeFileSync(journalPath, JSON.stringify(journal));
   const legacyPath = join(directory, "legacy.sqlite");
   const legacy = openDatabase(legacyPath, legacyFolder);
@@ -195,11 +195,13 @@ test("preserves existing state when the notification migration is applied, inclu
     })
     .run();
   expect(() => legacy.client.prepare("SELECT * FROM notifications").all()).toThrow();
+  expect(() => legacy.client.prepare("SELECT * FROM repository_imports").all()).toThrow();
   legacy.close();
   database = openDatabase(legacyPath);
   owner = acquireExecutionOwner(database.db);
   expect(database.db.select().from(projects).get()?.name).toBe("Retained");
   expect(database.client.pragma("foreign_key_check")).toEqual([]);
+  expect(database.client.prepare("SELECT * FROM repository_imports").all()).toEqual([]);
   expect(() => database.checkReady()).not.toThrow();
 });
 

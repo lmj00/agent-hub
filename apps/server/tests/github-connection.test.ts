@@ -293,3 +293,80 @@ test("protects authenticated GitHub routes and keeps GitHub credentials out of c
     await unsafe.close();
   }
 });
+
+function archiveTransport(
+  options: { location?: string; finalOwner?: number; bytes?: number; total?: number } = {},
+) {
+  const sha = "a".repeat(40);
+  const repo = { ...repository, default_branch: "feature/example" };
+  return transport([
+    installation,
+    { token, expires_at: new Date(Date.now() + 3600000).toISOString() },
+    { repositories: [repo], total_count: options.total ?? 1 },
+    { sha },
+    new Response(null, {
+      status: 302,
+      headers: {
+        location:
+          options.location ??
+          `https://codeload.github.com/fixture-owner/example/legacy.tar.gz/${sha}?signed=fixture`,
+      },
+    }),
+    new Response(new Uint8Array(options.bytes ?? 5)),
+    {
+      repositories: [{ ...repo, owner: { ...installation.account, id: options.finalOwner ?? 56 } }],
+      total_count: 1,
+    },
+  ]);
+}
+
+test("narrows archive credentials to one repository, pins the revision and never forwards Authorization to the archive host", async () => {
+  const fetcher = archiveTransport();
+  const result = await createGitHubClient(config, fetcher).downloadRepository(
+    78,
+    new AbortController().signal,
+  );
+  expect(result).toMatchObject({
+    repositoryId: 78,
+    revision: "a".repeat(40),
+    fullName: "fixture-owner/example",
+  });
+  expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    permissions: { metadata: "read", contents: "read" },
+    repository_ids: [78],
+  });
+  expect(fetcher.mock.calls[3]![0]).toBe(
+    "https://api.github.com/repos/fixture-owner/example/commits/feature%2Fexample",
+  );
+  expect(fetcher.mock.calls[4]![1]!.redirect).toBe("manual");
+  expect(fetcher.mock.calls[5]![1]).toMatchObject({
+    redirect: "error",
+    headers: { "User-Agent": "agent-hub" },
+  });
+  expect(new Headers(fetcher.mock.calls[5]![1]!.headers).has("Authorization")).toBe(false);
+  expect(JSON.stringify(result)).not.toContain(token);
+  expect(fetcher).toHaveBeenCalledTimes(7);
+});
+
+test.each([
+  "https://example.invalid/archive",
+  `http://codeload.github.com/fixture-owner/example/legacy.tar.gz/${"a".repeat(40)}`,
+  `https://user@codeload.github.com/fixture-owner/example/legacy.tar.gz/${"a".repeat(40)}`,
+  `https://codeload.github.com/fixture-owner/another/legacy.tar.gz/${"a".repeat(40)}`,
+  `https://codeload.github.com:444/fixture-owner/example/legacy.tar.gz/${"a".repeat(40)}`,
+])("rejects an untrusted archive redirect before fetching it: %s", async (location) => {
+  const fetcher = archiveTransport({ location });
+  await expect(
+    createGitHubClient(config, fetcher).downloadRepository(78, new AbortController().signal),
+  ).rejects.toThrow("GITHUB_INVALID_RESPONSE");
+  expect(fetcher).toHaveBeenCalledTimes(5);
+});
+
+test("rejects ownership changes during download, unexpected repository scope and oversized archives", async () => {
+  for (const options of [{ finalOwner: 999 }, { total: 2 }, { bytes: 16 * 1048576 + 1 }]) {
+    const fetcher = archiveTransport(options);
+    await expect(
+      createGitHubClient(config, fetcher).downloadRepository(78, new AbortController().signal),
+    ).rejects.toThrow(/GITHUB_(REPOSITORY_UNAVAILABLE|INVALID_RESPONSE)/);
+  }
+});

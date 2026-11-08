@@ -1548,3 +1548,38 @@ a {
 .github-repositories small {
   color: var(--muted);
 }
+
+.repository-imports {
+  margin-top: 28px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+.repository-imports .stack {
+  max-width: 520px;
+}
+.import-jobs {
+  list-style: none;
+  padding: 0;
+}
+.import-jobs li {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.import-jobs li > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+.import-jobs small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+}
+.import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}

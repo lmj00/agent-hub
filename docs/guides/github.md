@@ -1,6 +1,6 @@
 # GitHub 저장소 연결
 
-**현재 지원:** GitHub App을 설치한 개인 계정이 본인 계정인지 확인하고, 허용한 저장소 목록을 관리 화면에서 조회합니다. 저장소 복제·프로젝트 등록·새 저장소 생성은 후속 단계입니다. 이 문서의 설정만으로 AI 개발이 시작되지는 않습니다.
+**현재 지원:** GitHub App을 설치한 개인 계정이 본인 계정인지 확인하고, 허용한 저장소 목록을 관리 화면에서 조회합니다. 허용한 저장소의 특정 커밋 소스를 가져와 프로젝트로 등록할 수 있습니다. 개발 환경과 목표를 설정해야 AI 개발이 시작됩니다. 새 GitHub 저장소 생성은 후속 단계입니다.
 
 관리 화면 로그인과 GitHub 저장소 권한은 별개입니다. 관리 화면은 기존 비밀번호·세션을 사용합니다. GitHub 키는 서버의 비공개 파일에 두고, 브라우저나 AI 작업 폴더에 전달하지 않습니다.
 
@@ -14,7 +14,7 @@ GitHub의 **Settings → Developer settings → GitHub Apps → New GitHub App**
 | Homepage URL | 자신의 프로젝트 소개 또는 저장소 주소 |
 | Webhook Active | 끔 |
 | OAuth during installation · Device Flow | 사용하지 않음 |
-| Repository permissions | Metadata 읽기 권한. 목록 조회에 Contents 쓰기·Administration 권한은 필요 없음 |
+| Repository permissions | Metadata 읽기, 가져오기에는 Contents 읽기 추가. 쓰기·Administration 권한은 필요 없음 |
 | 설치 저장소 | Only select repositories에서 직접 선택 |
 
 앱의 App ID를 기록하고 **Generate a private key**로 PEM 파일을 발급받습니다. **Install App**에서 본인 개인 계정에 설치합니다. 설치 설정 주소의 마지막 숫자가 Installation ID입니다. `https://api.github.com/users/YOUR_ACCOUNT`의 `id`가 계정의 숫자 ID이며, 로그인 이름과 다릅니다.
@@ -62,7 +62,7 @@ AUTH_CONFIG=.local/auth.json GITHUB_CONFIG=.local/github.json pnpm start
 
 서버는 먼저 설치 계정을 검증하고, Metadata 읽기 권한만 있는 임시 토큰으로 목록을 조회합니다. 이 토큰은 DB·화면·Git 주소에 저장하지 않습니다. GitHub의 [설치 인증 방식](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation)과 [토큰 권한 제한](https://docs.github.com/en/rest/apps/apps#create-an-installation-access-token-for-an-app)을 따릅니다.
 
-다시 조회하다 실패하면 이전 목록을 지웁니다. 이전 목록이 지금도 접근 가능하다는 뜻으로 남지 않게 하기 위함입니다. 권한은 GitHub에서 변경한 뒤 다시 조회합니다. 목록 확인이 저장소 복제나 실제 AI 실행 검증을 대신하지는 않습니다.
+다시 조회하다 실패하면 이전 목록을 지웁니다. 이전 목록이 지금도 접근 가능하다는 뜻으로 남지 않게 하기 위함입니다. 권한은 GitHub에서 변경한 뒤 다시 조회합니다. 목록 확인만으로 실제 소스 가져오기나 AI 실행이 검증된 것은 아닙니다.
 
 | 문제 | 확인할 것 |
 | --- | --- |
@@ -74,6 +74,56 @@ AUTH_CONFIG=.local/auth.json GITHUB_CONFIG=.local/github.json pnpm start
 
 키를 바꾸려면 새 비공개 설정 파일을 준비해 `GITHUB_CONFIG`를 변경하고 서버를 재시작합니다. GitHub에서 이전 키도 폐기합니다. GitHub 키 폐기는 관리 화면의 로그인 세션 폐기와 별개입니다.
 
+## 4. 가져오기 환경 준비
+
+서버의 비공개 실행 설정에 `importProfiles`를 추가합니다. [AI 실행 설정](agents.md)의 Codex 인증·개발 컨테이너 설정이 먼저 필요합니다. 아래는 기존 실행 설정에 추가할 부분입니다. 이미지는 서버에 준비한 실제 검증 이미지로 바꿉니다.
+
+```json
+{
+  "importProfiles": {
+    "node-tests": {
+      "image": "project-tests:local",
+      "command": ["node", "--test"],
+      "timeoutMs": 60000
+    }
+  }
+}
+```
+
+검증 환경은 **운영자가 지정한 이미지와 테스트 명령**입니다. 브라우저에서는 환경 이름만 선택하며 저장소가 서버 명령을 정하지 않습니다. 의존성이나 빌드 도구가 필요한 프로젝트는 해당 도구가 준비된 이미지와 명령을 설정해야 합니다. `containerImage` 없이 가져오기 환경만 지정하면 서버가 시작을 거부합니다.
+
+```sh
+AUTH_CONFIG=.local/auth.json GITHUB_CONFIG=.local/github.json \
+EXECUTION_CONFIG=.local/execution.json pnpm start
+```
+
+`EXECUTION_CONFIG` 경로는 실제 실행 설정 경로로 맞춥니다. `workspaces`가 비어 있어도 가져온 프로젝트가 실행 중인 서버에 연결됩니다.
+
+## 5. 저장소를 프로젝트로 가져오기
+
+1. 목록에서 **가져오기 선택**을 누릅니다. 보관된 저장소는 가져올 수 없습니다.
+2. 프로젝트 이름과 검증 환경을 선택하고 **이 저장소 가져오기**를 누릅니다.
+3. 대기·소스 준비·완료 상태를 확인합니다. 완료되면 **프로젝트 열기**에서 목표와 허용 파일 범위를 설정합니다.
+
+기본 브랜치의 특정 커밋 소스를 서버의 비공개 `<DB 파일명>.sources` 폴더에 준비합니다. 원본 GitHub 커밋 번호를 기록하고, 준비한 소스에 별도 로컬 Git 기준 커밋을 만듭니다. 과거 Git 이력 복제·GitHub 변경의 자동 동기화·원격 푸시는 수행하지 않습니다. 이후 검증한 개발 변경은 기존의 별도 개발 Git에 누적됩니다.
+
+같은 저장소를 다시 제출해도 같은 가져오기 기록과 프로젝트를 반환합니다. 다른 이름으로 재제출해도 기존 프로젝트를 복제하지 않습니다. 가져오기 대기·진행 중에는 취소할 수 있고, 실패·취소 후에는 최대 5번까지 시도할 수 있습니다. 서버가 준비 도중 중단되면 다음 시작에서 실패로 기록하므로 화면에서 명시적으로 다시 시도합니다. 중간 파일은 새 시도에서 재사용하지 않으며 비공개 폴더에 남겨 둡니다.
+
+완료된 소스는 재시작 시 DB와 대조합니다. 파일을 직접 바꾸거나 지우거나 검증 환경 설정을 제거하면 실행을 거부합니다. [백업·복원](../04-operations.md#db개발-코드-백업과-복원)은 가져온 소스도 포함하지만 이미지·인증·실행 설정은 별도로 보존해야 합니다.
+
+| 제한 | 기준 |
+| --- | --- |
+| 가져오기 동시 실행 / 대기 포함 기록 | 1개 / 최대 20개 |
+| 한 시도 제한 시간 | 다운로드와 준비 전체 120초 |
+| 압축 / 압축 해제 크기 | 최대 16MiB / 64MiB |
+| 파일 하나 / 항목 수 / 경로 깊이 | 16MiB / 10,000개 / 원본 최상위 폴더 제외 32단계 |
+| 디스크 여유 | 시작 시 최소 1GiB |
+| 거부하는 항목 | 링크·특수 파일·중복/대소문자 충돌 경로·`.git`·`.codex`·`.gitmodules` |
+
+Git LFS 파일은 포인터로 남고 하위 모듈은 지원하지 않습니다. 큰 저장소가 가져와졌더라도 개별 목표의 준비 입력은 기존 한도인 파일 500개·총 8MiB·파일당 1MiB에 맞게 허용 범위를 좁혀야 합니다.
+
+화면은 로컬 가져오기 상태를 3초 간격으로 확인합니다. GitHub 저장소 목록은 자동 반복 조회하지 않습니다. 가져오기 토큰은 해당 저장소 ID 하나에 읽기 권한만 주며, 압축 다운로드 호스트에 인증 헤더를 전달하지 않습니다.
+
 ## API
 
 모든 요청은 기존 관리 화면 인증이 필요합니다. POST는 세션 쿠키와 CSRF 토큰도 필요합니다.
@@ -82,5 +132,8 @@ AUTH_CONFIG=.local/auth.json GITHUB_CONFIG=.local/github.json pnpm start
 | --- | --- |
 | `GET /integrations/github` | 설정 존재 여부. GitHub 접속 성공을 뜻하지 않음 |
 | `POST /integrations/github/repositories` | JSON `{ "page": 1 }`. 허용 범위 1~1000, 한 번에 30개. 계정 검증 후 조회 |
+| `GET /integrations/github/imports` | 설정 여부·검증 환경 이름·최근 가져오기 20개. 진행 중 기록 우선 |
+| `POST /integrations/github/imports` | UUID `requestKey`, 숫자 `repositoryId`, `name`, `profile`로 등록. 202는 접수이며 완료를 뜻하지 않음 |
+| `POST /integrations/github/imports/:id` | `{ "action": "cancel" }` 또는 `{ "action": "retry" }` |
 
-동시 조회는 하나이며, 전체 외부 요청에 8초 제한을 적용합니다. 응답 본문은 요청당 최대 2MiB입니다. 연결 오류는 외부 응답 원문이나 인증 헤더 없이 안전한 오류 코드로만 반환합니다.
+조회와 가져오기의 GitHub 통신은 동시에 하나이며, 목록 조회에는 전체 8초 제한을 적용합니다. 응답 본문은 요청당 최대 2MiB입니다. 연결 오류는 외부 응답 원문이나 인증 헤더 없이 안전한 오류 코드로만 반환합니다.

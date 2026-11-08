@@ -1,3 +1,7 @@
+import { hydrateImports } from "./modules/github/import-runtime.js";
+import { createImportStore } from "./modules/github/import-store.js";
+import { createImportWorker } from "./modules/github/import-worker.js";
+import { importRoutes } from "./modules/github/import-routes.js";
 import { createCapacityRecovery } from "./modules/execution/capacity-recovery.js";
 import type { GitHubConfig } from "./modules/github/github-config.js";
 import { createGitHubClient } from "./modules/github/github-client.js";
@@ -95,6 +99,8 @@ export function buildApp({
 }: AppOptions) {
   if (webDirectory && !auth) throw new Error("The management UI requires authentication");
   if (github && !auth) throw new Error("GitHub connection requires authentication");
+  if (execution?.config.importProfiles?.size && !auth)
+    throw new Error("Repository imports require authentication");
   const app = Fastify({
     ...options,
     // 잘못된 타입과 알 수 없는 필드를 자동 보정하지 않고 요청 오류로 알립니다.
@@ -109,6 +115,9 @@ export function buildApp({
     let serviceObserver: ReturnType<typeof createServiceObserver> | undefined;
     let notifier: ReturnType<typeof createNotificationWorker> | undefined;
     let canTrackTermination = false;
+    const githubClient = github ? createGitHubClient(github) : undefined;
+    let importStore: ReturnType<typeof createImportStore> | undefined;
+    let importer: ReturnType<typeof createImportWorker> | undefined;
     const protectedFiles = [
       auth?.sourcePath,
       services?.sourcePath,
@@ -118,14 +127,24 @@ export function buildApp({
 
     scope.addHook("onClose", async () => {
       try {
-        await Promise.all([queue?.stop(), serviceObserver?.stop(), notifier?.stop()]);
+        await Promise.all([
+          queue?.stop(),
+          serviceObserver?.stop(),
+          notifier?.stop(),
+          importer?.stop(),
+        ]);
         owner?.release();
       } finally {
         database.close();
       }
     });
     scope.addHook("preClose", async () => {
-      await Promise.all([queue?.stop(), serviceObserver?.stop(), notifier?.stop()]);
+      await Promise.all([
+        queue?.stop(),
+        serviceObserver?.stop(),
+        notifier?.stop(),
+        importer?.stop(),
+      ]);
     });
 
     if (execution || services || notifications) {
@@ -146,6 +165,26 @@ export function buildApp({
           });
         }
         if (execution) {
+          const managed = await hydrateImports(
+            database.db,
+            execution.config,
+            databasePath,
+            protectedFiles,
+          );
+          if (managed && githubClient && execution.config.importProfiles?.size) {
+            importStore = createImportStore(database.db, owner.token);
+            importStore.recover();
+            importer = createImportWorker({
+              store: importStore,
+              runtime: managed,
+              client: githubClient,
+              report: () =>
+                scope.log.error(
+                  { code: "IMPORT_STORAGE_ERROR" },
+                  "Repository import storage failed",
+                ),
+            });
+          }
           const inputRoot = preparedInputRoot(databasePath);
           cleanupConfirmedInputs(database.db, inputRoot);
           const baseExecutor = execution.executor ?? createConfiguredExecutor(execution.config);
@@ -163,10 +202,8 @@ export function buildApp({
             repositoryRoot: developmentRoot(databasePath),
             ownerToken: owner.token,
           });
-          const developmentWorkspaceKeys = configuredDevelopmentWorkspaces(
-            execution.config,
-            baseExecutor,
-          );
+          const developmentWorkspaceKeys = () =>
+            configuredDevelopmentWorkspaces(execution.config, baseExecutor);
           const planning = createPlanningStore(database.db, owner.token);
           canTrackTermination = typeof executor.confirmTermination === "function";
           if (execution.config.automaticRecovery && !canTrackTermination)
@@ -175,7 +212,9 @@ export function buildApp({
           queue = createExecutionQueue({
             ...execution,
             store: createDrizzleRunStore(database.db, owner.token, execution.config, {
-              developmentWorkspaceKeys,
+              get developmentWorkspaceKeys() {
+                return developmentWorkspaceKeys();
+              },
               getObserverStatus: () =>
                 serviceObserver?.getStatus() ?? {
                   enabledKeys: new Set(),
@@ -184,11 +223,11 @@ export function buildApp({
                 },
             }),
             executor,
-            ...(developmentWorkspaceKeys.length
+            ...(execution.config.containerImage && executor.confirmTermination
               ? {
                   planning: {
                     tick: () => {
-                      planning.reserveNext(developmentWorkspaceKeys);
+                      planning.reserveNext(developmentWorkspaceKeys());
                     },
                   },
                 }
@@ -199,7 +238,9 @@ export function buildApp({
                     db: database.db,
                     ownerToken: owner.token,
                     policy: execution.config.automaticRecovery,
-                    workspaceKeys: [...execution.config.workspaces.keys()],
+                    get workspaceKeys() {
+                      return [...execution.config.workspaces.keys()];
+                    },
                     recovery,
                   }),
                 }
@@ -211,7 +252,9 @@ export function buildApp({
                     ownerToken: owner.token,
                     policy: execution.config.capacityRecovery,
                     retryPolicy: execution.config.automaticRecovery,
-                    workspaceKeys: [...execution.config.workspaces.keys()],
+                    get workspaceKeys() {
+                      return [...execution.config.workspaces.keys()];
+                    },
                   }),
                 }
               : {}),
@@ -256,13 +299,20 @@ export function buildApp({
       }
       scope.addHook("onListen", async () => {
         queue?.start();
+        importer?.start();
         serviceObserver?.start();
         notifier?.start();
       });
     }
 
     if (auth) await installAuthentication(scope, auth, createDrizzleSessionStore(database.db));
-    scope.register(githubRoutes, github ? { client: createGitHubClient(github) } : {});
+    scope.register(githubRoutes, githubClient ? { client: githubClient } : {});
+    scope.register(importRoutes, {
+      db: database.db,
+      profiles: [...(execution?.config.importProfiles?.keys() ?? [])],
+      ...(importStore ? { store: importStore } : {}),
+      ...(importer ? { worker: importer } : {}),
+    });
     scope.get("/operations/notifications", async () => ({
       worker: notifier?.getStatus() ?? {
         enabled: false,

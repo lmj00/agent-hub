@@ -1,3 +1,4 @@
+import { hydrateImports } from "./modules/github/import-runtime.js";
 import { parseArgs } from "node:util";
 import { loadConfig } from "./config.js";
 import { openDatabase } from "./db/connection.js";
@@ -52,6 +53,14 @@ async function main() {
       ),
     );
     owner = acquireExecutionOwner(database.db);
+    await hydrateImports(
+      database.db,
+      config,
+      databasePath,
+      [authConfigPath, serviceConfigPath, notificationConfigPath, githubConfigPath].filter(
+        (path): path is string => path !== undefined,
+      ),
+    );
     const task = createDrizzleTaskStore(database.db).findById(values.task);
     if (!task) throw new Error("Task not found");
     const project = createDrizzleProjectStore(database.db).findById(task.projectId);

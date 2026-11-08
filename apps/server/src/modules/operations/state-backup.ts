@@ -14,6 +14,8 @@ import { isWithin } from "../../shared/path-containment.js";
 import { developmentDirectoryName, developmentRef } from "../workspace/development-workspace.js";
 import { preparedDirectoryName } from "../workspace/prepared-workspace.js";
 import { git } from "../workspace/workspace-git.js";
+import { importedDirectoryName, verifyImportedSource } from "../github/import-workspace.js";
+import { importedWorkspaceKey } from "../github/import-store.js";
 import {
   BackupError,
   inventoryBackupTree,
@@ -41,6 +43,7 @@ function stateNames(databasePath: string) {
     basename(databasePath),
     developmentDirectoryName(databasePath),
     preparedDirectoryName(databasePath),
+    importedDirectoryName(databasePath),
   ];
 }
 function schemaDigest(client: Database.Database) {
@@ -84,7 +87,8 @@ function validateDatabase(client: Database.Database, expected: string) {
     client
       .prepare("SELECT 1 FROM run_executions WHERE termination_confirmed_at IS NULL LIMIT 1")
       .get() ||
-    client.prepare("SELECT 1 FROM change_applications WHERE status = 'pending' LIMIT 1").get()
+    client.prepare("SELECT 1 FROM change_applications WHERE status = 'pending' LIMIT 1").get() ||
+    client.prepare("SELECT 1 FROM repository_imports WHERE status = 'preparing' LIMIT 1").get()
   )
     throw new BackupError(
       "Stop and reconcile all executions and pending changes before backup or restore",
@@ -123,6 +127,37 @@ async function validateGitState(
   signal: AbortSignal,
 ) {
   const db = drizzle(client, { schema });
+  const imports = db
+    .select()
+    .from(schema.repositoryImports)
+    .limit(maxBackupEntries + 1)
+    .all();
+  if (imports.length > maxBackupEntries)
+    throw new BackupError("Too many imported repositories for one backup");
+  for (const job of imports) {
+    if (job.status !== "ready") continue;
+    const project = client
+      .prepare("SELECT workspace_key AS workspaceKey FROM projects WHERE id = ?")
+      .get(job.projectId) as { workspaceKey: string } | undefined;
+    if (
+      !job.attemptId ||
+      !job.revision ||
+      !job.localRevision ||
+      project?.workspaceKey !== importedWorkspaceKey(job)
+    )
+      throw new BackupError("Imported source identity disagrees with database history");
+    await verifyImportedSource(
+      join(state, importedDirectoryName(databasePath)),
+      {
+        jobId: job.id,
+        attemptId: job.attemptId,
+        repositoryId: job.repositoryId,
+        revision: job.revision,
+        localRevision: job.localRevision,
+      },
+      signal,
+    );
+  }
   const repositories = db
     .select()
     .from(schema.developmentRepositories)
@@ -232,7 +267,7 @@ function readManifest(backupPath: string): Manifest {
   validateBackupEntries(record.entries);
   const names = stateNames(record.databasePath);
   if (
-    new Set(names).size !== 3 ||
+    new Set(names).size !== names.length ||
     record.entries.some((entry) => !names.includes(entry.path.split("/")[0]!))
   )
     throw new BackupError("Backup contains data outside its declared state paths");

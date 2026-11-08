@@ -709,3 +709,108 @@ test("checks GitHub configuration explicitly and clears repository data after re
   await expect(panel.getByRole("alert")).toContainText("접근 권한을 확인");
   await expect(panel).not.toContainText("fixture-owner/example-2");
 });
+
+// UI contract only: GitHub/import responses are synthetic. Server tests exercise
+// authentication, archive preparation, durable registration and runtime activation.
+test("selects a repository, retries and cancels an import, then opens its ready project", async ({
+  page,
+}, testInfo) => {
+  await login(page);
+  const projectsResponse = await page.request.get("/projects");
+  const project = (await projectsResponse.json()).projects[0];
+  const id = "a3b0d7b5-35ac-4b12-a6b5-6b8061cb3e41";
+  let job: Record<string, unknown> | undefined;
+  const posts: Record<string, unknown>[] = [];
+  await page.route("**/integrations/github", (route) =>
+    route.fulfill({ json: { configured: true } }),
+  );
+  await page.route("**/integrations/github/repositories", (route) =>
+    route.fulfill({
+      json: {
+        owner: "fixture-owner",
+        checkedAt: new Date().toISOString(),
+        nextPage: null,
+        repositories: [
+          {
+            id: 78,
+            name: "example",
+            fullName: "fixture-owner/example",
+            private: true,
+            archived: false,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/integrations/github/imports", async (route) => {
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataJSON();
+      posts.push(body);
+      job = {
+        id,
+        repositoryId: 78,
+        name: body.name,
+        profile: body.profile,
+        status: "preparing",
+        attempt: 1,
+        fullName: null,
+        revision: null,
+        errorCode: null,
+        projectId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await route.fulfill({ status: 202, json: job });
+    } else
+      await route.fulfill({
+        json: { enabled: true, profiles: ["node"], imports: job ? [job] : [] },
+      });
+  });
+  const actions: string[] = [];
+  await page.route(`**/integrations/github/imports/${id}`, async (route) => {
+    const action = route.request().postDataJSON().action;
+    actions.push(action);
+    job = {
+      ...job,
+      status: action === "cancel" ? "cancelled" : "preparing",
+      errorCode: null,
+      attempt: action === "retry" ? 2 : 1,
+    };
+    await route.fulfill({ json: job });
+  });
+  await page.reload();
+  const panel = page.getByRole("region", { name: "GitHub 저장소 연결", exact: true });
+  await panel.locator("summary").click();
+  await panel.getByRole("button", { name: "연결 확인 및 저장소 조회" }).click();
+  await panel.getByRole("button", { name: "가져오기 선택", exact: true }).click();
+  await panel.getByLabel("가져올 프로젝트 이름").fill("내 학습 앱");
+  await panel.getByRole("button", { name: "이 저장소 가져오기", exact: true }).click();
+  await expect(panel).toContainText("소스 준비 중");
+  expect(posts).toHaveLength(1);
+  expect(posts[0]).toMatchObject({ repositoryId: 78, name: "내 학습 앱", profile: "node" });
+  expect(posts[0]!.requestKey).toMatch(/^[a-f0-9-]{36}$/);
+  await panel.getByRole("button", { name: "가져오기 취소", exact: true }).click();
+  await expect(panel).toContainText("취소됨");
+  await panel.getByRole("button", { name: "다시 가져오기", exact: true }).click();
+  await expect(panel).toContainText("소스 준비 중");
+  expect(actions).toEqual(["cancel", "retry"]);
+  job = { ...job, status: "failed", errorCode: "GITHUB_PERMISSION" };
+  await panel.getByRole("button", { name: "가져오기 상태 새로고침" }).click();
+  await expect(panel).toContainText("접근 권한을 확인");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("github-import-mobile.png"), fullPage: true });
+  job = {
+    ...job,
+    status: "ready",
+    errorCode: null,
+    projectId: project.id,
+    fullName: "fixture-owner/example",
+    revision: "a".repeat(40),
+  };
+  await panel.getByRole("button", { name: "가져오기 상태 새로고침" }).click();
+  await expect(panel).toContainText("프로젝트 준비 완료");
+  await panel.getByRole("button", { name: "프로젝트 열기", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`#project/${project.id}$`));
+  await expect(page.getByRole("heading", { name: project.name, exact: true })).toBeVisible();
+});

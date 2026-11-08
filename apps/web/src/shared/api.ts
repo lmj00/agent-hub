@@ -90,6 +90,28 @@ export function createApiClient(fetcher: typeof fetch = fetch) {
 export const api = createApiClient();
 
 const messages: Record<string, string> = {
+  GITHUB_REPOSITORY_UNAVAILABLE:
+    "저장소의 접근 권한·보관 상태·기본 브랜치를 확인해 주세요. 선택 목록이 바뀌었다면 다시 조회하세요.",
+  IMPORT_NOT_CONFIGURED: "서버에 GitHub 연결과 가져오기 검증 환경이 필요합니다.",
+  IMPORT_PROFILE_UNAVAILABLE: "선택한 검증 환경을 사용할 수 없습니다. 서버 설정을 확인해 주세요.",
+  IMPORT_REQUEST_CONFLICT: "같은 요청에 다른 내용이 전달됐습니다. 가져오기 기록을 확인해 주세요.",
+  IMPORT_ATTEMPT_LIMIT:
+    "가져오기 시도 5회에 도달했습니다. 서버의 실패 기록과 작업 폴더를 확인해 주세요.",
+  IMPORT_QUEUE_FULL:
+    "대기 중인 가져오기가 20건입니다. 진행 중인 작업이 끝난 뒤 다시 요청해 주세요.",
+  IMPORT_INTERRUPTED:
+    "서버 중단으로 가져오기를 마치지 못했습니다. 다시 가져오면 새 사본을 준비합니다.",
+  IMPORT_TIMEOUT: "가져오기 제한 시간을 초과했습니다. 저장소 크기와 연결 상태를 확인해 주세요.",
+  IMPORT_ARCHIVE_INVALID:
+    "안전하게 가져올 수 없는 소스입니다. 크기·파일 경로·링크·하위 저장소를 확인해 주세요.",
+  IMPORT_SOURCE_LIMIT: "가져올 소스가 크기 제한을 초과했습니다.",
+  IMPORT_DISK_FULL: "서버에 최소 1GiB의 빈 공간이 필요합니다.",
+  IMPORT_STORAGE_UNSAFE: "작업 폴더의 권한이나 경로를 확인해야 합니다.",
+  IMPORT_SOURCE_CHANGED: "저장한 원본 사본이 변경됐습니다. 서버의 원본 폴더를 확인해 주세요.",
+  IMPORT_WORKSPACE_CONFLICT: "가져올 작업 공간이 기존 설정과 겹칩니다. 서버 설정을 확인해 주세요.",
+  IMPORT_FAILED:
+    "저장소를 가져오지 못했습니다. 연결·저장 공간·검증 환경을 확인한 뒤 다시 시도하세요.",
+  IMPORT_NOT_FOUND: "가져오기 기록을 찾을 수 없습니다.",
   GITHUB_NOT_CONFIGURED: "서버에 GitHub 연결 설정이 필요합니다.",
   GITHUB_OWNER_MISMATCH:
     "GitHub App 설치 계정이 지정한 본인 계정과 다릅니다. 서버 설정을 확인해 주세요.",

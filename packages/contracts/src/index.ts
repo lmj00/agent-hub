@@ -1,3 +1,11 @@
+export {
+  repositoryImportInputSchema,
+  repositoryImportSchema,
+  repositoryImportsSchema,
+  repositoryImportActionSchema,
+  type RepositoryImportInput,
+  type RepositoryImport,
+} from "./repository-imports.js";
 export { parseResponse, type Static, type TSchema } from "./validation.js";
 export {
   githubConnectionSchema,
