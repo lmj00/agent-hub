@@ -78,6 +78,7 @@ test("only liveness and authentication endpoints are public; private reads and w
   for (const url of [
     "/health/ready",
     "/projects",
+    "/projects/overview?offset=0",
     "/execution",
     "/execution/provider-gate",
     "/projects/00000000-0000-4000-8000-000000000001/services",

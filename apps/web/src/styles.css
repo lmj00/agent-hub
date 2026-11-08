@@ -1401,3 +1401,118 @@ a {
     display: grid;
   }
 }
+
+.overview-link {
+  width: 100%;
+  text-align: left;
+  padding: 12px;
+  margin-bottom: 24px;
+  border-radius: 8px;
+  color: var(--ink);
+  background: transparent;
+}
+.overview-link.selected {
+  color: var(--cobalt);
+  background: #e9eefc;
+}
+.overview-intro {
+  border-left: 3px solid var(--cobalt);
+  padding: 4px 0 4px 20px;
+  margin: 30px 0;
+}
+.overview-intro h2 {
+  font-size: clamp(18px, 2vw, 24px);
+  letter-spacing: -0.6px;
+}
+.overview-intro p {
+  color: var(--muted);
+  line-height: 1.7;
+  max-width: 55ch;
+}
+.overview-projects {
+  display: grid;
+  gap: 16px;
+  margin: 18px 0;
+}
+.overview-project {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--white);
+  padding: 24px;
+  min-width: 0;
+}
+.overview-project-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.overview-project-heading h3 {
+  margin: 6px 0 0;
+  font-size: 19px;
+  overflow-wrap: anywhere;
+}
+.overview-project-heading button {
+  flex-shrink: 0;
+}
+.overview-progress {
+  display: grid;
+  gap: 18px;
+  margin: 24px 0 0;
+  font-size: 13px;
+}
+.overview-progress > div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 16px;
+}
+.overview-progress dt {
+  color: var(--muted);
+  padding-top: 3px;
+}
+.overview-progress dd {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.overview-progress .text-button {
+  text-align: left;
+  font-size: inherit;
+  line-height: inherit;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.overview-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  margin: 24px 0;
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .overview-project {
+    padding: 18px;
+  }
+  .overview-project-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .overview-progress > div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .overview-link {
+    margin-bottom: 12px;
+  }
+  .project-overview > .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}

@@ -2,7 +2,7 @@ import type { TaskStatus } from "@agent-hub/contracts";
 
 export const statusLabels: Record<TaskStatus, string> = {
   queued: "실행 대기",
-  running: "분석 중",
+  running: "작업 중",
   succeeded: "완료",
   failed: "실패",
   cancelled: "취소됨",

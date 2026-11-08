@@ -1,4 +1,9 @@
 export { parseResponse, type Static, type TSchema } from "./validation.js";
+export {
+  projectOverviewSchema,
+  projectOverviewQuerySchema,
+  type ProjectOverview,
+} from "./project-overview.js";
 export { goalPlanSchema, type GoalPlan } from "./goal-plan.js";
 export {
   planningEvidenceSchema,

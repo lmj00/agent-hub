@@ -11,6 +11,9 @@ import {
   projectsSchema as projectListResponseSchema,
   idParamsSchema as projectParamsSchema,
   projectSchema as projectResponseSchema,
+  projectOverviewSchema,
+  projectOverviewQuerySchema,
+  type ProjectOverview,
 } from "@agent-hub/contracts";
 
 function toResponse(project: Project) {
@@ -22,10 +25,10 @@ function toResponse(project: Project) {
   };
 }
 
-export const projectRoutes: FastifyPluginAsync<{ store: ProjectStore }> = async (
-  app,
-  { store },
-) => {
+export const projectRoutes: FastifyPluginAsync<{
+  store: ProjectStore;
+  overview: (offset: number) => ProjectOverview;
+}> = async (app, { store, overview }) => {
   app.addHook("onRequest", async (_request, reply) => {
     reply.header("Cache-Control", "no-store");
   });
@@ -79,6 +82,17 @@ export const projectRoutes: FastifyPluginAsync<{ store: ProjectStore }> = async 
     "/projects",
     { schema: { response: { 200: projectListResponseSchema, ...projectErrorResponses } } },
     async () => ({ projects: store.list().map(toResponse) }),
+  );
+
+  app.get<{ Querystring: { offset?: string } }>(
+    "/projects/overview",
+    {
+      schema: {
+        querystring: projectOverviewQuerySchema,
+        response: { 200: projectOverviewSchema, ...projectErrorResponses },
+      },
+    },
+    async (request) => overview(Number(request.query.offset ?? 0)),
   );
 
   app.get<{ Params: { id: string } }>(

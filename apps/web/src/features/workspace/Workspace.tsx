@@ -1,9 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { projectsSchema, queueSchema, providerGateSchema } from "@agent-hub/contracts";
 import { api, ApiError, errorMessage } from "../../shared/api.js";
 import { usePolling } from "../../shared/use-polling.js";
 import { dateTime } from "../../shared/format.js";
 import { ProjectForm } from "../projects/ProjectForm.js";
+import { ProjectOverview } from "../projects/ProjectOverview.js";
 import { ProjectTasks } from "../tasks/ProjectTasks.js";
 import { ExecutionBar } from "../execution/ExecutionBar.js";
 import { ServicePanel } from "../services/ServicePanel.js";
@@ -17,7 +18,7 @@ export function Workspace({
   onExpired: () => void;
   onLogout: () => void;
 }) {
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(() => selectedProject());
   const [taskId, setTaskId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
@@ -33,10 +34,19 @@ export function Workspace({
   }, []);
   const overview = usePolling("overview", load, onExpired, 3000, revision);
   const projects = overview.data?.projects ?? [];
-  const project = projects.find((value) => value.id === projectId) ?? projects[0] ?? null;
-  function selectProject(id: string) {
+  const project = projects.find((value) => value.id === projectId) ?? null;
+  useEffect(() => {
+    function navigate() {
+      setProjectId(selectedProject());
+      setTaskId(null);
+    }
+    window.addEventListener("popstate", navigate);
+    return () => window.removeEventListener("popstate", navigate);
+  }, []);
+  function selectProject(id: string | null, selectedTaskId?: string) {
+    window.history.pushState(null, "", id ? `/#project/${id}` : "/");
     setProjectId(id);
-    setTaskId(null);
+    setTaskId(selectedTaskId ?? null);
   }
   async function logout() {
     setLoggingOut(true);
@@ -72,6 +82,13 @@ export function Workspace({
       ) : null}
       <div className="workspace-grid">
         <aside className="sidebar" aria-label="프로젝트 목록">
+          <button
+            className={`overview-link ${!projectId ? "selected" : ""}`}
+            aria-pressed={!projectId}
+            onClick={() => selectProject(null)}
+          >
+            전체 현황
+          </button>
           <div className="section-heading">
             <h2>프로젝트</h2>
             <span className="count">{projects.length}</span>
@@ -98,7 +115,7 @@ export function Workspace({
             <p className="muted">프로젝트를 불러오는 중…</p>
           ) : null}
           {overview.data && !projects.length ? (
-            <p className="muted">첫 프로젝트를 등록해 분석을 시작하세요.</p>
+            <p className="muted">첫 프로젝트를 등록해 목표를 맡기세요.</p>
           ) : null}
           <ProjectForm
             onCreated={(item) => {
@@ -126,8 +143,8 @@ export function Workspace({
         <main className="main-workspace">
           <section className="workspace-heading">
             <div>
-              <p className="eyebrow">현재 프로젝트</p>
-              <h1>{project?.name ?? "프로젝트를 연결하세요"}</h1>
+              <p className="eyebrow">{projectId ? "현재 프로젝트" : "내 프로젝트 작업 공간"}</p>
+              <h1>{projectId ? (project?.name ?? "프로젝트 확인 중") : "전체 현황"}</h1>
             </div>
             <div className="connection" role="status">
               <span
@@ -152,16 +169,15 @@ export function Workspace({
           {overview.data ? (
             <ExecutionBar queue={overview.data.queue} gate={overview.data.gate} />
           ) : null}
-          {project ? (
-            <ServicePanel
-              key={`services:${project.id}`}
-              projectId={project.id}
-              onExpired={onExpired}
-            />
-          ) : null}
+          {!projectId ? <ProjectOverview onSelect={selectProject} onExpired={onExpired} /> : null}
           {project ? (
             <>
               <GoalPanel key={`goals:${project.id}`} projectId={project.id} onExpired={onExpired} />
+              <ServicePanel
+                key={`services:${project.id}`}
+                projectId={project.id}
+                onExpired={onExpired}
+              />
               <BudgetPanel
                 key={`budget:${project.id}`}
                 projectId={project.id}
@@ -180,21 +196,21 @@ export function Workspace({
               onExpired={onExpired}
               refreshOverview={refresh}
             />
-          ) : (
+          ) : projectId && overview.data ? (
             <div className="empty-state">
               <span className="empty-symbol" aria-hidden="true">
                 ↗
               </span>
-              <h2>분석할 프로젝트부터</h2>
-              <p>
-                프로젝트 이름과 서버에 등록한 작업 공간 키를 입력하세요.
-                <br />
-                등록한 프로젝트별로 지시와 실행 기록을 모아 볼 수 있습니다.
-              </p>
+              <h2>프로젝트를 찾을 수 없습니다</h2>
+              <p>전체 현황에서 프로젝트를 다시 선택하세요.</p>
             </div>
-          )}
+          ) : null}
         </main>
       </div>
     </div>
   );
+}
+
+function selectedProject() {
+  return /^#project\/([0-9a-f-]{36})$/i.exec(window.location.hash)?.[1] ?? null;
 }

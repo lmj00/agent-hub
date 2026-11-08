@@ -610,3 +610,46 @@ test("manages versioned goals, preserves a lost-response request key and shows p
   await panel.locator("summary").first().click();
   await expect(panel).toContainText("복습 결과와 날짜가 저장된다");
 });
+
+test("opens the project overview, preserves navigation and marks retained data when its request fails", async ({
+  page,
+}, testInfo) => {
+  await login(page);
+  await expect(page.getByRole("heading", { name: "전체 현황", exact: true })).toBeVisible();
+  const overview = page.getByRole("region", { name: "프로젝트 전체 현황", exact: true });
+  await expect(overview.locator(".overview-project").first()).toBeVisible();
+  await createProject(page, "전체 현황 탐색 예제");
+  await createTask(page, "전체 현황에서 결과 확인");
+  await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
+  await page.getByRole("button", { name: "전체 현황", exact: true }).click();
+  const card = overview
+    .locator(".overview-project")
+    .filter({ has: page.getByRole("heading", { name: "전체 현황 탐색 예제", exact: true }) });
+  await expect(card).toContainText("실행 중인 작업 없음");
+  await expect(card).toContainText("완료");
+  await card.getByRole("button", { name: "전체 현황에서 결과 확인", exact: true }).click();
+  await expect(page.locator("#detail-heading")).toHaveText("전체 현황에서 결과 확인");
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "전체 현황 탐색 예제", exact: true }),
+  ).toBeVisible();
+  await page.goBack();
+  await expect(overview).toBeVisible();
+  await expect(card).toBeVisible();
+  await page.route("**/projects/overview?*", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "UNAVAILABLE", message: "Unavailable" }),
+    }),
+  );
+  await expect(overview.getByRole("alert")).toContainText("마지막으로 확인한 현황");
+  await expect(card).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("overview-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("overview-mobile.png"), fullPage: true });
+  await page.unroute("**/projects/overview?*");
+  await overview.getByRole("button", { name: "다시 불러오기" }).click();
+  await expect(overview.getByRole("alert")).toHaveCount(0);
+});
