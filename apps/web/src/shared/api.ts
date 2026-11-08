@@ -90,6 +90,17 @@ export function createApiClient(fetcher: typeof fetch = fetch) {
 export const api = createApiClient();
 
 const messages: Record<string, string> = {
+  GITHUB_NOT_CONFIGURED: "서버에 GitHub 연결 설정이 필요합니다.",
+  GITHUB_OWNER_MISMATCH:
+    "GitHub App 설치 계정이 지정한 본인 계정과 다릅니다. 서버 설정을 확인해 주세요.",
+  GITHUB_SELECTED_REPOSITORIES_REQUIRED:
+    "GitHub App 설치에서 전체 저장소 대신 허용할 저장소를 직접 선택해 주세요.",
+  GITHUB_PERMISSION: "GitHub App 키·설치 상태·접근 권한을 확인해 주세요.",
+  GITHUB_RATE_LIMIT: "GitHub 요청 한도에 도달했습니다. 잠시 후 다시 확인해 주세요.",
+  GITHUB_BUSY: "다른 GitHub 요청을 처리하고 있습니다. 잠시 후 다시 확인해 주세요.",
+  GITHUB_INVALID_RESPONSE:
+    "GitHub 응답을 검증하지 못했습니다. 연결 설정과 서버 버전을 확인해 주세요.",
+  GITHUB_UNAVAILABLE: "GitHub에 연결하지 못했습니다. 잠시 후 다시 확인해 주세요.",
   INVALID_BUDGET: "예산 기간·호출 횟수·실행 시간을 확인해 주세요.",
   BUDGET_VERSION_CHANGED: "예산 설정이 바뀌었습니다. 최신 설정을 다시 열어 확인해 주세요.",
   PERIOD_BUDGET_EXHAUSTED:

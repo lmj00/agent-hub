@@ -3,6 +3,13 @@ import { describe, expect, test } from "vitest";
 import { loadConfig } from "../src/config.js";
 
 describe("server configuration", () => {
+  test("accepts only a non-empty GitHub config path", () => {
+    expect(loadConfig({ GITHUB_CONFIG: ".local/github.json" }).githubConfigPath).toBe(
+      fileURLToPath(new URL("../../../.local/github.json", import.meta.url)),
+    );
+    for (const value of ["", " ", "bad\0path"])
+      expect(() => loadConfig({ GITHUB_CONFIG: value })).toThrow("GITHUB_CONFIG");
+  });
   test("resolves service observation config only when explicitly provided", () => {
     expect(loadConfig({ SERVICE_CONFIG: ".local/services.json" }).serviceConfigPath).toBe(
       fileURLToPath(new URL("../../../.local/services.json", import.meta.url)),

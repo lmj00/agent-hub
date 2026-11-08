@@ -1,5 +1,11 @@
 export { parseResponse, type Static, type TSchema } from "./validation.js";
 export {
+  githubConnectionSchema,
+  githubRepositoriesInputSchema,
+  githubRepositoriesSchema,
+  type GitHubRepositories,
+} from "./github.js";
+export {
   projectOverviewSchema,
   projectOverviewQuerySchema,
   type ProjectOverview,

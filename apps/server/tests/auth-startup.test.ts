@@ -27,6 +27,7 @@ afterEach(async () => {
 function launch(file: string, args: string[] = [], overrides: NodeJS.ProcessEnv = {}) {
   const env = { ...process.env };
   delete env.AUTH_CONFIG;
+  delete env.GITHUB_CONFIG;
   delete env.LOCAL_API_ONLY;
   delete env.EXECUTION_CONFIG;
   delete env.NOTIFICATION_CONFIG;

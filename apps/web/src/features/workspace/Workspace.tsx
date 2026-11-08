@@ -5,6 +5,7 @@ import { usePolling } from "../../shared/use-polling.js";
 import { dateTime } from "../../shared/format.js";
 import { ProjectForm } from "../projects/ProjectForm.js";
 import { ProjectOverview } from "../projects/ProjectOverview.js";
+import { GitHubPanel } from "../github/GitHubPanel.js";
 import { ProjectTasks } from "../tasks/ProjectTasks.js";
 import { ExecutionBar } from "../execution/ExecutionBar.js";
 import { ServicePanel } from "../services/ServicePanel.js";
@@ -169,7 +170,12 @@ export function Workspace({
           {overview.data ? (
             <ExecutionBar queue={overview.data.queue} gate={overview.data.gate} />
           ) : null}
-          {!projectId ? <ProjectOverview onSelect={selectProject} onExpired={onExpired} /> : null}
+          {!projectId ? (
+            <>
+              <GitHubPanel onExpired={onExpired} />
+              <ProjectOverview onSelect={selectProject} onExpired={onExpired} />
+            </>
+          ) : null}
           {project ? (
             <>
               <GoalPanel key={`goals:${project.id}`} projectId={project.id} onExpired={onExpired} />

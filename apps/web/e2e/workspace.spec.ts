@@ -653,3 +653,59 @@ test("opens the project overview, preserves navigation and marks retained data w
   await overview.getByRole("button", { name: "다시 불러오기" }).click();
   await expect(overview.getByRole("alert")).toHaveCount(0);
 });
+
+test("checks GitHub configuration explicitly and clears repository data after revoked access", async ({
+  page,
+}, testInfo) => {
+  await login(page);
+  const panel = page.getByRole("region", { name: "GitHub 저장소 연결", exact: true });
+  await panel.locator("summary").click();
+  await expect(panel).toContainText("서버에 GitHub App 연결 설정이 필요합니다");
+  await page.route("**/integrations/github", (route) =>
+    route.fulfill({ json: { configured: true } }),
+  );
+  await panel.getByRole("button", { name: "설정 다시 확인" }).click();
+  const pages: number[] = [];
+  await page.route("**/integrations/github/repositories", async (route) => {
+    const current = route.request().postDataJSON().page;
+    pages.push(current);
+    await route.fulfill({
+      json: {
+        owner: "fixture-owner",
+        checkedAt: "2026-11-01T00:00:00Z",
+        repositories: [
+          {
+            id: current,
+            name: `example-${current}`,
+            fullName: `fixture-owner/example-${current}`,
+            private: true,
+            archived: false,
+          },
+        ],
+        nextPage: current === 1 ? 2 : null,
+      },
+    });
+  });
+  await panel.getByRole("button", { name: "연결 확인 및 저장소 조회" }).click();
+  await expect(panel).toContainText("fixture-owner/example-1");
+  await panel.getByRole("button", { name: "다음", exact: true }).click();
+  await expect(panel).toContainText("fixture-owner/example-2");
+  await expect(panel).not.toContainText("fixture-owner/example-1");
+  expect(pages).toEqual([1, 2]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("github-connection-mobile.png"),
+    fullPage: true,
+  });
+  await page.unroute("**/integrations/github/repositories");
+  await page.route("**/integrations/github/repositories", (route) =>
+    route.fulfill({
+      status: 502,
+      json: { error: "GITHUB_PERMISSION", message: "Unable to read GitHub repositories" },
+    }),
+  );
+  await panel.getByRole("button", { name: "연결 확인 및 저장소 조회" }).click();
+  await expect(panel.getByRole("alert")).toContainText("접근 권한을 확인");
+  await expect(panel).not.toContainText("fixture-owner/example-2");
+});

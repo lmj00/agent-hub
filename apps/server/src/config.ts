@@ -25,6 +25,9 @@ export function loadConfig(env: NodeJS.ProcessEnv) {
     throw new Error("EXECUTION_CONFIG must be a non-empty file path when set.");
   }
   const authPath = env.AUTH_CONFIG;
+  const githubPath = env.GITHUB_CONFIG;
+  if (githubPath !== undefined && (!githubPath.trim() || githubPath.includes("\0")))
+    throw new Error("GITHUB_CONFIG must be a non-empty file path when set.");
   if (authPath !== undefined && (!authPath.trim() || authPath.includes("\0")))
     throw new Error("AUTH_CONFIG must be a non-empty file path when set.");
   if (env.LOCAL_API_ONLY !== undefined && env.LOCAL_API_ONLY !== "1")
@@ -46,6 +49,9 @@ export function loadConfig(env: NodeJS.ProcessEnv) {
     databasePath: resolve(repositoryDirectory, databasePath),
     localApiOnly: env.LOCAL_API_ONLY === "1",
     ...(authPath === undefined ? {} : { authConfigPath: resolve(repositoryDirectory, authPath) }),
+    ...(githubPath === undefined
+      ? {}
+      : { githubConfigPath: resolve(repositoryDirectory, githubPath) }),
     ...(executionPath === undefined
       ? {}
       : { executionConfigPath: resolve(repositoryDirectory, executionPath) }),

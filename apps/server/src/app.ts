@@ -1,4 +1,7 @@
 import { createCapacityRecovery } from "./modules/execution/capacity-recovery.js";
+import type { GitHubConfig } from "./modules/github/github-config.js";
+import { createGitHubClient } from "./modules/github/github-client.js";
+import { githubRoutes } from "./modules/github/routes.js";
 import { createAutomaticRecovery } from "./modules/execution/automatic-recovery.js";
 import Fastify, { type FastifyServerOptions } from "fastify";
 import { openDatabase } from "./db/connection.js";
@@ -68,6 +71,7 @@ import { createNotificationWorker } from "./modules/operations/notification-work
 type AppOptions = Omit<FastifyServerOptions, "ajv"> & {
   databasePath: string;
   auth?: AuthConfig;
+  github?: GitHubConfig;
   webDirectory?: string;
   services?: ServiceConfig;
   notifications?: NotificationConfig;
@@ -83,12 +87,14 @@ export function buildApp({
   databasePath,
   execution,
   auth,
+  github,
   webDirectory,
   services,
   notifications,
   ...options
 }: AppOptions) {
   if (webDirectory && !auth) throw new Error("The management UI requires authentication");
+  if (github && !auth) throw new Error("GitHub connection requires authentication");
   const app = Fastify({
     ...options,
     // 잘못된 타입과 알 수 없는 필드를 자동 보정하지 않고 요청 오류로 알립니다.
@@ -107,6 +113,7 @@ export function buildApp({
       auth?.sourcePath,
       services?.sourcePath,
       notifications?.sourcePath,
+      github?.sourcePath,
     ].filter((path): path is string => path !== undefined);
 
     scope.addHook("onClose", async () => {
@@ -255,6 +262,7 @@ export function buildApp({
     }
 
     if (auth) await installAuthentication(scope, auth, createDrizzleSessionStore(database.db));
+    scope.register(githubRoutes, github ? { client: createGitHubClient(github) } : {});
     scope.get("/operations/notifications", async () => ({
       worker: notifier?.getStatus() ?? {
         enabled: false,
