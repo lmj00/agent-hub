@@ -67,8 +67,8 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
           프로젝트 목표 <span className="count">{goals.length}</span>
         </summary>
         <p className="subtle-note">
-          목표와 실행 기준을 저장합니다. 목표에서 자동으로 작업을 만드는 기능은 아직 연결되지
-          않았습니다.
+          목표와 실행 기준을 설정합니다. 서버의 개발·검증 설정이 준비되면 활성 목표에서 다음 작업을
+          자동으로 찾고, 코드를 수정한 뒤 테스트와 검토를 진행합니다.
         </p>
         {poll.error || error ? (
           <p className="error-text" role="alert">
@@ -104,8 +104,9 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
                   {goal.definition.budget.maxRunMs / 60000}분 실행
                 </p>
                 <small>
-                  현재 기간의 사용량은 실행 예산에서 확인합니다. 예산 수정은 다음 기간부터 적용되며,
-                  다음 점검 예약은 아직 연결되지 않았습니다.
+                  현재 기간의 사용량은 실행 예산에서 확인합니다. 예산 수정은 다음 기간부터
+                  적용됩니다. 할 일이 없으면 점검 간격에 따라 다시 확인하며, 예산이나 실행 상태에
+                  따라 더 기다릴 수 있습니다.
                 </small>
               </details>
               <div className="goal-actions">
