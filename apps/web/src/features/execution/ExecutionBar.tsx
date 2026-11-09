@@ -36,11 +36,13 @@ export function ExecutionBar({ queue, gate }: { queue: Queue; gate: ProviderGate
       <div>
         <span className="eyebrow">실행기</span>
         <strong>
-          {queue.reason === "period_budget"
-            ? "기간 예산 대기"
-            : queue.reason === "development_pending"
-              ? "개발 실행 연결 대기"
-              : queueLabels[queue.state]}
+          {queue.reason === "repository_import"
+            ? "저장소 준비 대기"
+            : queue.reason === "period_budget"
+              ? "기간 예산 대기"
+              : queue.reason === "development_pending"
+                ? "개발 실행 연결 대기"
+                : queueLabels[queue.state]}
         </strong>
       </div>
       <p>
@@ -48,17 +50,19 @@ export function ExecutionBar({ queue, gate }: { queue: Queue; gate: ProviderGate
           ? `${gateLabels[gate.reason!] ?? "AI 계정 확인 필요"} · 제공자 재시도 시각 ${gate.retryAt ? dateTime(gate.retryAt) : "미제공"}`
           : queue.state === "disabled"
             ? "서버에 실행 설정을 연결하면 대기 작업을 순서대로 처리합니다."
-            : queue.reason === "period_budget"
-              ? "실행 예산이 있는 작업을 기다립니다. 각 작업에서 대기 이유와 다음 확인 시각을 볼 수 있습니다."
-              : queue.reason === "development_pending"
-                ? "개발 작업을 시작하려면 해당 작업 공간의 컨테이너 실행과 테스트 설정이 필요합니다."
-                : queue.reason === "change_application_pending"
-                  ? "이전 코드 반영 결과를 확인해야 합니다. 해당 작업에서 상태 확인을 요청해 주세요."
-                  : queue.state === "held"
-                    ? "종료가 확인되지 않은 실행을 먼저 확인해 주세요."
-                    : queue.state === "error"
-                      ? "실행기 상태 조회에 실패했습니다. 서버 기록을 확인해 주세요."
-                      : "한 번에 하나의 작업을 처리합니다. 실행 기록에서 진행 상황을 확인하세요."}
+            : queue.reason === "repository_import"
+              ? "저장소 소스 준비가 끝나면 AI 작업을 이어갑니다."
+              : queue.reason === "period_budget"
+                ? "실행 예산이 있는 작업을 기다립니다. 각 작업에서 대기 이유와 다음 확인 시각을 볼 수 있습니다."
+                : queue.reason === "development_pending"
+                  ? "개발 작업을 시작하려면 해당 작업 공간의 컨테이너 실행과 테스트 설정이 필요합니다."
+                  : queue.reason === "change_application_pending"
+                    ? "이전 코드 반영 결과를 확인해야 합니다. 해당 작업에서 상태 확인을 요청해 주세요."
+                    : queue.state === "held"
+                      ? "종료가 확인되지 않은 실행을 먼저 확인해 주세요."
+                      : queue.state === "error"
+                        ? "실행기 상태 조회에 실패했습니다. 서버 기록을 확인해 주세요."
+                        : "한 번에 하나의 작업을 처리합니다. 실행 기록에서 진행 상황을 확인하세요."}
       </p>
       {gate.blocked && gate.reason === "capacity" && gate.capacityState ? (
         <div className="capacity-summary" aria-label="계정 사용량 확인">

@@ -90,6 +90,59 @@ export function createApiClient(fetcher: typeof fetch = fetch) {
 export const api = createApiClient();
 
 const messages: Record<string, string> = {
+  GITHUB_CREATION_DISABLED: "서버에서 새 저장소 생성을 허용하지 않았습니다.",
+  GITHUB_CREATE_REJECTED:
+    "GitHub가 생성 요청을 거절했습니다. 같은 이름의 저장소와 생성 권한을 확인해 주세요.",
+  GITHUB_CREATE_UNCERTAIN:
+    "GitHub 응답을 확정하지 못했습니다. 중복 요청을 막기 위해 생성을 보류했습니다.",
+  CREATION_REQUEST_CONFLICT:
+    "같은 생성 요청에 다른 내용이 전달됐습니다. 생성 기록을 확인해 주세요.",
+  CREATION_NAME_RESERVED:
+    "이 이름으로 요청한 기록이 있습니다. 기존 생성 기록이나 GitHub 저장소를 확인해 주세요.",
+  CREATION_QUEUE_FULL:
+    "준비 중인 생성 요청이 20건입니다. 진행 상태를 확인한 뒤 다시 요청해 주세요.",
+  CREATION_ATTEMPT_LIMIT: "생성 요청 5회에 도달했습니다. GitHub 권한과 실패 기록을 확인해 주세요.",
+  CREATION_NOT_CONFIGURED: "서버에 GitHub 생성 권한·생성 허용·개발 환경 설정이 필요합니다.",
+  CREATION_PROFILE_UNAVAILABLE: "선택한 검증 환경을 사용할 수 없습니다. 서버 설정을 확인해 주세요.",
+  CREATION_INTERRUPTED:
+    "저장소 생성 요청을 보내기 전에 작업이 중단됐습니다. 상태를 확인하고 다시 요청할 수 있습니다.",
+  CREATION_IMPORT_FAILED:
+    "저장소는 생성됐지만 가져오기 연결을 마치지 못했습니다. 연결만 다시 시도할 수 있습니다.",
+  GITHUB_REPOSITORY_UNAVAILABLE:
+    "저장소의 접근 권한·보관 상태·기본 브랜치를 확인해 주세요. 선택 목록이 바뀌었다면 다시 조회하세요.",
+  IMPORT_TERMINATION_PENDING:
+    "이전 소스 준비 프로세스의 종료를 확인하고 있습니다. 확인 전에는 다음 실행을 시작하지 않습니다.",
+  IMPORT_NOT_CONFIGURED: "서버에 GitHub 연결과 가져오기 검증 환경이 필요합니다.",
+  IMPORT_PROFILE_UNAVAILABLE: "선택한 검증 환경을 사용할 수 없습니다. 서버 설정을 확인해 주세요.",
+  IMPORT_REQUEST_CONFLICT: "같은 요청에 다른 내용이 전달됐습니다. 가져오기 기록을 확인해 주세요.",
+  IMPORT_ATTEMPT_LIMIT:
+    "가져오기 시도 5회에 도달했습니다. 서버의 실패 기록과 작업 폴더를 확인해 주세요.",
+  IMPORT_QUEUE_FULL:
+    "대기 중인 가져오기가 20건입니다. 진행 중인 작업이 끝난 뒤 다시 요청해 주세요.",
+  IMPORT_INTERRUPTED:
+    "서버 중단으로 가져오기를 마치지 못했습니다. 다시 가져오면 새 사본을 준비합니다.",
+  IMPORT_TIMEOUT: "가져오기 제한 시간을 초과했습니다. 저장소 크기와 연결 상태를 확인해 주세요.",
+  IMPORT_ARCHIVE_INVALID:
+    "안전하게 가져올 수 없는 소스입니다. 크기·파일 경로·링크·하위 저장소를 확인해 주세요.",
+  IMPORT_SOURCE_LIMIT: "가져올 소스가 크기 제한을 초과했습니다.",
+  IMPORT_DISK_FULL: "서버에 최소 1GiB의 빈 공간이 필요합니다.",
+  IMPORT_STORAGE_UNSAFE: "작업 폴더의 권한이나 경로를 확인해야 합니다.",
+  IMPORT_SOURCE_CHANGED: "저장한 원본 사본이 변경됐습니다. 서버의 원본 폴더를 확인해 주세요.",
+  IMPORT_WORKSPACE_CONFLICT: "가져올 작업 공간이 기존 설정과 겹칩니다. 서버 설정을 확인해 주세요.",
+  IMPORT_FAILED:
+    "저장소를 가져오지 못했습니다. 연결·저장 공간·검증 환경을 확인한 뒤 다시 시도하세요.",
+  IMPORT_NOT_FOUND: "가져오기 기록을 찾을 수 없습니다.",
+  GITHUB_NOT_CONFIGURED: "서버에 GitHub 연결 설정이 필요합니다.",
+  GITHUB_OWNER_MISMATCH:
+    "GitHub App 설치 계정이 지정한 본인 계정과 다릅니다. 서버 설정을 확인해 주세요.",
+  GITHUB_SELECTED_REPOSITORIES_REQUIRED:
+    "GitHub App 설치에서 전체 저장소 대신 허용할 저장소를 직접 선택해 주세요.",
+  GITHUB_PERMISSION: "GitHub App 키·설치 상태·접근 권한을 확인해 주세요.",
+  GITHUB_RATE_LIMIT: "GitHub 요청 한도에 도달했습니다. 잠시 후 다시 확인해 주세요.",
+  GITHUB_BUSY: "다른 GitHub 요청을 처리하고 있습니다. 잠시 후 다시 확인해 주세요.",
+  GITHUB_INVALID_RESPONSE:
+    "GitHub 응답을 검증하지 못했습니다. 연결 설정과 서버 버전을 확인해 주세요.",
+  GITHUB_UNAVAILABLE: "GitHub에 연결하지 못했습니다. 잠시 후 다시 확인해 주세요.",
   INVALID_BUDGET: "예산 기간·호출 횟수·실행 시간을 확인해 주세요.",
   BUDGET_VERSION_CHANGED: "예산 설정이 바뀌었습니다. 최신 설정을 다시 열어 확인해 주세요.",
   PERIOD_BUDGET_EXHAUSTED:

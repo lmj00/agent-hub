@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { buildApp } from "../src/app.js";
 import { openDatabase } from "../src/db/connection.js";
-import { projects } from "../src/db/schema.js";
+import { goals, projects, runs, tasks } from "../src/db/schema.js";
+import { eq } from "drizzle-orm";
+import { parseResponse, projectOverviewSchema } from "@agent-hub/contracts";
 
 let directory: string;
 let databasePath: string;
@@ -32,6 +34,178 @@ test("returns an empty project list before registration", async () => {
   expect(response.statusCode).toBe(200);
   expect(response.json()).toEqual({ projects: [] });
   expect(response.headers["cache-control"]).toBe("no-store");
+  const overview = await app.inject({ method: "GET", url: "/projects/overview" });
+  expect(overview.statusCode).toBe(200);
+  expect(overview.headers["cache-control"]).toBe("no-store");
+  expect(parseResponse(projectOverviewSchema, overview.json())).toEqual({
+    projects: [],
+    nextOffset: null,
+  });
+});
+
+test("overview separates running work from newer history and ignores paused goal schedules", async () => {
+  await app.ready();
+  const database = openDatabase(databasePath);
+  const projectId = randomUUID();
+  const runningId = randomUUID();
+  const latestId = randomUUID();
+  const now = new Date("2026-01-01T00:00:00Z");
+  const next = new Date("2026-01-02T00:00:00Z");
+  try {
+    database.db
+      .insert(projects)
+      .values({ id: projectId, ...input, createdAt: now })
+      .run();
+    const definition = {
+      description: "Improve",
+      completionCriteria: "Tests pass",
+      kind: "continuous" as const,
+      priority: 50,
+      allowedPaths: ["src"],
+      excludedPaths: [],
+      checkIntervalMs: 900000,
+      budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
+    };
+    database.db
+      .insert(goals)
+      .values([
+        {
+          id: randomUUID(),
+          projectId,
+          requestKey: "active",
+          definition,
+          status: "active",
+          version: 1,
+          nextCheckAt: next,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: randomUUID(),
+          projectId,
+          requestKey: "paused",
+          definition,
+          status: "paused",
+          version: 1,
+          nextCheckAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ])
+      .run();
+    database.db
+      .insert(tasks)
+      .values([
+        {
+          id: runningId,
+          projectId,
+          requestKey: "running",
+          instruction: "Running work",
+          status: "running",
+          createdAt: now,
+        },
+        {
+          id: latestId,
+          projectId,
+          requestKey: "history",
+          instruction: "x".repeat(300),
+          status: "failed",
+          createdAt: next,
+        },
+      ])
+      .run();
+  } finally {
+    database.close();
+  }
+  const response = await app.inject({ method: "GET", url: "/projects/overview" });
+  expect(response.statusCode).toBe(200);
+  const overview = parseResponse(projectOverviewSchema, response.json());
+  expect(overview.projects).toHaveLength(1);
+  expect(overview.projects[0]).toMatchObject({
+    project: { id: projectId },
+    activeGoals: 1,
+    nextCheckAt: next.toISOString(),
+    runningTask: { id: runningId, status: "running", instruction: "Running work" },
+    latestTask: { id: latestId, status: "failed", instruction: "x".repeat(240) },
+  });
+  expect(overview.nextOffset).toBeNull();
+  expect(overview.projects[0]!.terminationPending).toBe(false);
+  const pending = openDatabase(databasePath);
+  try {
+    pending.db.update(tasks).set({ status: "blocked" }).where(eq(tasks.id, runningId)).run();
+    pending.db
+      .insert(runs)
+      .values({
+        id: randomUUID(),
+        taskId: runningId,
+        instanceId: "fixture",
+        status: "blocked",
+        model: "fixture",
+        effort: "medium",
+        startedAt: now,
+        lastActivityAt: now,
+      })
+      .run();
+    const unconfirmed = parseResponse(
+      projectOverviewSchema,
+      (await app.inject("/projects/overview")).json(),
+    );
+    expect(unconfirmed.projects[0]).toMatchObject({
+      runningTask: null,
+      terminationPending: true,
+      latestTask: { id: latestId },
+    });
+    pending.db
+      .update(runs)
+      .set({ terminationConfirmedAt: next })
+      .where(eq(runs.taskId, runningId))
+      .run();
+    const confirmed = parseResponse(
+      projectOverviewSchema,
+      (await app.inject("/projects/overview")).json(),
+    );
+    expect(confirmed.projects[0]!.terminationPending).toBe(false);
+  } finally {
+    pending.close();
+  }
+});
+
+test("overview bounds pages and uses stable project ordering without inventing task state", async () => {
+  await app.ready();
+  const database = openDatabase(databasePath);
+  const ids = Array.from(
+    { length: 25 },
+    (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+  );
+  try {
+    database.db
+      .insert(projects)
+      .values(ids.toReversed().map((id) => ({ ...input, id, createdAt: new Date(0) })))
+      .run();
+  } finally {
+    database.close();
+  }
+  const first = parseResponse(
+    projectOverviewSchema,
+    (await app.inject("/projects/overview")).json(),
+  );
+  expect(first.projects.map((item) => item.project.id)).toEqual(ids.slice(0, 24));
+  expect(first.nextOffset).toBe(24);
+  expect(first.projects[0]).toMatchObject({
+    activeGoals: 0,
+    nextCheckAt: null,
+    runningTask: null,
+    latestTask: null,
+  });
+  const second = parseResponse(
+    projectOverviewSchema,
+    (await app.inject("/projects/overview?offset=24")).json(),
+  );
+  expect(second.projects.map((item) => item.project.id)).toEqual(ids.slice(24));
+  expect(second.nextOffset).toBeNull();
+  for (const query of ["offset=-1", "offset=1.5", "offset=foo", "offset=1000001", "unknown=1"]) {
+    expect((await app.inject(`/projects/overview?${query}`)).statusCode).toBe(400);
+  }
 });
 
 test("registers a project, trims its name, and preserves the API result after reopening the app", async () => {

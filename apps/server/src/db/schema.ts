@@ -94,6 +94,47 @@ export const projects = sqliteTable(
   ],
 );
 
+export const repositoryImports = sqliteTable(
+  "repository_imports",
+  {
+    id: text("id").primaryKey().notNull(),
+    requestKey: text("request_key").notNull(),
+    commandHash: text("command_hash").notNull(),
+    repositoryId: integer("repository_id").notNull(),
+    name: text("name").notNull(),
+    profile: text("profile").notNull(),
+    status: text("status", {
+      enum: ["queued", "preparing", "ready", "failed", "cancelled"],
+    }).notNull(),
+    attempt: integer("attempt").notNull().default(0),
+    attemptId: text("attempt_id"),
+    cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
+    gitPid: integer("git_pid"),
+    fullName: text("full_name"),
+    revision: text("revision"),
+    localRevision: text("local_revision"),
+    errorCode: text("error_code"),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "restrict" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("repository_imports_request_unique").on(table.requestKey),
+    uniqueIndex("repository_imports_repo_unique").on(table.repositoryId),
+    index("repository_imports_queue_idx").on(table.status, table.createdAt, table.id),
+    check(
+      "repository_imports_status_valid",
+      sql`${table.status} IN ('queued','preparing','ready','failed','cancelled')`,
+    ),
+    check("repository_imports_attempt_valid", sql`${table.attempt} >= 0 AND ${table.attempt} <= 5`),
+    check("repository_imports_repo_valid", sql`${table.repositoryId} > 0`),
+    check(
+      "repository_imports_ready_valid",
+      sql`(${table.status} = 'ready') = (${table.projectId} IS NOT NULL)`,
+    ),
+  ],
+);
+
 export const tasks = sqliteTable(
   "tasks",
   {
@@ -633,6 +674,54 @@ export const serviceObservations = sqliteTable(
     check(
       "service_observation_result_valid",
       sql`(${table.success} = 1 AND ${table.snapshot} IS NOT NULL AND json_valid(${table.snapshot}) AND ${table.errorCode} IS NULL) OR (${table.success} = 0 AND ${table.snapshot} IS NULL AND ${table.errorCode} IS NOT NULL)`,
+    ),
+  ],
+);
+
+export const repositoryCreations = sqliteTable(
+  "repository_creations",
+  {
+    id: text("id").primaryKey().notNull(),
+    requestKey: text("request_key").notNull().unique(),
+    commandHash: text("command_hash").notNull(),
+    repositoryName: text("repository_name").notNull(),
+    normalizedName: text("normalized_name").notNull().unique(),
+    name: text("name").notNull(),
+    profile: text("profile").notNull(),
+    status: text("status", {
+      enum: [
+        "queued",
+        "authorizing",
+        "creating",
+        "created",
+        "linked",
+        "failed",
+        "uncertain",
+        "cancelled",
+      ],
+    }).notNull(),
+    attempt: integer("attempt").notNull().default(0),
+    repositoryId: integer("repository_id"),
+    fullName: text("full_name"),
+    importId: text("import_id").references(() => repositoryImports.id, { onDelete: "restrict" }),
+    errorCode: text("error_code"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    index("repository_creations_status_idx").on(table.status, table.createdAt),
+    check("repository_creations_attempt_valid", sql`${table.attempt} BETWEEN 0 AND 5`),
+    check(
+      "repository_creations_status_valid",
+      sql`${table.status} IN ('queued', 'authorizing', 'creating', 'created', 'linked', 'failed', 'uncertain', 'cancelled')`,
+    ),
+    check(
+      "repository_creations_identity_valid",
+      sql`(${table.status} IN ('created', 'linked') AND ${table.repositoryId} IS NOT NULL AND ${table.repositoryId} > 0 AND ${table.fullName} IS NOT NULL) OR (${table.status} NOT IN ('created', 'linked') AND ${table.repositoryId} IS NULL AND ${table.fullName} IS NULL)`,
+    ),
+    check(
+      "repository_creations_link_valid",
+      sql`(${table.status} = 'linked' AND ${table.importId} IS NOT NULL) OR (${table.status} != 'linked' AND ${table.importId} IS NULL)`,
     ),
   ],
 );

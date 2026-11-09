@@ -1,6 +1,10 @@
 import { isWithin } from "../../shared/path-containment.js";
 import { parseEffortPolicy } from "./effort-policy.js";
-import { parseVerificationWorkspaces, validContainerImage } from "./verification-config.js";
+import {
+  parseVerificationWorkspaces,
+  parseVerificationConfig,
+  validContainerImage,
+} from "./verification-config.js";
 import { parseAnalysisWorkflow } from "./analysis-workflow.js";
 import { parseCapacityPolicy } from "./capacity-policy.js";
 import { parseRetryPolicy } from "./retry-policy.js";
@@ -72,6 +76,23 @@ export function loadExecutionConfig(file: string) {
       ? undefined
       : parseVerificationWorkspaces(config.verification, workspaces.keys());
   if (verification && !containerImage) throw new Error("Verification requires container execution");
+  const importProfiles = new Map<string, ReturnType<typeof parseVerificationConfig>>();
+  if (config.importProfiles !== undefined) {
+    if (
+      !containerImage ||
+      !config.importProfiles ||
+      typeof config.importProfiles !== "object" ||
+      Array.isArray(config.importProfiles)
+    )
+      throw new Error(
+        "importProfiles requires container execution and named verification profiles",
+      );
+    for (const [key, profile] of Object.entries(config.importProfiles)) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$/.test(key) || importProfiles.size >= 20)
+        throw new Error("Invalid import profile name or count");
+      importProfiles.set(key, parseVerificationConfig(profile));
+    }
+  }
   const capacity = automaticRecovery
     ? (config.automaticRecovery as Record<string, unknown>).capacity
     : false;
@@ -80,7 +101,13 @@ export function loadExecutionConfig(file: string) {
     codexHome,
     timeoutMs,
     workspaces,
-    ...(verification ? { verification } : {}),
+    ...(verification || importProfiles.size
+      ? {
+          verification:
+            verification ?? new Map<string, ReturnType<typeof parseVerificationConfig>>(),
+        }
+      : {}),
+    ...(importProfiles.size ? { importProfiles } : {}),
     ...(config.analysisWorkflow !== undefined
       ? { analysisWorkflow: parseAnalysisWorkflow(config.analysisWorkflow) }
       : {}),

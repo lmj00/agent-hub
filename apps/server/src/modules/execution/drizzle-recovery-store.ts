@@ -7,7 +7,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { providerGates, recoveryRequests, runs, steps, tasks } from "../../db/schema.js";
 import { assertExecutionOwner } from "./execution-owner.js";
-import { unresolvedRun } from "./drizzle-run-store.js";
+import { unresolvedRun } from "./execution-slot.js";
 import {
   ProviderGateError,
   providerScope,

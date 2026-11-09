@@ -1,3 +1,5 @@
+import { createImportStore } from "./modules/github/import-store.js";
+import { hydrateImports } from "./modules/github/import-runtime.js";
 import { parseArgs } from "node:util";
 import { loadConfig } from "./config.js";
 import { openDatabase } from "./db/connection.js";
@@ -29,7 +31,13 @@ async function main() {
   if (!values.task || !values.config)
     throw new Error("Usage: pnpm task:run --task TASK_ID --config /path/to/execution.json");
   const config = loadExecutionConfig(values.config);
-  const { databasePath, authConfigPath, serviceConfigPath } = loadConfig(process.env);
+  const {
+    databasePath,
+    authConfigPath,
+    serviceConfigPath,
+    notificationConfigPath,
+    githubConfigPath,
+  } = loadConfig(process.env);
   const database = openDatabase(databasePath);
   const controller = new AbortController();
   const cancel = () => controller.abort("user_cancel");
@@ -41,9 +49,20 @@ async function main() {
     validateExecutionEnvironment(
       config,
       databasePath,
-      [authConfigPath, serviceConfigPath].filter((path): path is string => path !== undefined),
+      [authConfigPath, serviceConfigPath, notificationConfigPath, githubConfigPath].filter(
+        (path): path is string => path !== undefined,
+      ),
     );
     owner = acquireExecutionOwner(database.db);
+    createImportStore(database.db, owner.token).recover();
+    await hydrateImports(
+      database.db,
+      config,
+      databasePath,
+      [authConfigPath, serviceConfigPath, notificationConfigPath, githubConfigPath].filter(
+        (path): path is string => path !== undefined,
+      ),
+    );
     const task = createDrizzleTaskStore(database.db).findById(values.task);
     if (!task) throw new Error("Task not found");
     const project = createDrizzleProjectStore(database.db).findById(task.projectId);

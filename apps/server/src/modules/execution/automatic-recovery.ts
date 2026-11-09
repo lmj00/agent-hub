@@ -12,7 +12,7 @@ import {
 } from "../../db/schema.js";
 import { readChangeApplication } from "../goals/change-application.js";
 import { assertExecutionOwner } from "./execution-owner.js";
-import { unresolvedRun } from "./drizzle-run-store.js";
+import { unresolvedRun } from "./execution-slot.js";
 import { readProviderGate } from "./provider-gate.js";
 import { ensureRetryState } from "./retry-state-store.js";
 import {

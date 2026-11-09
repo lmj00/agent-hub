@@ -41,14 +41,14 @@ export function App() {
             한곳에서.
           </h1>
           <p>
-            프로젝트에 분석을 요청하고,
+            프로젝트에 목표를 맡기고,
             <br />
             실행 과정과 결과를 확인하세요.
           </p>
         </div>
         <ol className="login-flow">
           <li>프로젝트 선택</li>
-          <li>분석 요청</li>
+          <li>목표와 범위 설정</li>
           <li>실행 기록 확인</li>
         </ol>
       </section>

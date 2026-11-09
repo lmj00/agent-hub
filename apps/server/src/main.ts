@@ -2,6 +2,7 @@ import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { loadExecutionConfig } from "./modules/execution/execution-config.js";
 import { loadAuthConfig } from "./modules/auth/auth-config.js";
+import { loadGitHubConfig } from "./modules/github/github-config.js";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -13,6 +14,7 @@ async function startServer() {
     databasePath,
     executionConfigPath,
     authConfigPath,
+    githubConfigPath,
     serviceConfigPath,
     notificationConfigPath,
     localApiOnly,
@@ -27,6 +29,7 @@ async function startServer() {
   const app = buildApp({
     databasePath,
     logger: true,
+    ...(githubConfigPath ? { github: loadGitHubConfig(githubConfigPath) } : {}),
     ...(auth ? { auth, trustProxy: auth.origin.startsWith("https:") ? "loopback" : false } : {}),
     ...(auth && existsSync(join(webDirectory, "index.html")) ? { webDirectory } : {}),
     ...(executionConfigPath
