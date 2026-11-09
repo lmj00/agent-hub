@@ -51,6 +51,58 @@ async function createTask(page: Page, instruction: string) {
   await expect(page.locator("#detail-heading")).toHaveText(instruction);
 }
 
+test("marks publication uncertain after a lost write response and rechecks before another save", async ({
+  page,
+}, testInfo) => {
+  await login(page);
+  await createProject(page, "공개 응답 유실 확인");
+  const panel = page.getByRole("region", { name: "프로젝트 공개 설정" });
+  await panel.locator("summary").click();
+  await expect(panel.locator("summary")).toHaveText("공개 여부 비공개");
+  await panel.getByLabel("공개용 이름", { exact: true }).fill("확인할 공개 이름");
+  await panel.getByLabel("방문자에게 공개", { exact: true }).check();
+  let publicationPath = "";
+  await page.route("**/projects/*/publication", async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    publicationPath = new URL(route.request().url()).pathname;
+    await route.fetch();
+    await route.abort("failed");
+  });
+  await panel.getByRole("button", { name: "공개 설정 저장" }).click();
+  await expect(panel.getByRole("alert")).toBeVisible();
+  const persisted = await page.request.get(publicationPath);
+  expect(persisted.ok()).toBe(true);
+  expect((await persisted.json()).listed).toBe(true);
+  await expect(panel.locator("summary")).toHaveText("공개 여부 확인 필요");
+  await expect(panel.getByRole("button", { name: "공개 설정 저장" })).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath("publication-uncertain.png"), fullPage: true });
+  await page.unroute("**/projects/*/publication");
+  let releaseRead!: () => void;
+  const pendingRead = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  await page.route("**/projects/*/publication", async (route) => {
+    const response = await route.fetch();
+    await pendingRead;
+    await route.fulfill({ response });
+  });
+  try {
+    await panel.getByRole("button", { name: "다시 확인", exact: true }).click();
+    await expect(panel.locator("summary")).toHaveText("공개 여부 확인 중");
+    await expect(panel.getByRole("button", { name: "공개 설정 저장" })).toBeDisabled();
+    await expect(panel.getByLabel("방문자에게 공개", { exact: true })).toBeDisabled();
+  } finally {
+    releaseRead();
+  }
+  await expect(panel.locator("summary")).toHaveText("공개 여부 공개");
+  await expect(panel.getByRole("alert")).toHaveCount(0);
+  await page.unroute("**/projects/*/publication");
+  await panel.getByLabel("방문자에게 공개", { exact: true }).uncheck();
+  await panel.getByRole("button", { name: "공개 설정 저장" }).click();
+  await expect(panel.locator("summary")).toHaveText("공개 여부 비공개");
+  expect((await (await page.request.get(publicationPath)).json()).listed).toBe(false);
+});
+
 test("creates a private project with a stable request key and explains uncertain writes without a retry button", async ({
   page,
 }, testInfo) => {
