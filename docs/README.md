@@ -38,6 +38,7 @@
 - [자원 사용 기록](history/resource-measurements.md): 측정 환경·메모리·파일 증가량과 해석의 한계.
 - [20분 지속 관리 시험](history/continuous-operation.md): 입력 변화·관측 실패·대기·앱 다시 열기에 따른 실제 AI 동작.
 - [Linux 1시간 시험](history/linux-continuous-operation.md): 실제 AI의 누적 개발·프로세스 재시작·관측 장애와 자원 측정.
+- [사용 흐름과 공개 경계 검증](history/usability-stabilization.md): 공개 설정 응답 유실 수정, 화면·인증·컨테이너 복구 검사와 남은 운영 확인.
 
 기록 안의 “현재”, “다음 단계”, 테스트 수는 **작성 당시 기준**입니다. 새 작업을 결정할 때는 현재 진행 문서를 먼저 확인합니다. 과거 소스 줄 번호를 최신 위치로 해석하지 않습니다.
 
