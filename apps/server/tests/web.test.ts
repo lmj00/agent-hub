@@ -89,3 +89,32 @@ test("public shell routes do not allow cross-site access or bypass write authent
     }),
   ).toThrow("requires authentication");
 });
+
+test("shared public links allow top-level navigation while cross-site API calls and writes remain denied", async () => {
+  const headers = {
+    "sec-fetch-site": "cross-site",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-dest": "document",
+  };
+  expect((await app.inject({ url: "/", headers })).statusCode).toBe(200);
+  for (const url of ["/projects", "/public/projects", "/auth/session"])
+    expect((await app.inject({ url, headers })).statusCode).toBe(403);
+  expect(
+    (
+      await app.inject({
+        method: "POST",
+        url: "/auth/login",
+        headers,
+        payload: { password: "invalid" },
+      })
+    ).statusCode,
+  ).toBe(403);
+  expect(
+    (
+      await app.inject({
+        url: "/",
+        headers: { ...headers, "sec-fetch-mode": "cors", "sec-fetch-dest": "empty" },
+      })
+    ).statusCode,
+  ).toBe(403);
+});

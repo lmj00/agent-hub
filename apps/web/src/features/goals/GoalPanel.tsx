@@ -8,6 +8,7 @@ import {
 } from "@agent-hub/contracts";
 import { api, ApiError, errorMessage } from "../../shared/api.js";
 import { usePolling } from "../../shared/use-polling.js";
+import { Drawer } from "../../shared/Drawer.js";
 import { dateTime } from "../../shared/format.js";
 
 const labels = { active: "활성", paused: "일시정지", completed: "완료" };
@@ -28,6 +29,7 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
   const [historyId, setHistoryId] = useState<string | null>(null),
     [error, setError] = useState<unknown>(null),
     [busy, setBusy] = useState(false);
+  const focusTarget = useRef<HTMLElement | null>(null);
   const pending = useRef<{ signature: string; key: string } | null>(null);
   const load = useCallback(
     (signal: AbortSignal) => api.request(`/projects/${projectId}/goals`, goalsSchema, { signal }),
@@ -70,7 +72,7 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
           목표와 실행 기준을 설정합니다. 서버의 개발·검증 설정이 준비되면 활성 목표에서 다음 작업을
           자동으로 찾고, 코드를 수정한 뒤 테스트와 검토를 진행합니다.
         </p>
-        {poll.error || error ? (
+        {!editing && (poll.error || error) ? (
           <p className="error-text" role="alert">
             {errorMessage(error ?? poll.error)}
           </p>
@@ -113,7 +115,8 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
                 <button
                   className="secondary"
                   disabled={busy || goal.status === "completed"}
-                  onClick={() => {
+                  onClick={(event) => {
+                    focusTarget.current = event.currentTarget;
                     setEditing(goal);
                     setError(null);
                   }}
@@ -149,35 +152,47 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
             </article>
           ))}
         </div>
-        {!editing ? (
-          <button
-            className="secondary"
-            disabled={busy}
-            onClick={() => {
-              setEditing("new");
-              setError(null);
-            }}
-          >
-            목표 등록 +
-          </button>
-        ) : (
-          <GoalForm
-            key={editing === "new" ? "new" : `${editing.id}:${editing.version}`}
-            initial={editing === "new" ? defaults : editing.definition}
+        <button
+          className="secondary"
+          disabled={busy}
+          onClick={(event) => {
+            focusTarget.current = event.currentTarget;
+            setEditing("new");
+            setError(null);
+          }}
+        >
+          목표 등록 +
+        </button>
+        {editing ? (
+          <Drawer
+            returnFocus={focusTarget.current}
+            title={editing === "new" ? "목표 추가" : "목표 수정"}
             busy={busy}
             onClose={() => setEditing(null)}
-            onSave={(definition) =>
-              change(
-                editing === "new" ? `/projects/${projectId}/goals` : `/goals/${editing.id}`,
-                editing === "new" ? "POST" : "PATCH",
-                {
-                  definition,
-                  ...(editing === "new" ? {} : { expectedVersion: editing.version }),
-                },
-              )
-            }
-          />
-        )}
+          >
+            {error ? (
+              <p className="error-text" role="alert">
+                {errorMessage(error)}
+              </p>
+            ) : null}
+            <GoalForm
+              key={editing === "new" ? "new" : `${editing.id}:${editing.version}`}
+              initial={editing === "new" ? defaults : editing.definition}
+              busy={busy}
+              onClose={() => setEditing(null)}
+              onSave={(definition) =>
+                change(
+                  editing === "new" ? `/projects/${projectId}/goals` : `/goals/${editing.id}`,
+                  editing === "new" ? "POST" : "PATCH",
+                  {
+                    definition,
+                    ...(editing === "new" ? {} : { expectedVersion: editing.version }),
+                  },
+                )
+              }
+            />
+          </Drawer>
+        ) : null}
       </details>
     </section>
   );
@@ -237,6 +252,7 @@ function GoalForm({
     <form className="goal-form stack" onSubmit={(event) => void submit(event)}>
       <label htmlFor="goal-description">프로젝트 목표</label>
       <textarea
+        data-initial-focus
         id="goal-description"
         required
         maxLength={10000}

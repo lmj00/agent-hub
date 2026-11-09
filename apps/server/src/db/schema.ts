@@ -94,6 +94,16 @@ export const projects = sqliteTable(
   ],
 );
 
+// Publication is explicit and separate from the source repository's visibility.
+export const projectPublications = sqliteTable("project_publications", {
+  projectId: text("project_id")
+    .primaryKey()
+    .notNull()
+    .references(() => projects.id, { onDelete: "restrict" }),
+  listed: integer("listed", { mode: "boolean" }).notNull().default(false),
+  name: text("name").notNull(),
+});
+
 export const repositoryImports = sqliteTable(
   "repository_imports",
   {

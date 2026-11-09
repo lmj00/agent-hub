@@ -4,7 +4,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
-import { authSessions, projects, tasks } from "../src/db/schema.js";
+import { authSessions, projects, projectPublications, tasks } from "../src/db/schema.js";
 
 const migrationCount = JSON.parse(
   readFileSync(join(migrationsDirectory, "meta", "_journal.json"), "utf8"),
@@ -268,4 +268,27 @@ test("enforces task foreign keys, request uniqueness, and status in SQLite", () 
       retryState: null,
     },
   ]);
+});
+
+test("publication migration preserves existing private projects without creating public entries", () => {
+  const folder = join(directory, "before-publication");
+  cpSync(migrationsDirectory, folder, { recursive: true });
+  const journalPath = join(folder, "meta", "_journal.json");
+  const journal = JSON.parse(readFileSync(journalPath, "utf8"));
+  const publicationIndex = journal.entries.findIndex((entry: { tag: string }) =>
+    entry.tag.startsWith("0033_"),
+  );
+  expect(publicationIndex).toBeGreaterThan(0);
+  journal.entries = journal.entries.slice(0, publicationIndex);
+  writeFileSync(journalPath, JSON.stringify(journal));
+  const old = connect(folder);
+  old.db.insert(projects).values(project).run();
+  expect(
+    old.client.prepare("SELECT name FROM sqlite_master WHERE name = 'project_publications'").get(),
+  ).toBeUndefined();
+  old.close();
+  const upgraded = connect();
+  expect(upgraded.db.select().from(projects).all()).toEqual([project]);
+  expect(upgraded.db.select().from(projectPublications).all()).toEqual([]);
+  expect(() => upgraded.checkReady()).not.toThrow();
 });

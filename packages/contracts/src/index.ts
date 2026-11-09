@@ -133,3 +133,11 @@ export {
   servicesSchema,
 } from "./services.js";
 export { sessionSchema, type Session, loginSchema } from "./auth.js";
+
+export {
+  projectPublicationSchema,
+  updateProjectPublicationSchema,
+  publicProjectsSchema,
+  type ProjectPublication,
+  type PublicProjects,
+} from "./public-projects.js";

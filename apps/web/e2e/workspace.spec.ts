@@ -25,7 +25,7 @@ const test = base.extend<
 });
 
 async function login(page: Page) {
-  await page.goto("/");
+  await page.goto("/#login");
   const signedIn = page.getByRole("button", { name: "로그아웃", exact: true });
   await expect(signedIn.or(page.getByLabel("비밀번호", { exact: true }))).toBeVisible();
   if (await signedIn.isVisible()) return;
