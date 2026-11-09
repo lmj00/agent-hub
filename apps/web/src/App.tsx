@@ -2,9 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@agent-hub/contracts";
 import { api, errorMessage } from "./shared/api.js";
 import { Login } from "./features/auth/Login.js";
+import { PublicProjects } from "./features/public/PublicProjects.js";
+import { Brand } from "./shared/Brand.js";
 import { Workspace } from "./features/workspace/Workspace.js";
 
 export function App() {
+  const [view, setView] = useState(window.location.hash);
+  useEffect(() => {
+    const navigate = () => setView(window.location.hash);
+    window.addEventListener("hashchange", navigate);
+    return () => window.removeEventListener("hashchange", navigate);
+  }, []);
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [checking, setChecking] = useState(true);
@@ -19,20 +27,30 @@ export function App() {
   }, []);
   useEffect(refreshSession, [refreshSession]);
   const expired = useCallback(() => {
+    window.location.hash = "login";
     setSession(null);
     refreshSession();
   }, [refreshSession]);
 
-  if (session?.authenticated) return <Workspace onExpired={expired} onLogout={refreshSession} />;
+  if (session?.authenticated && view !== "#public")
+    return (
+      <Workspace
+        onExpired={expired}
+        onLogout={() => {
+          window.location.hash = "login";
+          setSession(null);
+          refreshSession();
+        }}
+      />
+    );
+  if (view !== "#login" && !checking && !error)
+    return <PublicProjects owner={session?.authenticated === true} />;
   return (
     <main className="login-layout">
       <section className="login-intro">
-        <p className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            a
-          </span>
-          agent-hub
-        </p>
+        <a href="#public" aria-label="공개 화면 보기">
+          <Brand />
+        </a>
         <div className="login-message">
           <p className="eyebrow">프로젝트 작업 공간</p>
           <h1>
@@ -66,7 +84,12 @@ export function App() {
             </button>
           </div>
         ) : (
-          <Login onLogin={setSession} />
+          <Login
+            onLogin={(value) => {
+              window.location.hash = "";
+              setSession(value);
+            }}
+          />
         )}
         <p className="login-footnote">이 공간에는 프로젝트 지시와 실행 결과가 저장됩니다.</p>
       </section>

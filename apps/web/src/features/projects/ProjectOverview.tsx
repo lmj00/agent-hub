@@ -21,13 +21,6 @@ export function ProjectOverview({
   const poll = usePolling(`projects-overview:${offset}`, load, onExpired, 3000, revision);
   return (
     <section className="project-overview" aria-label="프로젝트 전체 현황">
-      <div className="overview-intro">
-        <h2>목표를 맡기고, 변화를 확인하세요.</h2>
-        <p>
-          프로젝트를 열어 목표와 허용 범위를 정하세요. 실행 환경이 준비되면 에이전트가 다음 작업을
-          이어갑니다.
-        </p>
-      </div>
       <div className="section-heading">
         <h2>프로젝트별 진행 상황</h2>
         <small className="muted">마지막 확인 {dateTime(poll.checkedAt)}</small>

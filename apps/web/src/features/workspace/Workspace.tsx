@@ -3,6 +3,8 @@ import { projectsSchema, queueSchema, providerGateSchema } from "@agent-hub/cont
 import { api, ApiError, errorMessage } from "../../shared/api.js";
 import { usePolling } from "../../shared/use-polling.js";
 import { dateTime } from "../../shared/format.js";
+import { Brand } from "../../shared/Brand.js";
+import { PublicationPanel } from "../projects/PublicationPanel.js";
 import { ProjectForm } from "../projects/ProjectForm.js";
 import { ProjectOverview } from "../projects/ProjectOverview.js";
 import { GitHubPanel } from "../github/GitHubPanel.js";
@@ -65,13 +67,13 @@ export function Workspace({
   return (
     <div className="workspace">
       <header className="topbar">
-        <a className="brand" href="/" aria-label="agent-hub 처음 화면">
-          <span className="brand-mark" aria-hidden="true">
-            a
-          </span>
-          agent-hub
+        <a className="brand-link" href="/" aria-label="agent-hub 처음 화면">
+          <Brand />
         </a>
         <span className="topbar-label">프로젝트 작업 공간</span>
+        <a className="quiet public-view-link" href="#public">
+          공개 화면 보기
+        </a>
         <button className="quiet" onClick={() => void logout()} disabled={loggingOut}>
           로그아웃
         </button>
@@ -172,6 +174,7 @@ export function Workspace({
           ) : null}
           {!projectId ? (
             <>
+              <ProjectOverview onSelect={selectProject} onExpired={onExpired} />
               <GitHubPanel
                 onExpired={onExpired}
                 onOpen={(id) => {
@@ -179,11 +182,15 @@ export function Workspace({
                   selectProject(id);
                 }}
               />
-              <ProjectOverview onSelect={selectProject} onExpired={onExpired} />
             </>
           ) : null}
           {project ? (
             <>
+              <PublicationPanel
+                key={`publication:${project.id}`}
+                projectId={project.id}
+                onExpired={onExpired}
+              />
               <GoalPanel key={`goals:${project.id}`} projectId={project.id} onExpired={onExpired} />
               <ServicePanel
                 key={`services:${project.id}`}

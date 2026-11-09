@@ -15,6 +15,7 @@ import { openDatabase } from "./db/connection.js";
 import { healthRoutes } from "./modules/health/routes.js";
 import { createDrizzleProjectStore } from "./modules/projects/drizzle-project-store.js";
 import { readProjectOverview } from "./modules/projects/project-overview.js";
+import { publicationRoutes } from "./modules/projects/publication-routes.js";
 import { projectRoutes } from "./modules/projects/routes.js";
 import { createDrizzleTaskStore } from "./modules/tasks/drizzle-task-store.js";
 import { taskRoutes } from "./modules/tasks/routes.js";
@@ -358,6 +359,7 @@ export function buildApp({
     if (webDirectory) scope.register(webRoutes, { directory: webDirectory });
     scope.register(healthRoutes, { checkDatabase: () => database.checkReady() });
     const projectStore = createDrizzleProjectStore(database.db);
+    scope.register(publicationRoutes, { db: database.db });
     scope.register(projectRoutes, {
       store: projectStore,
       overview: (offset) => readProjectOverview(database.db, offset),

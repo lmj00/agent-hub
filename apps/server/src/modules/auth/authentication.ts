@@ -19,6 +19,7 @@ const authenticatedTtl = 8 * 60 * 60 * 1000;
 const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
 const publicRoutes = new Set([
   "/health/live",
+  "/public/projects",
   "/auth/session",
   "/auth/login",
   "/",
@@ -62,7 +63,13 @@ export async function installAuthentication(
     if (
       !matchesHost(request.headers.host, origin) ||
       (request.headers.origin !== undefined && request.headers.origin !== config.origin) ||
-      request.headers["sec-fetch-site"] === "cross-site"
+      (request.headers["sec-fetch-site"] === "cross-site" &&
+        !(
+          (request.method === "GET" || request.method === "HEAD") &&
+          request.routeOptions.url === "/" &&
+          request.headers["sec-fetch-mode"] === "navigate" &&
+          request.headers["sec-fetch-dest"] === "document"
+        ))
     ) {
       return reply.code(403).send({
         error: "ORIGIN_NOT_ALLOWED",
