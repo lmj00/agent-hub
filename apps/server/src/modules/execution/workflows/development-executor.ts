@@ -25,9 +25,15 @@ import {
   prepareRecordedDevelopment,
   prepareRecordedVerification,
 } from "./recorded-development.js";
-import { readDevelopmentRounds } from "../../goals/development-journal.js";
+import {
+  readDevelopmentRepository,
+  readDevelopmentRounds,
+} from "../../goals/development-journal.js";
 import { readGoalScope } from "../../goals/prepared-input-store.js";
-import type { DevelopmentInput } from "../../workspace/development-workspace.js";
+import {
+  validCandidateDigest,
+  type DevelopmentInput,
+} from "../../workspace/development-workspace.js";
 import {
   applyChangeApplication,
   prepareChangeApplication,
@@ -159,6 +165,23 @@ export function createDevelopmentExecutor(options: {
         let previous = prior?.round.candidate ?? undefined;
         let previousReview = prior?.round.review?.assessment;
         let verification = prior?.round.verificationResult ?? undefined;
+        let instruction = request.instruction;
+        const repository = readDevelopmentRepository(db, project.id)?.prepared;
+        if (previous) {
+          if (
+            !repository ||
+            previous.repositoryId !== repository.id ||
+            !validCandidateDigest(previous)
+          )
+            throw new AnalysisError("input_unavailable");
+          if (previous.baseRevision !== repository.head) {
+            // Another task landed during the wait. Keep the old evidence, but
+            // never put its whole tree over the current accepted revision.
+            instruction += `\nThe repository advanced from ${previous.baseRevision} to ${repository.head} since the previous attempt. Its candidate remains in history and is NOT applied to this workspace. Implement this same Task from the current files, preserving accepted changes. Previous review findings are historical hints only; tests and independent review must run again.`;
+            previous = undefined;
+            verification = undefined;
+          }
+        }
         let usage: AnalysisUsage | null = {
           inputTokens: 0,
           cachedInputTokens: 0,
@@ -195,7 +218,7 @@ export function createDevelopmentExecutor(options: {
             workspace: prepared.input.directory,
             development: manifest(prepared.input),
             instruction: developmentInstruction({
-              instruction: request.instruction,
+              instruction,
               work: task.plannedWork!,
               round: sequence,
               role: "developer",
