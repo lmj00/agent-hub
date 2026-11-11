@@ -31,12 +31,16 @@ export function RepositoryImports({
   const [revision, setRevision] = useState(0);
   const requestKey = useRef(crypto.randomUUID());
   const controller = useRef<AbortController | null>(null);
+  const heading = useRef<HTMLHeadingElement | null>(null);
   const load = useCallback(
     (signal: AbortSignal) =>
       api.request("/integrations/github/imports", repositoryImportsSchema, { signal }),
     [],
   );
   const poll = usePolling("github-imports", load, onExpired, 3000, revision);
+  useEffect(() => {
+    if (selected) heading.current?.focus();
+  }, [selected]);
   useEffect(() => {
     setName(selected?.name ?? "");
     requestKey.current = crypto.randomUUID();
@@ -77,12 +81,20 @@ export function RepositoryImports({
       });
   }
   return (
-    <section className="repository-imports" aria-label="프로젝트 가져오기">
-      <h3>프로젝트 가져오기</h3>
+    <section id="repository-imports" className="repository-imports" aria-label="프로젝트 가져오기">
+      <h3 ref={heading} tabIndex={-1}>
+        프로젝트 가져오기
+      </h3>
       <p className="subtle-note">
         선택한 저장소의 현재 소스를 별도 폴더로 준비합니다. GitHub 원본과 과거 커밋 이력은 변경하지
         않습니다. 준비 후 프로젝트를 열어 목표를 맡기세요.
       </p>
+      {selected ? (
+        <p role="status">
+          선택한 저장소: <strong>{selected.fullName}</strong>
+        </p>
+      ) : null}
+      {!poll.data && !poll.error ? <p>가져오기 환경 확인 중…</p> : null}
       {poll.error || error ? (
         <p className="error-text" role="alert">
           {errorMessage(error ?? poll.error)}{" "}
@@ -90,11 +102,13 @@ export function RepositoryImports({
         </p>
       ) : null}
       {poll.data && !poll.data.enabled ? (
-        <p>가져오려면 서버에 GitHub 연결과 개발·검증 환경을 설정해야 합니다.</p>
+        <p>
+          <strong>아직 가져올 수 없습니다.</strong> 가져오려면 서버에 GitHub 연결과 개발·검증 환경을
+          설정해야 합니다. 저장소 선택만으로 가져오기가 시작되지는 않습니다.
+        </p>
       ) : null}
       {selected && poll.data?.enabled ? (
         <form className="stack compact" onSubmit={submit}>
-          <strong>{selected.fullName}</strong>
           <label htmlFor="import-project-name">가져올 프로젝트 이름</label>
           <input
             id="import-project-name"

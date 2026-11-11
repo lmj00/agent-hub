@@ -115,11 +115,12 @@ export function GitHubPanel({
                     {repo.archived ? " · 보관됨" : ""}
                   </small>
                   <button
-                    className="secondary"
+                    className={selected?.id === repo.id ? "primary" : "secondary"}
                     disabled={repo.archived}
-                    onClick={() => setSelected(repo)}
+                    aria-controls="repository-imports"
+                    onClick={() => setSelected({ ...repo })}
                   >
-                    가져오기 선택
+                    {selected?.id === repo.id ? "선택됨 · 가져오기 확인" : "가져오기 선택"}
                   </button>
                 </li>
               ))}
@@ -148,8 +149,8 @@ export function GitHubPanel({
             </nav>
           </>
         ) : null}
-        <RepositoryCreations onExpired={onExpired} />
         <RepositoryImports selected={selected} onExpired={onExpired} onOpen={onOpen} />
+        <RepositoryCreations onExpired={onExpired} />
       </details>
     </section>
   );

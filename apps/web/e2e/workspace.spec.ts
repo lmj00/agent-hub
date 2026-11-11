@@ -841,6 +841,75 @@ test("checks GitHub configuration explicitly and clears repository data after re
 
 // UI contract only: GitHub/import responses are synthetic. Server tests exercise
 // authentication, archive preparation, durable registration and runtime activation.
+test("explains unavailable imports after selecting a repository and recovers when configured", async ({
+  page,
+}) => {
+  let enabled = false;
+  let submissions = 0;
+  await page.route("**/integrations/github", (route) =>
+    route.fulfill({ json: { configured: true } }),
+  );
+  await page.route("**/integrations/github/repositories", (route) =>
+    route.fulfill({
+      json: {
+        owner: "fixture-owner",
+        checkedAt: new Date().toISOString(),
+        nextPage: null,
+        repositories: [
+          {
+            id: 78,
+            name: "example",
+            fullName: "fixture-owner/example",
+            private: true,
+            archived: false,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/integrations/github/imports", (route) => {
+    if (route.request().method() === "POST") submissions++;
+    return route.fulfill({ json: { enabled, profiles: enabled ? ["node"] : [], imports: [] } });
+  });
+  await login(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const panel = page.getByRole("region", { name: "GitHub 저장소 연결", exact: true });
+  await panel.locator("summary").click();
+  await panel.getByRole("button", { name: "연결 확인 및 저장소 조회" }).click();
+  const imports = panel.getByRole("region", { name: "프로젝트 가져오기", exact: true });
+  await expect(imports).toContainText("가져오려면 서버에 GitHub 연결과 개발·검증 환경을 설정");
+  const select = panel.getByRole("button", { name: "가져오기 선택", exact: true });
+  await select.click();
+  const selected = panel.getByRole("button", { name: "선택됨 · 가져오기 확인", exact: true });
+  await expect(selected).toBeVisible();
+  await expect(selected).toHaveAttribute("aria-controls", "repository-imports");
+  expect(
+    await imports.evaluate((element) => {
+      const creation = document.querySelector('[aria-label="새 프로젝트 만들기"]');
+      return (
+        creation !== null &&
+        Boolean(element.compareDocumentPosition(creation) & Node.DOCUMENT_POSITION_FOLLOWING)
+      );
+    }),
+  ).toBe(true);
+  await expect(imports.getByRole("status")).toContainText("fixture-owner/example");
+  await expect(imports.getByRole("heading")).toBeFocused();
+  await expect(imports.getByRole("heading")).toBeInViewport();
+  await expect(
+    imports.getByRole("button", { name: "이 저장소 가져오기", exact: true }),
+  ).toHaveCount(0);
+  await selected.focus();
+  await page.keyboard.press("Enter");
+  await expect(imports.getByRole("heading")).toBeFocused();
+  enabled = true;
+  const refresh = imports.getByRole("button", { name: "가져오기 상태 새로고침" });
+  await refresh.click();
+  await expect(imports.getByLabel("가져올 프로젝트 이름")).toHaveValue("example");
+  await expect(imports.getByLabel("검증 환경", { exact: true })).toHaveValue("node");
+  await expect(refresh).toBeFocused();
+  expect(submissions).toBe(0);
+});
+
 test("selects a repository, retries and cancels an import, then opens its ready project", async ({
   page,
 }, testInfo) => {
@@ -914,6 +983,9 @@ test("selects a repository, retries and cancels an import, then opens its ready 
   await panel.locator("summary").click();
   await panel.getByRole("button", { name: "연결 확인 및 저장소 조회" }).click();
   await panel.getByRole("button", { name: "가져오기 선택", exact: true }).click();
+  await expect(
+    panel.getByRole("heading", { name: "프로젝트 가져오기", exact: true }),
+  ).toBeFocused();
   await panel.getByLabel("가져올 프로젝트 이름").fill("내 학습 앱");
   await panel.getByRole("button", { name: "이 저장소 가져오기", exact: true }).click();
   await expect(panel).toContainText("소스 준비 중");
