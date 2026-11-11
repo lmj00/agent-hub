@@ -101,14 +101,14 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
                 </p>
                 <p>
                   점검 간격 {goal.definition.checkIntervalMs / 60000}분 ·{" "}
-                  {goal.definition.budget.windowMs / 60000}분마다 최대{" "}
-                  {goal.definition.budget.maxCalls}회·
-                  {goal.definition.budget.maxRunMs / 60000}분 실행
+                  {goal.definition.budget.unlimited
+                    ? "목표 예산 제한 없음"
+                    : `${goal.definition.budget.windowMs / 60000}분마다 최대 ${goal.definition.budget.maxCalls}회·${goal.definition.budget.maxRunMs / 60000}분 실행`}
                 </p>
                 <small>
-                  현재 기간의 사용량은 실행 예산에서 확인합니다. 예산 수정은 다음 기간부터
-                  적용됩니다. 할 일이 없으면 점검 간격에 따라 다시 확인하며, 예산이나 실행 상태에
-                  따라 더 기다릴 수 있습니다.
+                  현재 기간의 사용량은 실행 예산에서 확인합니다. 제한 없음은 현재 기간에도, 숫자
+                  상한 변경은 다음 기간부터 적용됩니다. 할 일이 없으면 점검 간격에 따라 다시
+                  확인하며, 예산이나 실행 상태에 따라 더 기다릴 수 있습니다.
                 </small>
               </details>
               <div className="goal-actions">
@@ -317,6 +317,19 @@ function GoalForm({
           />
           <div className="goal-fields">
             <label>
+              <input
+                type="checkbox"
+                checked={draft.budget.unlimited === true}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    budget: { ...draft.budget, unlimited: event.target.checked },
+                  })
+                }
+              />
+              목표 예산 제한 없음
+            </label>
+            <label>
               점검 간격(분)
               <input
                 type="number"
@@ -342,6 +355,7 @@ function GoalForm({
                 max={1440}
                 required
                 value={draft.budget.windowMs / 60000}
+                disabled={draft.budget.unlimited}
                 onChange={(event) =>
                   setDraft({
                     ...draft,
@@ -361,6 +375,7 @@ function GoalForm({
                 max={1000}
                 required
                 value={draft.budget.maxCalls}
+                disabled={draft.budget.unlimited}
                 onChange={(event) =>
                   setDraft({
                     ...draft,
@@ -381,6 +396,7 @@ function GoalForm({
                 max={draft.budget.windowMs / 60000}
                 required
                 value={draft.budget.maxRunMs / 60000}
+                disabled={draft.budget.unlimited}
                 onChange={(event) =>
                   setDraft({
                     ...draft,

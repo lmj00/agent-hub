@@ -3,7 +3,7 @@ import type { PeriodBudgetPolicy, ProjectBudget } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
 import { budgetReservations, goals, projectBudgets, projects } from "../../db/schema.js";
 import { BudgetError, defaultProjectBudget, validateBudget } from "./budget-policy.js";
-import { latestPeriod } from "./budget-store.js";
+import { latestPeriod, withCurrentBudgetMode } from "./budget-store.js";
 
 export function createProjectBudgetStore(db: ReturnType<typeof openDatabase>["db"]) {
   function view(projectId: string): ProjectBudget {
@@ -53,7 +53,7 @@ export function createProjectBudgetStore(db: ReturnType<typeof openDatabase>["db
           period: {
             startedAt: period.startedAt.toISOString(),
             endsAt: period.endsAt.toISOString(),
-            policy: period.policy,
+            policy: withCurrentBudgetMode(db, period).policy,
             calls: period.calls,
             chargedRunMs: Math.max(0, period.runMs - reservedRunMs),
             reservedRunMs,

@@ -18,6 +18,18 @@ export function latestPeriod(db: Pick<BudgetDb, "select">, accountKey: string) {
     .get();
 }
 
+// Enabling or disabling enforcement is immediate; stored usage and period limits stay intact.
+export function withCurrentBudgetMode(
+  db: Pick<BudgetDb, "select">,
+  period: typeof budgetPeriods.$inferSelect,
+) {
+  const policy = period.goalId
+    ? db.select().from(goals).where(eq(goals.id, period.goalId)).get()?.definition.budget
+    : db.select().from(projectBudgets).where(eq(projectBudgets.projectId, period.projectId)).get()
+        ?.policy;
+  return { ...period, policy: { ...period.policy, unlimited: policy?.unlimited === true } };
+}
+
 function periodsForTask(db: BudgetDb, task: TaskReference, now: Date, create: boolean): Period[] {
   let project = db
     .select()
@@ -58,7 +70,7 @@ function periodsForTask(db: BudgetDb, task: TaskReference, now: Date, create: bo
   ];
   return accounts.flatMap((account) => {
     const previous = latestPeriod(db, account.accountKey);
-    if (previous && previous.endsAt > now) return [previous];
+    if (previous && previous.endsAt > now) return [withCurrentBudgetMode(db, previous)];
     if (!create) return [];
     const policy = validateBudget(account.policy);
     return [
@@ -89,7 +101,12 @@ export function prepareRunBudget(db: BudgetDb, task: TaskReference, now: Date) {
       0,
       Math.min(
         ...periods.map((period) =>
-          Math.min(period.policy.maxRunMs - period.runMs, period.endsAt.getTime() - now.getTime()),
+          period.policy.unlimited
+            ? Infinity
+            : Math.min(
+                period.policy.maxRunMs - period.runMs,
+                period.endsAt.getTime() - now.getTime(),
+              ),
         ),
       ),
     ),
@@ -133,7 +150,8 @@ function reservationPeriods(db: BudgetDb, reservation: typeof budgetReservations
         ...(reservation.goalPeriodId ? [reservation.goalPeriodId] : []),
       ]),
     )
-    .all();
+    .all()
+    .map((period) => withCurrentBudgetMode(db, period));
 }
 
 // The preceding Step has already committed its report. Throwing here prevents the next acknowledgement.
@@ -149,10 +167,14 @@ export function reserveNextBudgetCall(db: BudgetDb, runId: string, now: Date) {
     reservation.settledAt ||
     periods.some(
       (p) =>
-        now >= p.endsAt ||
-        p.calls >= p.policy.maxCalls ||
-        now.getTime() >=
-          reservation.startedAt.getTime() + p.policy.maxRunMs - p.runMs + reservation.reservedRunMs,
+        !p.policy.unlimited &&
+        (now >= p.endsAt ||
+          p.calls >= p.policy.maxCalls ||
+          now.getTime() >=
+            reservation.startedAt.getTime() +
+              p.policy.maxRunMs -
+              p.runMs +
+              reservation.reservedRunMs),
     )
   )
     throw new AnalysisError("budget_limit");

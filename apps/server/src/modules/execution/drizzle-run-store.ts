@@ -185,7 +185,7 @@ export function createDrizzleRunStore(
             selectedId
               ? eq(tasks.id, selectedId)
               : and(
-                  sql`(${tasks.status} = 'queued' OR (${tasks.status} = 'waiting_capacity' AND ${tasks.budgetWait} IS NOT NULL AND json_extract(${tasks.budgetWait}, '$.retryAt') <= ${now.toISOString()}))`,
+                  sql`(${tasks.status} = 'queued' OR (${tasks.status} = 'waiting_capacity' AND ${tasks.budgetWait} IS NOT NULL))`,
                   sql`${tasks.cancelRequestedAt} IS NULL`,
                   or(
                     sql`${tasks.plannedWork} IS NULL`,
@@ -251,7 +251,11 @@ export function createDrizzleRunStore(
           const budgetReady =
             task.status === "waiting_capacity" &&
             task.budgetWait !== null &&
-            Date.parse(task.budgetWait.retryAt) <= now.getTime();
+            readBudgetWait(tx, task, now) === null;
+          if (task.status === "waiting_capacity" && task.budgetWait !== null && !budgetReady) {
+            budgetWaiting = true;
+            continue;
+          }
           if (
             probing &&
             ((task.status !== "queued" && !budgetReady) ||
@@ -455,8 +459,12 @@ export function createDrizzleRunStore(
             run: {
               id,
               ...(skillVersion !== undefined ? { runtimeSkillVersion: skillVersion } : {}),
-              budgetDeadlineAt: now.getTime() + budget.remainingRunMs,
-              budgetRunMs: budget.remainingRunMs,
+              ...(Number.isFinite(budget.remainingRunMs)
+                ? {
+                    budgetDeadlineAt: now.getTime() + budget.remainingRunMs,
+                    budgetRunMs: budget.remainingRunMs,
+                  }
+                : {}),
               taskId: task.id,
               instruction,
               effort: effortSelection.effort,

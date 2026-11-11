@@ -452,6 +452,44 @@ test("rechecks planned work after resume and distinguishes excluded work from re
   await expect(review).toContainText("허용 범위를 벗어나 제외한 작업");
 });
 
+test("removes period budget waits immediately and saves unlimited goal budgets", async ({
+  page,
+}) => {
+  await login(page);
+  await createProject(page, "예산 제한 해제 예제");
+  const panel = page.getByRole("region", { name: "실행 예산", exact: true });
+  await panel.locator("summary").click();
+  await panel.getByRole("button", { name: "프로젝트 예산 수정" }).click();
+  await panel.getByLabel("호출 상한(회)", { exact: true }).fill("1");
+  await panel.getByRole("button", { name: "예산 저장" }).click();
+  await createTask(page, "제한 해제 전 첫 분석");
+  await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
+  await createTask(page, "제한 해제 뒤 이어갈 분석");
+  await expect(page.getByLabel("기간 예산 대기", { exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "프로젝트 예산 수정" }).click();
+  await panel.getByLabel("프로젝트 예산 제한 없음", { exact: true }).check();
+  await expect(panel.getByLabel("호출 상한(회)", { exact: true })).toBeDisabled();
+  await panel.getByRole("button", { name: "예산 저장" }).click();
+  await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
+  await expect(panel).toContainText("프로젝트 설정: 자체 예산 제한 없음");
+  await expect(panel).toContainText("허용한 호출 2 / 제한 없음");
+  const goals = page.getByRole("region", { name: "프로젝트 목표", exact: true });
+  await goals.locator("summary").first().click();
+  await goals.getByRole("button", { name: "목표 등록 +" }).click();
+  await page
+    .getByRole("textbox", { name: "프로젝트 목표", exact: true })
+    .fill("예산 제한 없이 코드 점검");
+  await page.getByLabel("완료·평가 기준", { exact: true }).fill("검증 결과를 기록한다");
+  await goals.getByText("허용 범위와 실행 예산", { exact: true }).click();
+  await page.getByLabel("목표 예산 제한 없음", { exact: true }).check();
+  await expect(page.getByLabel("기간 내 최대 호출", { exact: true })).toBeDisabled();
+  await goals.getByRole("button", { name: "목표 저장", exact: true }).click();
+  await expect(goals.locator(".goal-form")).toHaveCount(0);
+  await goals.getByRole("button", { name: "목표 수정" }).click();
+  await goals.getByText("허용 범위와 실행 예산", { exact: true }).click();
+  await expect(page.getByLabel("목표 예산 제한 없음", { exact: true })).toBeChecked();
+});
+
 test("enforces project call budgets, keeps current usage after policy edits, and can cancel an unstarted waiting task", async ({
   page,
 }, testInfo) => {

@@ -57,6 +57,7 @@ export function normalizeGoalDefinition(value: GoalDefinition): GoalDefinition {
     excludedPaths,
     checkIntervalMs: value.checkIntervalMs,
     budget: {
+      ...(value.budget.unlimited !== undefined ? { unlimited: value.budget.unlimited } : {}),
       windowMs: value.budget.windowMs,
       maxCalls: value.budget.maxCalls,
       maxRunMs: value.budget.maxRunMs,

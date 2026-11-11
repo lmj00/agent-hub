@@ -2,6 +2,7 @@ import { object, nullable, enumeration, text, id, date } from "./schema.js";
 import { Type, type Static } from "@sinclair/typebox";
 
 export const periodBudgetPolicySchema = object({
+  unlimited: Type.Optional(Type.Boolean()),
   windowMs: Type.Integer({ minimum: 600000, maximum: 86400000 }),
   maxCalls: Type.Integer({ minimum: 1, maximum: 1000 }),
   maxRunMs: Type.Integer({ minimum: 1000, maximum: 86400000 }),

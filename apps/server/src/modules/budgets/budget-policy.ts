@@ -25,6 +25,7 @@ export function validateBudget(value: PeriodBudgetPolicy): PeriodBudgetPolicy {
   }
   if (value.maxRunMs > value.windowMs) throw new BudgetError("INVALID_BUDGET");
   return {
+    ...(value.unlimited !== undefined ? { unlimited: value.unlimited } : {}),
     windowMs: value.windowMs,
     maxCalls: value.maxCalls,
     maxRunMs: value.maxRunMs,
@@ -41,6 +42,7 @@ export type Period = {
 };
 export function periodWait(periods: Period[], now: Date): BudgetWait | null {
   const waits = periods.flatMap((period): BudgetWait[] => {
+    if (period.policy.unlimited) return [];
     const reason =
       now >= period.endsAt
         ? "period_end"

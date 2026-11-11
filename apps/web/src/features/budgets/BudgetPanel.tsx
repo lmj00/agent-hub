@@ -45,7 +45,7 @@ export function BudgetPanel({
       setRevision((n) => n + 1);
     }
   }
-  function update(key: keyof PeriodBudgetPolicy, value: number) {
+  function update(key: keyof PeriodBudgetPolicy, value: number | boolean) {
     setDraft((previous) =>
       previous ? { ...previous, policy: { ...previous.policy, [key]: value } } : previous,
     );
@@ -56,7 +56,8 @@ export function BudgetPanel({
         <summary>실행 예산</summary>
         <p className="subtle-note">
           프로젝트 전체와 각 목표의 호출 수·실행 시간을 함께 제한합니다. 구독 잔여량과는 다릅니다.
-          설정 변경은 진행 중인 기간의 사용량을 초기화하지 않으며 다음 기간에 적용됩니다.
+          제한 없음은 현재 기간에도 적용됩니다. 숫자 상한 변경은 다음 기간에 적용하며 사용량은
+          보존합니다.
         </p>
         {poll.error || error ? (
           <p className="error-text" role="alert">
@@ -67,8 +68,10 @@ export function BudgetPanel({
         {poll.data ? (
           <>
             <p>
-              프로젝트 설정: {poll.data.policy.windowMs / 60000}분마다 최대{" "}
-              {poll.data.policy.maxCalls}회 · {poll.data.policy.maxRunMs / 1000}초 실행
+              프로젝트 설정:{" "}
+              {poll.data.policy.unlimited
+                ? "자체 예산 제한 없음"
+                : `${poll.data.policy.windowMs / 60000}분마다 최대 ${poll.data.policy.maxCalls}회 · ${poll.data.policy.maxRunMs / 1000}초 실행`}
             </p>
             {draft ? (
               <form
@@ -77,9 +80,18 @@ export function BudgetPanel({
                 className="goal-form"
               >
                 <label>
+                  <input
+                    type="checkbox"
+                    checked={draft.policy.unlimited === true}
+                    onChange={(e) => update("unlimited", e.target.checked)}
+                  />
+                  프로젝트 예산 제한 없음
+                </label>
+                <label>
                   예산 기간(분)
                   <input
                     required
+                    disabled={draft.policy.unlimited}
                     type="number"
                     min="10"
                     max="1440"
@@ -92,6 +104,7 @@ export function BudgetPanel({
                   호출 상한(회)
                   <input
                     required
+                    disabled={draft.policy.unlimited}
                     type="number"
                     min="1"
                     max="1000"
@@ -104,6 +117,7 @@ export function BudgetPanel({
                   실행 시간 상한(초)
                   <input
                     required
+                    disabled={draft.policy.unlimited}
                     type="number"
                     min="1"
                     max={draft.policy.windowMs / 1000}
@@ -156,10 +170,15 @@ export function BudgetPanel({
                         : {dateTime(account.period.startedAt)} ~ {dateTime(account.period.endsAt)}
                       </p>
                       <p>
-                        허용한 호출 {account.period.calls} / {account.period.policy.maxCalls}회 ·
-                        정산 {Math.ceil(account.period.chargedRunMs / 1000)}초 + 예약{" "}
+                        허용한 호출 {account.period.calls} /{" "}
+                        {account.period.policy.unlimited
+                          ? "제한 없음"
+                          : `${account.period.policy.maxCalls}회`}{" "}
+                        · 정산 {Math.ceil(account.period.chargedRunMs / 1000)}초 + 예약{" "}
                         {Math.ceil(account.period.reservedRunMs / 1000)}초 /{" "}
-                        {account.period.policy.maxRunMs / 1000}초
+                        {account.period.policy.unlimited
+                          ? "제한 없음"
+                          : `${account.period.policy.maxRunMs / 1000}초`}
                       </p>
                     </>
                   ) : (

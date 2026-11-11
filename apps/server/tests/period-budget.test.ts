@@ -14,6 +14,7 @@ import { buildApp } from "../src/app.js";
 import { migrationsDirectory, openDatabase } from "../src/db/connection.js";
 import { budgetPeriods, budgetReservations, projects, runs, tasks } from "../src/db/schema.js";
 import { createProjectBudgetStore } from "../src/modules/budgets/project-budget-store.js";
+import { readBudgetWait, reserveNextBudgetCall } from "../src/modules/budgets/budget-store.js";
 import { createDrizzleGoalStore } from "../src/modules/goals/drizzle-goal-store.js";
 import { createDrizzleRunStore } from "../src/modules/execution/drizzle-run-store.js";
 import { createDrizzleRecoveryStore } from "../src/modules/execution/drizzle-recovery-store.js";
@@ -144,6 +145,64 @@ test("goal and project limits both apply across tasks, while another project can
     reservedRunMs: 0,
   });
   expect(store.getProviderGate().blocked).toBe(false);
+});
+
+test("removing a project budget releases an existing wait immediately without resetting usage", () => {
+  configure({ ...policy, maxCalls: 1 });
+  finish(store.claim(task(), "fixture").id);
+  const next = task();
+  expect(store.claimNext("fixture", ["example"])).toEqual({
+    kind: "idle",
+    reason: "period_budget",
+  });
+  const period = database.db.select().from(budgetPeriods).get()!;
+  configure({ ...policy, unlimited: true });
+  expect(database.db.select().from(budgetPeriods).get()).toEqual(period);
+  expect(summary().accounts[0]!.period!.policy.unlimited).toBe(true);
+  const claim = store.claimNext("fixture", ["example"]);
+  expect(claim.kind).toBe("claimed");
+  if (claim.kind !== "claimed") throw new Error("Expected claim");
+  expect(claim.run.taskId).toBe(next);
+  expect(claim.run.budgetDeadlineAt).toBeUndefined();
+  expect(claim.run.budgetRunMs).toBeUndefined();
+  expect(summary().accounts[0]!.period!.calls).toBe(2);
+  expect(
+    database.db
+      .select()
+      .from(budgetReservations)
+      .all()
+      .every((r) => Number.isFinite(r.reservedRunMs)),
+  ).toBe(true);
+});
+
+test("unlimited periods still account for calls and time across their reporting boundary", () => {
+  configure({ ...policy, maxCalls: 1, maxRunMs: 1000, unlimited: true });
+  const linked = goal({ ...policy, maxCalls: 1, maxRunMs: 1000, unlimited: true });
+  const run = store.claim(task(linked), "fixture");
+  vi.setSystemTime(Date.now() + policy.windowMs + 1);
+  expect(() => reserveNextBudgetCall(database.db, run.id, new Date())).not.toThrow();
+  expect(summary().accounts.every((a) => a.period!.calls === 2)).toBe(true);
+  finish(run.id);
+  expect(summary().accounts.every((a) => a.period!.chargedRunMs > policy.windowMs)).toBe(true);
+  expect(store.claimNext("fixture", ["example"])).toEqual({ kind: "idle" });
+});
+
+test("both scopes must be unlimited, and enabling limits again keeps recorded consumption", () => {
+  configure({ ...policy, maxCalls: 1 });
+  const linked = goal({ ...policy, maxCalls: 1 });
+  finish(store.claim(task(linked), "fixture").id);
+  const reference = { projectId, goalId: linked.id };
+  configure({ ...policy, maxCalls: 1, unlimited: true });
+  expect(readBudgetWait(database.db, reference, new Date())?.scope).toBe("goal");
+  const goals = createDrizzleGoalStore(database.db);
+  const updated = goals.change(linked.id, "unlimited", linked.version, {
+    definition: { ...linked.definition, budget: { ...linked.definition.budget, unlimited: true } },
+  });
+  expect(updated.definition.budget.unlimited).toBe(true);
+  expect(readBudgetWait(database.db, reference, new Date())).toBeNull();
+  configure({ ...policy, maxCalls: 1, unlimited: false });
+  expect(readBudgetWait(database.db, reference, new Date())?.scope).toBe("project");
+  expect(summary().accounts.every((a) => a.period!.calls === 1)).toBe(true);
 });
 
 test("restart and policy edits preserve the old period, and each scope rolls over independently", () => {
