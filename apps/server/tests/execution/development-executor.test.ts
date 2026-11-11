@@ -34,7 +34,10 @@ import {
 import { createProjectBudgetStore } from "../../src/modules/budgets/project-budget-store.js";
 import { createDrizzleGoalStore } from "../../src/modules/goals/drizzle-goal-store.js";
 import { createDevelopmentExecutor } from "../../src/modules/execution/workflows/development-executor.js";
-import { readDevelopmentRounds } from "../../src/modules/goals/development-journal.js";
+import {
+  readDevelopmentRepository,
+  readDevelopmentRounds,
+} from "../../src/modules/goals/development-journal.js";
 import { developmentRoot } from "../../src/modules/workspace/development-workspace.js";
 import { preparedInputRoot } from "../../src/modules/workspace/prepared-workspace.js";
 import { cleanupConfirmedInputs } from "../../src/modules/execution/workflows/prepared-executor.js";
@@ -383,6 +386,96 @@ test("stops after three failed rounds and six AI calls without resetting Task or
       .every((row) => row.calls === 6),
   ).toBe(true);
 }, 15000);
+
+test("resumes the same task from the latest accepted tree after another task lands", async () => {
+  claim();
+  const firstRun = run.id;
+  const firstTask = taskId;
+  expect((await runWith(wrap(fake({ firstPass: true, rework: true })))).status).toBe("blocked");
+  const oldRounds = readDevelopmentRounds(database.db, firstRun);
+  const oldCandidate = oldRounds.at(-1)!.candidate!;
+  const task = database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+  const retryState = task.retryState;
+
+  taskId = randomUUID();
+  database.db
+    .insert(tasks)
+    .values({
+      id: taskId,
+      projectId,
+      goalId: task.goalId,
+      goalVersion: task.goalVersion,
+      instruction: "Add accepted marker",
+      requestKey: taskId,
+      createdAt: new Date(),
+    })
+    .run();
+  claim();
+  const changed = fake({ firstPass: true });
+  const addFile = (name: string): AnalysisExecutor => ({
+    ...changed,
+    async analyze(request, onEvent) {
+      const result = await changed.analyze(request, onEvent);
+      result.development?.changes.push({
+        path: `src/${name}.mjs`,
+        mode: "100644",
+        content: Buffer.from(`export const ${name} = true;\n`).toString("base64"),
+      });
+      return result;
+    },
+  });
+  expect((await runWith(wrap(addFile("accepted")))).status).toBe("succeeded");
+  const accepted = readDevelopmentRepository(database.db, projectId)!.prepared!;
+  expect(accepted.head).not.toBe(oldCandidate.baseRevision);
+
+  taskId = firstTask;
+  const executor = wrap(addFile("resumed"));
+  const recovery = createDrizzleRecoveryStore(database.db);
+  const receipt = recovery.request(
+    {
+      taskId,
+      runId: firstRun,
+      requestKey: "resume-current",
+      action: "resume",
+      providerGateVersion: null,
+    },
+    null,
+    true,
+  ).request;
+  await createRecoveryProcessor(recovery, {
+    confirm: async () => new Date(),
+    cleanup: async () => {},
+  }).process(receipt.id);
+  expect(recovery.findById(receipt.id)!.status).toBe("completed");
+  calls = [];
+  claim();
+  expect((await runWith(executor)).status).toBe("succeeded");
+  const restarted = readDevelopmentRounds(database.db, run.id)[0]!;
+  expect(restarted.intent).toMatchObject({
+    revision: accepted.head,
+    tree: accepted.headTree,
+    previousCandidate: null,
+  });
+  expect(
+    calls.map((value) =>
+      value.verification ? "test" : value.development ? "developer" : "reviewer",
+    ),
+  ).toEqual(["developer", "test", "reviewer"]);
+  expect(calls[0]!.instruction).toContain("repository advanced");
+  expect(calls[0]!.instruction).not.toContain('"actualTest"');
+  expect(readDevelopmentRounds(database.db, firstRun)).toEqual(oldRounds);
+  expect(database.db.select().from(tasks).all()).toHaveLength(2);
+  expect(database.db.select().from(tasks).where(eq(tasks.id, firstTask)).get()!.retryState).toEqual(
+    retryState,
+  );
+  const latest = readDevelopmentRepository(database.db, projectId)!.prepared!;
+  const storage = join(latest.directory, "git");
+  for (const name of ["accepted", "resumed"]) {
+    expect(git("--git-dir", storage, "show", `${latest.head}:src/${name}.mjs`)).toBe(
+      `export const ${name} = true;`,
+    );
+  }
+}, 20000);
 
 test("a reviewer with no actionable next step holds the Task instead of inventing another attempt", async () => {
   claim();
