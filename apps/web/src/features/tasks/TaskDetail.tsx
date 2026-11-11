@@ -208,7 +208,10 @@ export function TaskDetail({
           <pre>{task.instruction}</pre>
         </details>
       ) : null}
-      <p className="detail-created">등록 {dateTime(task.createdAt)}</p>
+      <p className="detail-created">
+        등록 {dateTime(task.createdAt)}
+        {runs.length === 1 ? " · 실행 1회" : ""}
+      </p>
       {task.previousTaskId || task.nextTaskId ? (
         <div className="notice" aria-label="다시 허용한 작업 연결">
           <p>취소 기록과 이전 실행 한도를 이어받는 작업입니다.</p>
@@ -376,11 +379,13 @@ export function TaskDetail({
           ) : null}
         </div>
       ) : null}
-      <div className="section-heading attempts-heading">
-        <h3>실행 시도</h3>
-        <span className="count">{runs.length}</span>
-      </div>
-      {runs.length ? (
+      {runs.length > 1 ? (
+        <div className="section-heading attempts-heading">
+          <h3>실행 시도</h3>
+          <span className="count">{runs.length}</span>
+        </div>
+      ) : null}
+      {runs.length > 1 ? (
         <div className="attempts" aria-label="실행 시도 선택">
           {runs.map((item, index) => (
             <button
@@ -397,7 +402,7 @@ export function TaskDetail({
             </button>
           ))}
         </div>
-      ) : (
+      ) : runs.length === 0 ? (
         <p className="empty-list">
           {records.data
             ? task.status === "cancelled"
@@ -407,7 +412,7 @@ export function TaskDetail({
                 : "아직 실행 기록이 없습니다. 대기 작업은 실행기가 순서대로 가져갑니다."
             : "실행 기록을 불러오는 중…"}
         </p>
-      )}
+      ) : null}
       {run ? (
         <RunRecord
           key={run.id}

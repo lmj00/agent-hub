@@ -355,6 +355,9 @@ test("shows dated planning evidence and keeps a failed collection separate from 
   await page.getByRole("button", { name: /관측 계획 예제 example/ }).click();
   await page.getByRole("button", { name: /관측을 확인한 계획 기록/ }).click();
   const evidence = page.getByRole("region", { name: "계획에 사용한 관측", exact: true });
+  await expect(evidence).toBeHidden();
+  await page.locator(".planning-context > summary").click();
+  await expect(evidence).toBeVisible();
   await expect(evidence).toContainText("당시 기록이며 현재 상태는 서비스 화면에서 확인하세요");
   await expect(evidence).toContainText("서비스 1 / 1개");
   await evidence.locator("summary").click();
@@ -367,6 +370,7 @@ test("shows dated planning evidence and keeps a failed collection separate from 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.reload();
   await page.getByRole("button", { name: /관측 계획 예제 example/ }).click();
+  await page.locator(".planning-context > summary").click();
   await expect(evidence).toContainText("서비스 1 / 1개");
 });
 
@@ -685,7 +689,8 @@ test("reuses the task request key when the server accepted a write but its respo
   await page.getByRole("button", { name: "분석 요청", exact: true }).click();
   await expect(page.locator(".task-composer .error-text")).toHaveCount(0);
   await expect(page.locator(".task-row")).toHaveCount(1);
-  await expect(page.locator(".attempt")).toHaveCount(1);
+  await expect(page.locator(".detail-created")).toContainText("실행 1회");
+  await expect(page.locator(".attempt")).toHaveCount(0);
   expect(keys).toHaveLength(2);
   expect(keys[0]).toBe(keys[1]);
 });
@@ -726,7 +731,8 @@ test("shows sequential analysis steps and effort changes in one execution attemp
   await createProject(page, "단계별 분석 예제");
   await createTask(page, "다단계 보안 검토");
   await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
-  await expect(page.locator(".attempts .attempt")).toHaveCount(1);
+  await expect(page.locator(".detail-created")).toContainText("실행 1회");
+  await expect(page.locator(".attempts .attempt")).toHaveCount(0);
   const history = page.getByRole("region", { name: "단계별 분석 기록" });
   await expect(history.locator("details")).toHaveCount(3);
   await expect(history.locator("summary").nth(0)).toContainText("high");
@@ -1115,6 +1121,46 @@ test("explains why AI execution waits while repository source preparation owns c
   await expect(status).toContainText("저장소 소스 준비가 끝나면 AI 작업을 이어갑니다.");
 });
 
+test("opens actual work ahead of repeated plans while keeping every plan accessible", async ({
+  page,
+}) => {
+  await login(page);
+  const planIds = Array.from({ length: 20 }, () => crypto.randomUUID());
+  let workCount = 0;
+  let latestWorkTitle = "";
+  await page.route("**/projects/*/tasks", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    const work = body.tasks.filter((task: { kind: string }) => task.kind === "work");
+    workCount = work.length;
+    latestWorkTitle = work[0].instruction.split("\n")[0];
+    body.tasks.unshift(
+      ...planIds.map((id) => ({
+        ...work[0],
+        id,
+        kind: "planning",
+        instruction: "목표의 다음 개발 작업을 계획합니다.",
+      })),
+    );
+    await route.fulfill({ response, json: body });
+  });
+  await page.getByRole("button", { name: /개발 검증 예제 example/ }).click();
+  await expect(page.locator(".task-row").first()).toBeVisible();
+  await expect(page.locator("#detail-heading")).toHaveText(latestWorkTitle);
+  await expect(page.locator(".task-row")).toHaveCount(workCount);
+  const filters = page.getByRole("group", { name: "작업 종류 필터" });
+  await expect(filters.getByRole("button", { name: "실제 작업", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await filters.getByRole("button", { name: "계획", exact: true }).click();
+  await expect(page.locator(".task-row")).toHaveCount(20);
+  await page.locator(".task-row").first().click();
+  await expect(page.locator("#detail-heading")).toHaveText("목표의 다음 개발 작업을 계획합니다.");
+  await filters.getByRole("button", { name: "전체", exact: true }).click();
+  await expect(page.locator(".task-row")).toHaveCount(workCount + 20);
+});
+
 test("filters work history without losing the inspected record when a new plan arrives", async ({
   page,
 }, testInfo) => {
@@ -1136,7 +1182,10 @@ test("filters work history without losing the inspected record when a new plan a
     });
     await route.fulfill({ response, json: body });
   });
-  await expect(page.locator(".task-row")).toHaveCount(initialCount + 1);
+  await expect(page.locator(".task-instruction pre")).toContainText(
+    "검증 기준과 상세 작업 지시입니다.",
+  );
+  await expect(page.locator(".task-row")).toHaveCount(initialCount);
   await expect(page.locator("#detail-heading")).toHaveText(originalTitle);
   await expect(page.locator(".activity-totals dd")).toHaveText(totals);
   const instruction = page.locator(".task-instruction");

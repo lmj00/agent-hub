@@ -12,7 +12,7 @@
   color: var(--ink);
   background: var(--canvas);
   font-family: system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.6;
 }
 .workspace [hidden] {
@@ -438,10 +438,10 @@
   background: #e3eeec;
 }
 .workspace .task-row > p {
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 600;
   line-height: 1.6;
-  margin: 8px 0;
+  margin: 0 0 10px;
   -webkit-line-clamp: 2;
 }
 .workspace .task-row > small {
@@ -452,7 +452,7 @@
   flex-wrap: wrap;
 }
 .workspace .task-row-meta time {
-  font-size: 12px;
+  font-size: 13px;
 }
 .workspace .task-row-meta .status {
   font-size: 12px;
@@ -467,7 +467,7 @@
   font-size: 13px;
 }
 .workspace .instruction-title {
-  font-size: 22px;
+  font-size: 24px;
   line-height: 1.5;
   margin: 10px 0 8px;
   font-weight: 600;
@@ -571,7 +571,7 @@
   flex-wrap: wrap;
 }
 .workspace .report-heading h3 {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
 }
 .workspace .report-heading small {
@@ -580,7 +580,7 @@
 }
 .workspace .analysis-result {
   font-family: inherit;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.85;
   padding: 0;
   border: 0;
@@ -601,6 +601,12 @@
   margin-left: 16px;
   font-family: var(--utility);
   font-size: 12px;
+}
+.workspace .planning-context > summary {
+  padding: 12px 0;
+  font-size: 14px;
+  color: var(--muted);
+  cursor: pointer;
 }
 .workspace .run-facts {
   gap: 16px 24px;

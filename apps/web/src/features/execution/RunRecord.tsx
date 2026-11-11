@@ -160,7 +160,12 @@ export function RunRecord({
           보장하지 않습니다.
         </p>
       </details>
-      {run.planningEvidence ? <PlanningEvidencePanel evidence={run.planningEvidence} /> : null}
+      {run.planningEvidence ? (
+        <details className="planning-context">
+          <summary>계획에 사용한 자료</summary>
+          <PlanningEvidencePanel evidence={run.planningEvidence} />
+        </details>
+      ) : null}
       {run.developmentEvidence ? (
         <DevelopmentEvidencePanel evidence={run.developmentEvidence} />
       ) : null}

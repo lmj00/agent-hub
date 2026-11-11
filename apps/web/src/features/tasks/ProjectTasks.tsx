@@ -37,7 +37,7 @@ export function ProjectTasks({
   onOpenGoals: () => void;
 }) {
   const [revision, setRevision] = useState(0);
-  const [filter, setFilter] = useState<"all" | "work" | "planning">("all");
+  const [chosenFilter, setFilter] = useState<"all" | "work" | "planning" | null>(null);
   const [query, setQuery] = useState("");
   const focusSelection = useRef<string | null>(null);
   const searchInput = useRef<HTMLInputElement | null>(null);
@@ -51,13 +51,16 @@ export function ProjectTasks({
   );
   const tasks = usePolling(project.id, load, onExpired, 3000, revision);
   const records = tasks.data?.tasks ?? [];
+  const filter =
+    chosenFilter ??
+    (records.length && !records.some((task) => task.kind === "work") ? "planning" : "work");
   const visible = records.filter(
     (task) =>
       (filter === "all" || task.kind === filter) &&
       task.instruction.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
   );
   const selected =
-    records.find((task) => task.id === taskId) ?? (taskId === null ? records[0] : null) ?? null;
+    records.find((task) => task.id === taskId) ?? (taskId === null ? visible[0] : null) ?? null;
   // Keep the inspected record stable when polling inserts a newer planning task.
   useEffect(() => {
     if (taskId === null && selected) setTaskId(selected.id);
@@ -71,6 +74,10 @@ export function ProjectTasks({
     }
   });
   function selectTask(id: string) {
+    if (!visible.some((task) => task.id === id)) {
+      setFilter(records.find((task) => task.id === id)?.kind ?? "all");
+      setQuery("");
+    }
     focusSelection.current = id;
     setTaskId(id);
     // Clicking the already selected record should also return focus to its detail.
@@ -106,9 +113,9 @@ export function ProjectTasks({
           <div className="task-filters" role="group" aria-label="작업 종류 필터">
             {(
               [
-                ["all", "전체"],
                 ["work", "실제 작업"],
                 ["planning", "계획"],
+                ["all", "전체"],
               ] as const
             ).map(([value, label]) => (
               <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>
@@ -144,6 +151,7 @@ export function ProjectTasks({
                 key={task.id}
                 onClick={() => selectTask(task.id)}
               >
+                <p>{taskTitle(task.instruction)}</p>
                 <div className="task-row-meta">
                   <span key={task.status} className="task-status-update">
                     <Status
@@ -157,11 +165,9 @@ export function ProjectTasks({
                   </span>
                   <time dateTime={task.createdAt}>{dateTime(task.createdAt)}</time>
                 </div>
-                <p>{taskTitle(task.instruction)}</p>
-                <small>
-                  {task.kind === "planning" ? "계획" : "실제 작업"}{" "}
-                  <span aria-hidden="true">↗</span>
-                </small>
+                {filter === "all" ? (
+                  <small>{task.kind === "planning" ? "계획" : "실제 작업"}</small>
+                ) : null}
               </button>
             ))}
           </div>
