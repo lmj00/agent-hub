@@ -283,7 +283,7 @@
   flex: 1;
   min-width: 0;
   position: relative;
-  padding: 0 126px 0 36px;
+  padding: 0 168px 0 36px;
 }
 .workspace .activity-caption {
   display: none;
@@ -319,9 +319,10 @@
   min-height: 36px;
   padding: 6px 12px;
   font-size: 13px;
+  white-space: nowrap;
 }
 .workspace .activity-message .primary {
-  max-width: 118px;
+  max-width: none;
 }
 .workspace .activity-overview.is-running .activity-signal {
   border-color: #d5ebe5;
