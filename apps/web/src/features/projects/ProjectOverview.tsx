@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { projectOverviewSchema } from "@agent-hub/contracts";
 import { api, errorMessage } from "../../shared/api.js";
-import { dateTime, Status } from "../../shared/format.js";
+import { dateTime, Status, taskTitle } from "../../shared/format.js";
 import { usePolling } from "../../shared/use-polling.js";
 
 export function ProjectOverview({
@@ -76,7 +76,7 @@ export function ProjectOverview({
                         onClick={() => onSelect(project.id, runningTask.id)}
                       >
                         {runningTask.kind === "planning" ? "다음 작업 계획 중" : "작업 실행 중"} ·{" "}
-                        {runningTask.instruction}
+                        {taskTitle(runningTask.instruction)}
                       </button>
                     ) : (
                       "실행 중인 작업 없음"
@@ -93,7 +93,7 @@ export function ProjectOverview({
                           className="text-button"
                           onClick={() => onSelect(project.id, latestTask.id)}
                         >
-                          {latestTask.instruction}
+                          {taskTitle(latestTask.instruction)}
                         </button>
                       </>
                     ) : (

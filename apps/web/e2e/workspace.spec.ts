@@ -45,7 +45,17 @@ async function createProject(page: Page, name: string) {
   await page.getByRole("button", { name: "프로젝트 등록", exact: true }).click();
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
 }
+async function openSection(page: Page, name: "작업" | "목표" | "설정") {
+  await page
+    .getByRole("navigation", { name: "프로젝트 메뉴" })
+    .getByRole("button", { name, exact: true })
+    .click();
+}
 async function createTask(page: Page, instruction: string) {
+  await openSection(page, "작업");
+  const composer = page.locator(".analysis-composer");
+  if (!(await composer.evaluate((element) => (element as HTMLDetailsElement).open)))
+    await composer.locator("summary").click();
   await page.getByLabel("분석 작업 등록", { exact: true }).fill(instruction);
   await page.getByRole("button", { name: "분석 요청", exact: true }).click();
   await expect(page.locator("#detail-heading")).toHaveText(instruction);
@@ -56,9 +66,10 @@ test("marks publication uncertain after a lost write response and rechecks befor
 }, testInfo) => {
   await login(page);
   await createProject(page, "공개 응답 유실 확인");
+  await openSection(page, "설정");
   const panel = page.getByRole("region", { name: "프로젝트 공개 설정" });
   await panel.locator("summary").click();
-  await expect(panel.locator("summary")).toHaveText("공개 여부 비공개");
+  await expect(panel.locator("summary > span")).toHaveText("비공개");
   await panel.getByLabel("공개용 이름", { exact: true }).fill("확인할 공개 이름");
   await panel.getByLabel("방문자에게 공개", { exact: true }).check();
   let publicationPath = "";
@@ -73,7 +84,7 @@ test("marks publication uncertain after a lost write response and rechecks befor
   const persisted = await page.request.get(publicationPath);
   expect(persisted.ok()).toBe(true);
   expect((await persisted.json()).listed).toBe(true);
-  await expect(panel.locator("summary")).toHaveText("공개 여부 확인 필요");
+  await expect(panel.locator("summary > span")).toHaveText("확인 필요");
   await expect(panel.getByRole("button", { name: "공개 설정 저장" })).toBeDisabled();
   await page.screenshot({ path: testInfo.outputPath("publication-uncertain.png"), fullPage: true });
   await page.unroute("**/projects/*/publication");
@@ -88,18 +99,18 @@ test("marks publication uncertain after a lost write response and rechecks befor
   });
   try {
     await panel.getByRole("button", { name: "다시 확인", exact: true }).click();
-    await expect(panel.locator("summary")).toHaveText("공개 여부 확인 중");
+    await expect(panel.locator("summary > span")).toHaveText("확인 중");
     await expect(panel.getByRole("button", { name: "공개 설정 저장" })).toBeDisabled();
     await expect(panel.getByLabel("방문자에게 공개", { exact: true })).toBeDisabled();
   } finally {
     releaseRead();
   }
-  await expect(panel.locator("summary")).toHaveText("공개 여부 공개");
+  await expect(panel.locator("summary > span")).toHaveText("공개");
   await expect(panel.getByRole("alert")).toHaveCount(0);
   await page.unroute("**/projects/*/publication");
   await panel.getByLabel("방문자에게 공개", { exact: true }).uncheck();
   await panel.getByRole("button", { name: "공개 설정 저장" }).click();
-  await expect(panel.locator("summary")).toHaveText("공개 여부 비공개");
+  await expect(panel.locator("summary > span")).toHaveText("비공개");
   expect((await (await page.request.get(publicationPath)).json()).listed).toBe(false);
 });
 
@@ -307,8 +318,8 @@ test("distinguishes applied, uncertain and cancelled application records, includ
   await page.getByRole("button", { name: /반영 완료 기록/ }).click();
   await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
   await expect(panel).toContainText("개발용 브랜치에 반영됨");
-  await expect(page.getByRole("button", { name: "상태 확인", exact: true })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "작업 재개", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "상태 확인", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "작업 재개", exact: true })).toHaveCount(0);
   await panel.getByText("반영 버전 보기", { exact: true }).click();
   await expect(panel).toContainText("e".repeat(40));
   await page.setViewportSize({ width: 375, height: 812 });
@@ -422,20 +433,23 @@ test("rechecks planned work after resume and distinguishes excluded work from re
   await login(page);
   await page.getByRole("button", { name: /범위 재검사 예제 example/ }).click();
   const panel = page.getByRole("region", { name: "프로젝트 목표", exact: true });
-  await panel.locator("summary").first().click();
+  await openSection(page, "목표");
   await panel.getByRole("button", { name: "목표 일시정지" }).click();
   await expect(panel).toContainText("일시정지 · 버전 2");
   await panel.getByRole("button", { name: "목표 재개" }).click();
   await expect(panel).toContainText("활성 · 버전 3");
+  await openSection(page, "작업");
   await page.getByRole("button", { name: /예제 코드 개선 작업/ }).click();
   const review = page.getByLabel("목표 범위 재검사", { exact: true });
   await expect(review).toContainText("변경된 목표에서도 허용된 작업입니다.");
   await expect(review).toContainText("1 → 3");
+  await openSection(page, "목표");
   await panel.getByRole("button", { name: "목표 수정" }).click();
   await panel.getByText("허용 범위와 실행 예산", { exact: true }).click();
   await page.getByLabel("허용 경로", { exact: true }).fill("tests");
   await panel.getByRole("button", { name: "목표 저장", exact: true }).click();
   await expect(panel).toContainText("활성 · 버전 4");
+  await openSection(page, "작업");
   await expect(page.locator(".detail-top .status-cancelled")).toBeVisible();
   await expect(review).toContainText("허용 범위를 벗어나 제외한 작업");
   await expect(review).toContainText("3 → 4");
@@ -448,6 +462,7 @@ test("rechecks planned work after resume and distinguishes excluded work from re
   await expect(review).toContainText("변경된 목표에서도 허용된 작업입니다.");
   await page.reload();
   await page.getByRole("button", { name: /범위 재검사 예제 example/ }).click();
+  await openSection(page, "작업");
   await page.getByRole("button", { name: /예제 코드 개선 작업/ }).click();
   await expect(review).toContainText("허용 범위를 벗어나 제외한 작업");
 });
@@ -457,8 +472,10 @@ test("removes period budget waits immediately and saves unlimited goal budgets",
 }) => {
   await login(page);
   await createProject(page, "예산 제한 해제 예제");
+  await openSection(page, "설정");
   const panel = page.getByRole("region", { name: "실행 예산", exact: true });
   await panel.locator("summary").click();
+  await openSection(page, "설정");
   await panel.getByRole("button", { name: "프로젝트 예산 수정" }).click();
   await panel.getByLabel("호출 상한(회)", { exact: true }).fill("1");
   await panel.getByRole("button", { name: "예산 저장" }).click();
@@ -466,15 +483,18 @@ test("removes period budget waits immediately and saves unlimited goal budgets",
   await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
   await createTask(page, "제한 해제 뒤 이어갈 분석");
   await expect(page.getByLabel("기간 예산 대기", { exact: true })).toBeVisible();
+  await openSection(page, "설정");
   await panel.getByRole("button", { name: "프로젝트 예산 수정" }).click();
   await panel.getByLabel("프로젝트 예산 제한 없음", { exact: true }).check();
   await expect(panel.getByLabel("호출 상한(회)", { exact: true })).toBeDisabled();
   await panel.getByRole("button", { name: "예산 저장" }).click();
+  await openSection(page, "작업");
   await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
+  await openSection(page, "설정");
   await expect(panel).toContainText("프로젝트 설정: 자체 예산 제한 없음");
   await expect(panel).toContainText("허용한 호출 2 / 제한 없음");
   const goals = page.getByRole("region", { name: "프로젝트 목표", exact: true });
-  await goals.locator("summary").first().click();
+  await openSection(page, "목표");
   await goals.getByRole("button", { name: "목표 등록 +" }).click();
   await page
     .getByRole("textbox", { name: "프로젝트 목표", exact: true })
@@ -495,8 +515,10 @@ test("enforces project call budgets, keeps current usage after policy edits, and
 }, testInfo) => {
   await login(page);
   await createProject(page, "예산 관리 예제");
+  await openSection(page, "설정");
   const panel = page.getByRole("region", { name: "실행 예산", exact: true });
   await panel.locator("summary").click();
+  await openSection(page, "설정");
   await panel.getByRole("button", { name: "프로젝트 예산 수정" }).click();
   await panel.getByLabel("예산 기간(분)", { exact: true }).fill("10");
   await panel.getByLabel("호출 상한(회)", { exact: true }).fill("1");
@@ -505,25 +527,30 @@ test("enforces project call budgets, keeps current usage after policy edits, and
   await expect(panel.getByRole("form", { name: "프로젝트 예산 설정" })).toHaveCount(0);
   await createTask(page, "예산 범위 내 첫 분석");
   await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
+  await openSection(page, "설정");
   await expect(panel).toContainText("허용한 호출 1 / 1회");
   await createTask(page, "다음 기간까지 기다리는 분석");
   await expect(page.getByLabel("기간 예산 대기", { exact: true })).toContainText(
     "프로젝트 실행 예산 대기",
   );
   await expect(page.getByRole("button", { name: "작업 재개", exact: true })).toBeDisabled();
+  await openSection(page, "설정");
   await panel.getByRole("button", { name: "프로젝트 예산 수정" }).click();
   await panel.getByLabel("호출 상한(회)", { exact: true }).fill("2");
   await panel.getByRole("button", { name: "예산 저장" }).click();
   await expect(panel).toContainText("프로젝트 설정: 10분마다 최대 2회");
+  await openSection(page, "설정");
   await expect(panel).toContainText("허용한 호출 1 / 1회");
   await page.reload();
   await page.getByRole("button", { name: /예산 관리 예제 example/ }).click();
   await page.getByRole("button", { name: /다음 기간까지 기다리는 분석/ }).click();
   await expect(page.getByLabel("기간 예산 대기", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 375, height: 812 });
+  await openSection(page, "설정");
   await panel.locator("summary").click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("budget-wait-mobile.png"), fullPage: true });
+  await openSection(page, "작업");
   await page.getByRole("button", { name: "작업 취소", exact: true }).click();
   await expect(page.locator(".detail-top .status-cancelled")).toBeVisible();
 });
@@ -540,8 +567,11 @@ test("registers projects and tasks, escapes model output, and separates waiting,
   await login(page);
   await createProject(page, "언어 공부 앱");
   await createTask(page, "여러 시스템의 복잡한 원인과 코드 구조를 분석해 줘.");
-  await expect(page.locator(".run-facts")).toContainText("xhigh");
-  await expect(page.locator(".run-facts")).toContainText("여러 시스템의 복잡한 원인 분석");
+  await page.locator(".run-technical > summary").click();
+  await expect(page.locator(".run-technical .run-facts")).toContainText("xhigh");
+  await expect(page.locator(".run-technical .run-facts")).toContainText(
+    "여러 시스템의 복잡한 원인 분석",
+  );
   await expect(page.locator(".run-record > .analysis-result")).toContainText("<script>");
   await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
   expect(await page.evaluate(() => "unwanted" in window)).toBe(false);
@@ -550,6 +580,7 @@ test("registers projects and tasks, escapes model output, and separates waiting,
   await expect(page.locator(".run-record > .analysis-result")).toBeVisible();
   expect(errors).toEqual([]);
   await page.getByRole("button", { name: /관측 예제/ }).click();
+  await openSection(page, "설정");
   await expect(page.locator(".services-panel")).toHaveCount(1);
   await expect(page.locator(".service-state")).toHaveText("정상 대기");
   await expect(page.locator(".service-evidence")).not.toHaveClass(/historical/);
@@ -574,6 +605,7 @@ test("registers projects and tasks, escapes model output, and separates waiting,
   await page.getByRole("button", { name: /언어 공부 앱 example/ }).click();
   await expect(page.locator(".services-panel")).toHaveCount(0);
   await page.getByRole("button", { name: /관측 예제/ }).click();
+  await openSection(page, "설정");
   await expect(page.locator(".services-panel")).toHaveCount(1);
   expect(errors).toEqual([]);
 });
@@ -644,6 +676,7 @@ test("reuses the task request key when the server accepted a write but its respo
       await route.abort("failed");
     } else await route.continue();
   });
+  await page.locator(".analysis-composer > summary").click();
   await page
     .getByLabel("분석 작업 등록", { exact: true })
     .fill("응답 유실 뒤에도 한 번만 등록해야 합니다.");
@@ -725,7 +758,7 @@ test("manages versioned goals, preserves a lost-response request key and shows p
     name: "프로젝트 목표",
     exact: true,
   });
-  await panel.locator("summary").first().click();
+  await openSection(page, "목표");
   await panel.getByRole("button", { name: "목표 등록 +" }).click();
   await page
     .getByRole("textbox", { name: "프로젝트 목표", exact: true })
@@ -774,7 +807,7 @@ test("manages versioned goals, preserves a lost-response request key and shows p
     fullPage: true,
   });
   await page.reload();
-  await panel.locator("summary").first().click();
+  await openSection(page, "목표");
   await expect(panel).toContainText("복습 결과와 날짜가 저장된다");
 });
 
@@ -1080,4 +1113,297 @@ test("explains why AI execution waits while repository source preparation owns c
   const status = page.getByRole("region", { name: "자동 실행 상태" });
   await expect(status).toContainText("저장소 준비 대기");
   await expect(status).toContainText("저장소 소스 준비가 끝나면 AI 작업을 이어갑니다.");
+});
+
+test("filters work history without losing the inspected record when a new plan arrives", async ({
+  page,
+}, testInfo) => {
+  await login(page);
+  await page.getByRole("button", { name: /개발 검증 예제 example/ }).click();
+  await expect(page.locator(".task-row").first()).toBeVisible();
+  const initialCount = await page.locator(".task-row").count();
+  const originalTitle = await page.locator("#detail-heading").innerText();
+  const totals = await page.locator(".activity-totals dd").allTextContents();
+  await page.route("**/projects/*/tasks", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.tasks[0].instruction += "\n" + "검증 기준과 상세 작업 지시입니다. ".repeat(50);
+    body.tasks.unshift({
+      ...body.tasks[0],
+      id: "f8c6f684-a7d5-45f8-9a46-f18685957fa1",
+      kind: "planning",
+      instruction: "새로 추가된 계획 점검",
+    });
+    await route.fulfill({ response, json: body });
+  });
+  await expect(page.locator(".task-row")).toHaveCount(initialCount + 1);
+  await expect(page.locator("#detail-heading")).toHaveText(originalTitle);
+  await expect(page.locator(".activity-totals dd")).toHaveText(totals);
+  const instruction = page.locator(".task-instruction");
+  await expect(instruction.locator("pre")).toBeHidden();
+  await instruction.locator("summary").click();
+  await expect(instruction.locator("pre")).toContainText("검증 기준과 상세 작업 지시입니다.");
+  await instruction.locator("summary").click();
+  const filters = page.getByRole("group", { name: "작업 종류 필터" });
+  await filters.getByRole("button", { name: "계획", exact: true }).click();
+  await expect(page.locator(".task-row")).toHaveCount(1);
+  await expect(page.locator(".task-row")).toContainText("새로 추가된 계획 점검");
+  await expect(page.locator(".filter-note")).toBeVisible();
+  await page.getByRole("searchbox", { name: "작업 기록 검색" }).fill("찾을 수 없는 작업");
+  await expect(page.locator(".task-row")).toHaveCount(0);
+  await page.getByRole("button", { name: "필터 초기화", exact: true }).click();
+  await expect(page.getByRole("searchbox", { name: "작업 기록 검색" })).toBeFocused();
+  await expect(page.locator(".task-row")).toHaveCount(initialCount + 1);
+  await filters.getByRole("button", { name: "실제 작업", exact: true }).click();
+  await expect(page.locator(".task-row")).toHaveCount(initialCount);
+  await page.getByRole("searchbox", { name: "작업 기록 검색" }).fill("준비 중단");
+  await expect(page.locator(".task-row")).toHaveCount(1);
+  await page.locator(".task-row").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#detail-heading")).toBeFocused();
+  const flow = page.getByRole("region", { name: "개발 작업 흐름" });
+  await expect(flow).toContainText("마지막 기록");
+  await expect(flow.locator('[aria-current="step"]')).toHaveText("준비");
+  const technical = page.locator(".run-technical");
+  await expect(technical.locator("dl")).toBeHidden();
+  await technical.locator("summary").click();
+  await expect(technical.locator("dl")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("work-history-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.locator(".task-row").click();
+  await expect(page.locator("#detail-heading")).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(page.locator(".task-status-update")).toHaveCSS("animation-name", "none");
+  await page.screenshot({ path: testInfo.outputPath("work-history-mobile.png"), fullPage: true });
+});
+
+test("opens current work from an older record and removes the live shortcut on disconnect", async ({
+  page,
+}, testInfo) => {
+  await login(page);
+  await createProject(page, "현재 작업 이동 예제");
+  await createTask(page, "이전에 완료한 분석");
+  await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
+  await createTask(page, "오래 걸리는 현재 분석");
+  const current = page.getByRole("region", { name: "이 프로젝트의 현재 작업" });
+  await expect(current).toContainText("오래 걸리는 현재 분석");
+  await page.locator(".task-row").filter({ hasText: "이전에 완료한 분석" }).click();
+  await expect(page.locator("#detail-heading")).toHaveText("이전에 완료한 분석");
+  await current.getByRole("button").click();
+  await expect(page.locator("#detail-heading")).toHaveText("오래 걸리는 현재 분석");
+  await expect(page.locator("#detail-heading")).toBeFocused();
+  await page.screenshot({ path: testInfo.outputPath("current-work-desktop.png"), fullPage: true });
+  await page.route("**/execution", (route) => route.abort("failed"));
+  await expect(page.locator(".connection")).toContainText("서버 연결 확인 필요");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(".connection small")).toBeVisible();
+  await expect(page.locator(".connection small")).toContainText("마지막 확인");
+  await expect(current).toHaveCount(0);
+  await page.unroute("**/execution");
+  await page.getByRole("button", { name: "작업 취소", exact: true }).click();
+  await expect(page.locator(".detail-top .status-cancelled")).toBeVisible();
+});
+
+test("separates work, goals and settings while retaining drafts and showing paused goals", async ({
+  page,
+}, testInfo) => {
+  // Other fixture projects have unresolved runs. Control the server state separately
+  // from the real goal CRUD so this scenario covers both idle and globally held states.
+  let serverHeld = false;
+  await page.route("**/execution", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({
+      response,
+      json: {
+        ...body,
+        state: serverHeld ? "held" : "idle",
+        reason: serverHeld ? "change_application_pending" : "development_pending",
+        taskId: null,
+        runId: null,
+      },
+    });
+  });
+  await login(page);
+  await createProject(page, "메뉴와 상태 확인 예제");
+  const activity = page.getByRole("region", { name: "프로젝트 작업 현황" });
+  await expect(activity).toContainText("지금은 실행 중인 작업이 없어요");
+  await expect(page.getByRole("region", { name: "프로젝트 목표", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "프로젝트 공개 설정", exact: true })).toHaveCount(
+    0,
+  );
+  await page.locator(".analysis-composer > summary").click();
+  await page.getByLabel("분석 작업 등록", { exact: true }).fill("아직 보내지 않은 분석 지시");
+  await activity.getByRole("button", { name: "목표 확인", exact: true }).click();
+  const menu = page.getByRole("navigation", { name: "프로젝트 메뉴" });
+  await expect(menu.getByRole("button", { name: "목표", exact: true })).toBeFocused();
+  const goals = page.getByRole("region", { name: "프로젝트 목표", exact: true });
+  await goals.getByRole("button", { name: "목표 등록 +", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "프로젝트 목표", exact: true })
+    .fill("다음 배포를 준비한다");
+  await page.getByLabel("완료·평가 기준", { exact: true }).fill("전체 테스트가 통과한다");
+  await goals.getByRole("button", { name: "목표 저장", exact: true }).click();
+  const criteria = goals.locator(".goal-criteria");
+  await expect(criteria.locator("p")).toBeHidden();
+  await criteria.locator("summary").click();
+  await expect(criteria.locator("p")).toHaveText("전체 테스트가 통과한다");
+  await criteria.locator("summary").click();
+  await goals.getByRole("button", { name: "목표 일시정지", exact: true }).click();
+  await expect(goals).toContainText("일시정지 · 버전 2");
+  await openSection(page, "작업");
+  await expect(activity).toContainText("목표가 일시정지돼 있어요");
+  await page.route("**/projects/*/goals", (route) => route.abort("failed"));
+  await expect(activity).toContainText("목표 상태는 아직 확인되지 않았습니다");
+  await expect(activity).not.toContainText("목표의 실행 조건을 기다리고 있습니다");
+  await expect(activity.locator(".activity-totals dd")).toHaveText(["0", "0", "0"]);
+  await page.unroute("**/projects/*/goals");
+  await expect(activity).toContainText("목표가 일시정지돼 있어요");
+  await expect(page.getByLabel("분석 작업 등록", { exact: true })).toHaveValue(
+    "아직 보내지 않은 분석 지시",
+  );
+  await page.locator(".analysis-composer > summary").click();
+  await page.screenshot({
+    path: testInfo.outputPath("workspace-paused-desktop.png"),
+    fullPage: true,
+  });
+  await openSection(page, "설정");
+  const publication = page.getByRole("region", { name: "프로젝트 공개 설정", exact: true });
+  await publication.locator("summary").click();
+  await publication.getByLabel("공개용 이름", { exact: true }).fill("저장하지 않은 공개 이름");
+  await openSection(page, "작업");
+  await openSection(page, "설정");
+  await expect(publication.getByLabel("공개용 이름", { exact: true })).toHaveValue(
+    "저장하지 않은 공개 이름",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openSection(page, "작업");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("workspace-paused-mobile.png"),
+    fullPage: true,
+  });
+  await createProject(page, "목표 없는 다른 프로젝트");
+  await expect(activity).toContainText("목표를 등록하면");
+  await expect(activity).not.toContainText("일시정지");
+  serverHeld = true;
+  await expect(activity).toContainText("실행 조건을 확인해야 해요");
+});
+
+test("keeps a completed result in the first desktop viewport and discloses execution details", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // The page must keep room for the result when the server has no blocking notice.
+  await page.route("**/execution", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      json: { ...(await response.json()), state: "idle", taskId: null, runId: null, reason: null },
+    });
+  });
+  // The historical application fixture has no result text. Include a typical
+  // outcome to exercise the reading layout, without changing its saved evidence.
+  await page.route("**/runs/*", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      json: {
+        ...(await response.json()),
+        result:
+          "CSV 입력의 잘못된 형식을 처리하도록 수정했습니다. 테스트와 코드 검토를 마쳤으며 변경은 개발용 브랜치에 반영됐습니다.",
+      },
+    });
+  });
+  await login(page);
+  await page.getByRole("button", { name: /개발 검증 예제 example/ }).click();
+  await page.getByRole("button", { name: /반영 완료 기록/ }).click();
+  await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const result = page.locator(".run-record > .analysis-result");
+  await expect(result).toBeInViewport({ ratio: 1 });
+  const metadata = page.locator(".run-metadata");
+  await expect(metadata.locator("dl")).toBeHidden();
+  await metadata.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(metadata.locator("dl")).toBeVisible();
+  await expect(metadata.locator("dl")).toContainText("최근 활동 기록");
+  await page.keyboard.press("Enter");
+  await expect(metadata.locator("dl")).toBeHidden();
+  const server = page.getByRole("region", { name: "자동 실행 상태" });
+  await expect(server.locator("details > p")).toBeHidden();
+  await server.locator("summary").click();
+  await expect(server.locator("details > p")).toBeVisible();
+  await server.locator("summary").click();
+  await page.screenshot({ path: testInfo.outputPath("outcome-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: /반영 완료 기록/ }).click();
+  await expect(page.locator("#detail-heading")).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("reopens a changed server warning and keeps capacity instructions readable", async ({
+  page,
+}) => {
+  let reason = "change_application_pending";
+  let capacity = false;
+  await page.route("**/execution", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      json: { ...(await response.json()), state: "held", reason, runId: null, taskId: null },
+    });
+  });
+  await page.route("**/execution/provider-gate", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      json: {
+        ...(await response.json()),
+        version: capacity ? 2 : 1,
+        blocked: capacity,
+        reason: capacity ? "capacity" : null,
+        retryAt: null,
+        capacityState: capacity
+          ? {
+              policy: {
+                version: 1,
+                initialDelayMs: 1000,
+                maxDelayMs: 10000,
+                jitterRatio: 0,
+                maxChecks: 3,
+              },
+              checks: 1,
+              nextCheckAt: "2026-01-01T00:00:00.000Z",
+              decisionVersion: 1,
+              reason: "waiting",
+            }
+          : null,
+      },
+    });
+  });
+  await login(page);
+  const server = page.getByRole("region", { name: "자동 실행 상태" });
+  const disclosure = server.locator("details");
+  await expect(disclosure).toHaveAttribute("open", "");
+  await server.locator("summary").click();
+  await expect(disclosure).not.toHaveAttribute("open", "");
+  const previousCheck = await server.locator("details > small").textContent();
+  await expect(server.locator("details > small")).not.toHaveText(previousCheck!);
+  await expect(disclosure).not.toHaveAttribute("open", "");
+  reason = "development_pending";
+  await expect(server).toContainText("개발 실행 연결 대기");
+  await expect(disclosure).toHaveAttribute("open", "");
+  await expect(server.locator("summary")).toBeFocused();
+  await server.locator("summary").click();
+  capacity = true;
+  await expect(disclosure).toHaveAttribute("open", "");
+  await expect(server.locator("summary")).toBeFocused();
+  const summary = server.locator(".capacity-summary");
+  await expect(summary).toBeVisible();
+  await expect(summary).toContainText("계정 확인 1 / 3회");
+  const first = await summary.locator("strong").boundingBox();
+  const next = await summary.locator("span").first().boundingBox();
+  expect(next!.y).toBeGreaterThanOrEqual(first!.y + first!.height);
 });

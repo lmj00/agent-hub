@@ -678,10 +678,10 @@ a {
   margin-top: 12px;
 }
 .task-list-heading {
-  margin: 25px 1px 12px;
+  margin: 0 1px 12px;
 }
 .task-list-heading h2 {
-  font-size: 13px;
+  font-size: 16px;
 }
 .task-list {
   display: grid;
@@ -699,6 +699,7 @@ a {
 }
 .task-row:hover {
   color: var(--accent);
+  background: #f4faf8;
 }
 .task-row.selected {
   color: var(--accent);
@@ -716,7 +717,7 @@ a {
   font-size: 12px;
 }
 .task-row > p {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.8;
   margin: 12px 0;
   display: -webkit-box;
@@ -869,7 +870,7 @@ a {
   margin-bottom: 4px;
 }
 .run-facts dd {
-  font-size: 12px;
+  font-size: 14px;
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -1266,7 +1267,7 @@ a {
   color: var(--amber);
 }
 
-.execution-bar > .capacity-summary {
+.execution-bar .capacity-summary {
   display: grid;
   flex-basis: 100%;
   gap: 5px;
@@ -1851,4 +1852,148 @@ a {
   .drawer[open] {
     animation: none;
   }
+}
+
+/* Work history controls and recorded development stages. */
+.task-filters {
+  display: flex;
+  gap: 18px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+.task-filters button {
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.task-filters button[aria-pressed="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.task-search {
+  min-height: 44px;
+  background: #f7f9f8;
+  border-color: transparent;
+}
+.filter-note {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 10px;
+}
+.task-status-update {
+  display: inline-block;
+  animation: status-arrival 0.8s ease-out;
+}
+@keyframes status-arrival {
+  from {
+    background-color: #d9eee8;
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.instruction-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 6px;
+}
+.run-progress {
+  padding: 20px 0 8px;
+}
+.run-progress .section-heading {
+  color: var(--muted);
+  font-size: 12px;
+}
+.run-progress strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+.run-progress ol {
+  display: flex;
+  list-style: none;
+  padding: 0;
+  gap: 4px;
+  margin: 14px 0 0;
+}
+.run-progress li {
+  flex: 1;
+  padding-top: 10px;
+  border-top: 3px solid var(--line);
+  color: var(--muted);
+  text-align: center;
+  font-size: 12px;
+}
+.run-progress li[aria-current="step"] {
+  border-top-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+.run-technical {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.run-technical summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.goal-status-summary {
+  margin-left: 16px;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 13px;
+}
+.project-settings {
+  border-top: 1px solid var(--line);
+  margin-top: 48px;
+  padding-top: 24px;
+}
+@media (min-width: 901px) {
+  .task-list {
+    max-height: 65vh;
+    overflow-y: auto;
+    padding-right: 10px;
+    scrollbar-gutter: stable;
+  }
+}
+@media (max-width: 600px) {
+  .goal-status-summary {
+    display: block;
+    margin: 5px 0 0 18px;
+  }
+}
+
+.analysis-composer {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.analysis-composer > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+  padding: 8px 0;
+}
+.analysis-composer .task-composer {
+  margin-top: 16px;
+}
+.task-instruction {
+  margin: 0 0 16px;
+}
+.task-instruction summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 0;
+}
+.task-instruction pre {
+  font: inherit;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px 0;
+  margin: 0;
 }

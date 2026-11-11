@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { projectsSchema, queueSchema, providerGateSchema } from "@agent-hub/contracts";
+import { projectsSchema, queueSchema, providerGateSchema, type Goal } from "@agent-hub/contracts";
 import { api, ApiError, errorMessage } from "../../shared/api.js";
 import { usePolling } from "../../shared/use-polling.js";
 import { dateTime } from "../../shared/format.js";
@@ -23,6 +23,14 @@ export function Workspace({
 }) {
   const [projectId, setProjectId] = useState<string | null>(() => selectedProject());
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [section, setSection] = useState<"work" | "goals" | "settings">("work");
+  const [observedGoals, setObservedGoals] = useState<{
+    projectId: string;
+    goals: Goal[] | null;
+  } | null>(null);
+  const observeGoals = useCallback((projectId: string, goals: Goal[] | null) => {
+    setObservedGoals({ projectId, goals });
+  }, []);
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
   const [logoutError, setLogoutError] = useState<unknown>(null);
@@ -42,6 +50,7 @@ export function Workspace({
     function navigate() {
       setProjectId(selectedProject());
       setTaskId(null);
+      setSection("work");
     }
     window.addEventListener("popstate", navigate);
     return () => window.removeEventListener("popstate", navigate);
@@ -50,6 +59,7 @@ export function Workspace({
     window.history.pushState(null, "", id ? `/#project/${id}` : "/");
     setProjectId(id);
     setTaskId(selectedTaskId ?? null);
+    setSection("work");
   }
   async function logout() {
     setLoggingOut(true);
@@ -101,6 +111,7 @@ export function Workspace({
               <button
                 key={item.id}
                 className={`project-link ${project?.id === item.id ? "selected" : ""}`}
+                aria-label={`${item.name} ${item.workspaceKey}`}
                 aria-pressed={project?.id === item.id}
                 onClick={() => selectProject(item.id)}
               >
@@ -109,7 +120,7 @@ export function Workspace({
                 </span>
                 <span>
                   <strong>{item.name}</strong>
-                  <small>{item.workspaceKey}</small>
+                  <small title={item.workspaceKey}>{item.workspaceKey}</small>
                 </span>
               </button>
             ))}
@@ -135,12 +146,13 @@ export function Workspace({
             </details>
           ) : null}
           <div className="sidebar-note">
-            <span className="eyebrow">현재 지원 범위</span>
-            <p>분석과 개발 작업</p>
-            <small>
-              분석 결과를 기록하고, 실행·개발 설정이 준비된 목표는 스스로 계획합니다. 검증된 변경은
-              개발용 브랜치에 반영합니다.
-            </small>
+            <span className="owner-avatar" aria-hidden="true">
+              나
+            </span>
+            <div>
+              <p>개인 작업 공간</p>
+              <small>소유자</small>
+            </div>
           </div>
         </aside>
         <main className="main-workspace">
@@ -170,7 +182,11 @@ export function Workspace({
             </div>
           ) : null}
           {overview.data ? (
-            <ExecutionBar queue={overview.data.queue} gate={overview.data.gate} />
+            <ExecutionBar
+              queue={overview.data.queue}
+              gate={overview.data.gate}
+              stale={!!overview.error}
+            />
           ) : null}
           {!projectId ? (
             <>
@@ -186,12 +202,83 @@ export function Workspace({
           ) : null}
           {project ? (
             <>
+              <nav className="project-navigation" aria-label="프로젝트 메뉴">
+                {(
+                  [
+                    ["work", "작업"],
+                    ["goals", "목표"],
+                    ["settings", "설정"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    id={`project-nav-${key}`}
+                    aria-pressed={section === key}
+                    aria-controls={`project-${key}`}
+                    onClick={() => setSection(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </nav>
+              <div id="project-goals" hidden={section !== "goals"}>
+                <div className="page-intro">
+                  <h2>목표</h2>
+                  <p>에이전트에게 맡길 일과 완료 기준을 정하세요.</p>
+                </div>
+                <GoalPanel
+                  key={`goals:${project.id}`}
+                  projectId={project.id}
+                  onExpired={onExpired}
+                  onObserved={observeGoals}
+                />
+              </div>
+            </>
+          ) : null}
+          {project ? (
+            <div id="project-work" hidden={section !== "work"}>
+              <ProjectTasks
+                key={`tasks:${project.id}`}
+                project={project}
+                taskId={taskId}
+                setTaskId={setTaskId}
+                executionConnected={!overview.error}
+                queue={overview.data?.queue ?? null}
+                gate={overview.data?.gate ?? null}
+                onExpired={onExpired}
+                refreshOverview={refresh}
+                goals={observedGoals?.projectId === project.id ? observedGoals.goals : null}
+                onOpenGoals={() => {
+                  setSection("goals");
+                  document.getElementById("project-nav-goals")?.focus();
+                }}
+              />
+            </div>
+          ) : projectId && overview.data ? (
+            <div className="empty-state">
+              <span className="empty-symbol" aria-hidden="true">
+                ↗
+              </span>
+              <h2>프로젝트를 찾을 수 없습니다</h2>
+              <p>전체 현황에서 프로젝트를 다시 선택하세요.</p>
+            </div>
+          ) : null}
+          {project ? (
+            <section
+              id="project-settings"
+              hidden={section !== "settings"}
+              className="project-settings"
+              aria-label="프로젝트 설정과 관측"
+            >
+              <div className="page-intro">
+                <h2>설정</h2>
+                <p>공개 범위, 실행 예산, 연결된 서비스 상태를 관리하세요.</p>
+              </div>
               <PublicationPanel
                 key={`publication:${project.id}`}
                 projectId={project.id}
                 onExpired={onExpired}
               />
-              <GoalPanel key={`goals:${project.id}`} projectId={project.id} onExpired={onExpired} />
               <ServicePanel
                 key={`services:${project.id}`}
                 projectId={project.id}
@@ -202,27 +289,7 @@ export function Workspace({
                 projectId={project.id}
                 onExpired={onExpired}
               />
-            </>
-          ) : null}
-          {project ? (
-            <ProjectTasks
-              key={`tasks:${project.id}`}
-              project={project}
-              taskId={taskId}
-              setTaskId={setTaskId}
-              queue={overview.data?.queue ?? null}
-              gate={overview.data?.gate ?? null}
-              onExpired={onExpired}
-              refreshOverview={refresh}
-            />
-          ) : projectId && overview.data ? (
-            <div className="empty-state">
-              <span className="empty-symbol" aria-hidden="true">
-                ↗
-              </span>
-              <h2>프로젝트를 찾을 수 없습니다</h2>
-              <p>전체 현황에서 프로젝트를 다시 선택하세요.</p>
-            </div>
+            </section>
           ) : null}
         </main>
       </div>

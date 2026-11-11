@@ -53,7 +53,12 @@ export function BudgetPanel({
   return (
     <section className="goals-panel" aria-label="실행 예산">
       <details>
-        <summary>실행 예산</summary>
+        <summary>
+          실행 예산
+          <small className="settings-hint">
+            프로젝트의 AI 호출 수와 실행 시간 한도를 관리합니다.
+          </small>
+        </summary>
         <p className="subtle-note">
           프로젝트 전체와 각 목표의 호출 수·실행 시간을 함께 제한합니다. 구독 잔여량과는 다릅니다.
           제한 없음은 현재 기간에도 적용됩니다. 숫자 상한 변경은 다음 기간에 적용하며 사용량은

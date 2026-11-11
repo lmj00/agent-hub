@@ -1,10 +1,22 @@
-import type { RunDetails } from "@agent-hub/contracts";
+import type { DevelopmentEvidence, RunDetails } from "@agent-hub/contracts";
 import { dateTime, elapsed, Status, statusLabels } from "../../shared/format.js";
 import { PlanningEvidencePanel } from "./PlanningEvidencePanel.js";
 import { RuntimeSkillPanel } from "./RuntimeSkillPanel.js";
 import { DevelopmentEvidencePanel, developmentPhaseLabels } from "./DevelopmentEvidencePanel.js";
 import { GoalVerificationPanel, goalVerificationPhaseLabels } from "./GoalVerificationPanel.js";
 import { stopReasons, runErrors } from "./run-labels.js";
+
+const developmentStage: Record<DevelopmentEvidence["phase"], string> = {
+  preparing: "준비",
+  developing: "개발",
+  needs_changes: "개발",
+  preparing_test: "테스트",
+  testing: "테스트",
+  reviewing: "검토",
+  verified: "검토",
+  applying: "반영",
+  applied: "반영",
+};
 
 export function RunRecord({
   run,
@@ -24,62 +36,26 @@ export function RunRecord({
           이전 실행 기록입니다. 위 작업 제어는 현재 작업의 최신 실행에 적용됩니다.
         </p>
       ) : null}
-      <dl className="run-facts">
-        <div>
-          <dt>실행 상태</dt>
-          <dd>
-            <Status value={run.status} />
-          </dd>
-        </div>
-        <div>
-          <dt>{run.finishedAt ? "실행 시간" : "시작 후 경과"}</dt>
-          <dd>
-            {elapsed(
-              run.startedAt,
-              run.finishedAt ??
-                (disconnected ? (checkedAt?.toISOString() ?? run.lastActivityAt) : null),
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>
-            {(run.developmentEvidence || run.goalVerification) && run.finishedAt
-              ? "마지막 단계"
-              : "현재 단계"}
-          </dt>
-          <dd>
-            {run.goalVerification
-              ? goalVerificationPhaseLabels[run.goalVerification.phase]
-              : run.developmentEvidence
-                ? developmentPhaseLabels[run.developmentEvidence.phase]
-                : run.steps.length
-                  ? `분석 · 단계 ${run.steps.at(-1)!.sequence}`
-                  : "실행 준비"}
-          </dd>
-        </div>
-        <div>
-          <dt>최근 활동 기록</dt>
-          <dd>{dateTime(run.lastActivityAt)}</dd>
-        </div>
-        <div>
-          <dt>모델</dt>
-          <dd className="mono">{run.model}</dd>
-        </div>
-        <div>
-          <dt>추론 강도</dt>
-          <dd>
-            {run.effort}{" "}
-            <small>
-              {run.steps.at(-1)?.effortReason ??
-                "이전 버전의 실행으로 선택 이유가 기록되지 않았습니다."}
-            </small>
-          </dd>
-        </div>
-      </dl>
-      <p className="subtle-note">
-        최근 활동은 마지막으로 기록한 이벤트 시각입니다. 현재 프로세스의 생존이나 작업 진척을
-        보장하지 않습니다.
-      </p>
+      {run.developmentEvidence ? (
+        <section className="run-progress" aria-label="개발 작업 흐름">
+          <div className="section-heading">
+            <span>{run.finishedAt || disconnected ? "마지막 기록" : "기록된 현재 단계"}</span>
+            <strong>{developmentPhaseLabels[run.developmentEvidence.phase]}</strong>
+          </div>
+          <ol>
+            {["준비", "개발", "테스트", "검토", "반영"].map((stage) => (
+              <li
+                key={stage}
+                aria-current={
+                  developmentStage[run.developmentEvidence!.phase] === stage ? "step" : undefined
+                }
+              >
+                {stage}
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
       {run.stopReason || run.errorCode ? (
         <div className="notice attention">
           <strong>{run.stopReason ? stopReasons[run.stopReason] : "실행 확인 필요"}</strong>
@@ -115,11 +91,6 @@ export function RunRecord({
         </h3>
         {run.finishedAt ? <small>{dateTime(run.finishedAt)}</small> : null}
       </div>
-      {run.planningEvidence ? <PlanningEvidencePanel evidence={run.planningEvidence} /> : null}
-      {run.developmentEvidence ? (
-        <DevelopmentEvidencePanel evidence={run.developmentEvidence} />
-      ) : null}
-      {run.goalVerification ? <GoalVerificationPanel evidence={run.goalVerification} /> : null}
       {run.result ? (
         <pre className="analysis-result">{run.result}</pre>
       ) : (
@@ -135,6 +106,84 @@ export function RunRecord({
               : "저장된 분석 결과가 없습니다."}
         </p>
       )}
+      <details className="run-metadata" open={run.status === "running"}>
+        <summary>
+          실행 정보
+          <span>
+            {elapsed(
+              run.startedAt,
+              run.finishedAt ??
+                (disconnected ? (checkedAt?.toISOString() ?? run.lastActivityAt) : null),
+            )}
+          </span>
+        </summary>
+        <dl className="run-facts">
+          <div>
+            <dt>실행 상태</dt>
+            <dd>
+              <Status value={run.status} />
+            </dd>
+          </div>
+          <div>
+            <dt>{run.finishedAt ? "실행 시간" : "시작 후 경과"}</dt>
+            <dd>
+              {elapsed(
+                run.startedAt,
+                run.finishedAt ??
+                  (disconnected ? (checkedAt?.toISOString() ?? run.lastActivityAt) : null),
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>
+              {(run.developmentEvidence || run.goalVerification) && run.finishedAt
+                ? "마지막 단계"
+                : "현재 단계"}
+            </dt>
+            <dd>
+              {run.goalVerification
+                ? goalVerificationPhaseLabels[run.goalVerification.phase]
+                : run.developmentEvidence
+                  ? developmentPhaseLabels[run.developmentEvidence.phase]
+                  : run.steps.length
+                    ? `분석 · 단계 ${run.steps.at(-1)!.sequence}`
+                    : "실행 준비"}
+            </dd>
+          </div>
+          <div>
+            <dt>최근 활동 기록</dt>
+            <dd>{dateTime(run.lastActivityAt)}</dd>
+          </div>
+        </dl>
+        <p className="subtle-note">
+          최근 활동은 마지막으로 기록한 이벤트 시각입니다. 현재 프로세스의 생존이나 작업 진척을
+          보장하지 않습니다.
+        </p>
+      </details>
+      {run.planningEvidence ? <PlanningEvidencePanel evidence={run.planningEvidence} /> : null}
+      {run.developmentEvidence ? (
+        <DevelopmentEvidencePanel evidence={run.developmentEvidence} />
+      ) : null}
+      {run.goalVerification ? <GoalVerificationPanel evidence={run.goalVerification} /> : null}
+      <details className="run-technical">
+        <summary>모델과 추론 설정</summary>
+        <dl className="run-facts">
+          <div>
+            <dt>모델</dt>
+            <dd className="mono">{run.model}</dd>
+          </div>
+          <div>
+            <dt>추론 강도</dt>
+            <dd>
+              {run.effort}{" "}
+              <small>
+                {run.steps.at(-1)?.effortReason ??
+                  "이전 버전의 실행으로 선택 이유가 기록되지 않았습니다."}
+              </small>
+            </dd>
+          </div>
+        </dl>
+      </details>
       <RuntimeSkillPanel run={run} />
       {run.steps.some((step) => step.purpose) ? (
         <section

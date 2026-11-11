@@ -13,7 +13,7 @@ import {
   type RecoveryAction,
 } from "@agent-hub/contracts";
 import { api, ApiError, errorMessage } from "../../shared/api.js";
-import { dateTime, Status, statusLabels } from "../../shared/format.js";
+import { dateTime, Status, statusLabels, taskTitle } from "../../shared/format.js";
 import { usePolling } from "../../shared/use-polling.js";
 
 import { RunRecord } from "../execution/RunRecord.js";
@@ -177,6 +177,7 @@ export function TaskDetail({
     queue.state !== "stopped" &&
     queue.state !== "stopping";
   const viewingLatest = run?.id === latest?.id;
+  const title = taskTitle(task.instruction);
   const capacityLimited =
     gate?.reason === "capacity" &&
     !!gate.capacityState &&
@@ -192,12 +193,21 @@ export function TaskDetail({
   return (
     <section className="task-detail" aria-labelledby="detail-heading">
       <div className="detail-top">
-        <p className="eyebrow">선택한 작업 · {task.id.slice(0, 8)}</p>
-        <Status value={task.status} />
+        <p className="eyebrow">{task.kind === "planning" ? "계획 기록" : "선택한 작업"}</p>
+        <Status
+          value={task.status}
+          label={task.kind === "planning" && task.status === "succeeded" ? "판단 완료" : undefined}
+        />
       </div>
-      <h2 id="detail-heading" className="instruction-title">
-        {task.instruction}
+      <h2 id="detail-heading" className="instruction-title" tabIndex={-1}>
+        {title}
       </h2>
+      {title !== task.instruction ? (
+        <details className="task-instruction">
+          <summary>작업 지시와 검증 기준 보기</summary>
+          <pre>{task.instruction}</pre>
+        </details>
+      ) : null}
       <p className="detail-created">등록 {dateTime(task.createdAt)}</p>
       {task.previousTaskId || task.nextTaskId ? (
         <div className="notice" aria-label="다시 허용한 작업 연결">
@@ -264,104 +274,77 @@ export function TaskDetail({
           </small>
         </div>
       ) : null}
-      {task.retryState ? (
-        <div className="notice retry-status" aria-label="자동 복구 정책">
-          <strong>
-            재시도 {task.retryState.retries} / {task.retryState.policy.maxRetries}회 · 같은 오류{" "}
-            {task.retryState.consecutiveErrors} / {task.retryState.policy.maxConsecutiveErrors}회
-          </strong>
-          <span>
-            누적 실행 {Math.ceil(task.retryState.totalRunMs / 1000)}초 /{" "}
-            {Math.ceil(task.retryState.policy.maxTotalRunMs / 1000)}초
-          </span>
-          {task.retryState.nextAttemptAt ? (
-            <span>다음 시도 가능 시각 {dateTime(task.retryState.nextAttemptAt)}</span>
-          ) : null}
-          {task.retryState.reason ? (
-            <span>
-              {retryReasons[task.retryState.reason] ?? "저장된 복구 조건을 확인하고 있습니다."}
-            </span>
-          ) : null}
-          {gate?.blocked && task.retryState.nextAttemptAt ? (
-            <small>계정 차단 중에는 허용된 확인 실행 하나만 시작할 수 있습니다.</small>
-          ) : null}
-          {!queue?.automaticRecoveryEnabled ? (
-            <small>
-              현재 자동 복구가 꺼져 있습니다. 저장된 예약은 자동 복구를 켠 서버에서 확인합니다.
-            </small>
-          ) : null}
-        </div>
-      ) : null}
       {records.error ? (
         <div className="notice error" role="alert">
           {errorMessage(records.error)}
           <small>마지막 확인 {dateTime(records.checkedAt)}</small>
         </div>
       ) : null}
-      <div className="task-actions" aria-label="작업 제어">
-        <button
-          className="secondary"
-          disabled={
-            !enabled ||
-            busy ||
-            pending ||
-            active ||
-            terminal ||
-            (viewingLatest && !!run?.developmentEvidence?.application) ||
-            retryLimited ||
-            capacityLimited ||
-            (!!task.budgetWait && Date.parse(task.budgetWait.retryAt) > Date.now()) ||
-            (task.status === "queued" && !gate?.blocked) ||
-            !records.data
-          }
-          onClick={() => void requestAction("resume")}
-        >
-          작업 재개
-        </button>
-        <button
-          className="secondary"
-          disabled={
-            !enabled ||
-            busy ||
-            pending ||
-            active ||
-            !latest ||
-            task.status === "succeeded" ||
-            (!!run?.terminationConfirmedAt &&
-              viewingLatest &&
-              !run.developmentEvidence?.application)
-          }
-          onClick={() => void requestAction("reconcile")}
-        >
-          상태 확인
-        </button>
-        <button
-          className="danger-button"
-          disabled={
-            !enabled ||
-            busy ||
-            terminal ||
-            !!(pending && receipt.action === "cancel") ||
-            !records.data
-          }
-          onClick={() => void requestAction("cancel")}
-        >
-          작업 취소
-        </button>
-      </div>
-      <p className="action-help">
-        {terminal
-          ? task.status === "succeeded"
-            ? "작업이 완료됐습니다. 아래 결과와 기록을 확인할 수 있습니다."
-            : task.planningTaskId
+      {task.status !== "succeeded" ? (
+        <div className="task-actions" aria-label="작업 제어">
+          <button
+            className="secondary"
+            disabled={
+              !enabled ||
+              busy ||
+              pending ||
+              active ||
+              terminal ||
+              (viewingLatest && !!run?.developmentEvidence?.application) ||
+              retryLimited ||
+              capacityLimited ||
+              (!!task.budgetWait && Date.parse(task.budgetWait.retryAt) > Date.now()) ||
+              (task.status === "queued" && !gate?.blocked) ||
+              !records.data
+            }
+            onClick={() => void requestAction("resume")}
+          >
+            작업 재개
+          </button>
+          <button
+            className="secondary"
+            disabled={
+              !enabled ||
+              busy ||
+              pending ||
+              active ||
+              !latest ||
+              (!!run?.terminationConfirmedAt &&
+                viewingLatest &&
+                !run.developmentEvidence?.application)
+            }
+            onClick={() => void requestAction("reconcile")}
+          >
+            상태 확인
+          </button>
+          <button
+            className="danger-button"
+            disabled={
+              !enabled ||
+              busy ||
+              terminal ||
+              !!(pending && receipt.action === "cancel") ||
+              !records.data
+            }
+            onClick={() => void requestAction("cancel")}
+          >
+            작업 취소
+          </button>
+        </div>
+      ) : null}
+      {task.status !== "succeeded" ? (
+        <p className="action-help">
+          {terminal
+            ? task.planningTaskId
               ? "취소가 완료됐습니다. 명시적으로 다시 허용하기 전에는 이 작업을 실행하지 않습니다."
               : "취소가 완료됐습니다. 다시 분석하려면 새 작업을 등록하세요."
-          : !enabled
-            ? "자동 실행을 설정한 서버에서 취소·재개를 요청할 수 있습니다."
-            : active
-              ? "취소를 요청하면 현재 분석을 멈추고, 종료 여부를 확인합니다."
-              : "재개 요청은 종료 여부와 실행 제한을 확인한 뒤 대기열에 넣습니다."}
-      </p>
+            : !enabled
+              ? "자동 실행을 설정한 서버에서 취소·재개를 요청할 수 있습니다."
+              : active
+                ? "취소를 요청하면 현재 분석을 멈추고, 종료 여부를 확인합니다."
+                : "재개 요청은 종료 여부와 실행 제한을 확인한 뒤 대기열에 넣습니다."}
+        </p>
+      ) : null}
       {error ? (
         <div className="notice error" role="alert">
           {errorMessage(error)}
@@ -427,11 +410,40 @@ export function TaskDetail({
       )}
       {run ? (
         <RunRecord
+          key={run.id}
           run={run}
           viewingLatest={viewingLatest}
           checkedAt={records.checkedAt}
           disconnected={!!records.error}
         />
+      ) : null}
+      {task.retryState ? (
+        <div className="notice retry-status" aria-label="자동 복구 정책">
+          <strong>
+            재시도 {task.retryState.retries} / {task.retryState.policy.maxRetries}회 · 같은 오류{" "}
+            {task.retryState.consecutiveErrors} / {task.retryState.policy.maxConsecutiveErrors}회
+          </strong>
+          <span>
+            누적 실행 {Math.ceil(task.retryState.totalRunMs / 1000)}초 /{" "}
+            {Math.ceil(task.retryState.policy.maxTotalRunMs / 1000)}초
+          </span>
+          {task.retryState.nextAttemptAt ? (
+            <span>다음 시도 가능 시각 {dateTime(task.retryState.nextAttemptAt)}</span>
+          ) : null}
+          {task.retryState.reason ? (
+            <span>
+              {retryReasons[task.retryState.reason] ?? "저장된 복구 조건을 확인하고 있습니다."}
+            </span>
+          ) : null}
+          {gate?.blocked && task.retryState.nextAttemptAt ? (
+            <small>계정 차단 중에는 허용된 확인 실행 하나만 시작할 수 있습니다.</small>
+          ) : null}
+          {!queue?.automaticRecoveryEnabled ? (
+            <small>
+              현재 자동 복구가 꺼져 있습니다. 저장된 예약은 자동 복구를 켠 서버에서 확인합니다.
+            </small>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );
