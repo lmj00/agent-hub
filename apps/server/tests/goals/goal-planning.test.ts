@@ -8,7 +8,16 @@ import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import type { GoalDefinition, GoalPlan } from "@agent-hub/contracts";
 import { openDatabase } from "../../src/db/connection.js";
-import { goals, planningCycles, projects, runs, tasks } from "../../src/db/schema.js";
+import {
+  goals,
+  planningCycles,
+  projects,
+  runs,
+  tasks,
+  developmentRepositories,
+  serviceTargets,
+  serviceObservations,
+} from "../../src/db/schema.js";
 import { createDrizzleGoalStore } from "../../src/modules/goals/drizzle-goal-store.js";
 import {
   createPlanningStore,
@@ -366,14 +375,136 @@ test("a model completion claim cannot close a finite goal without independent ve
   expect(workRows()).toEqual([]);
 });
 
-test("a wait decision reserves the next check and does not trigger an immediate planning loop", async () => {
+test("a wait decision does not call AI again when only the check time changes, including after restart", async () => {
   const plan = reserve();
   expect((await execute(plan.taskId, { outcome: "wait", tasks: [] })).status).toBe("succeeded");
   const due = new Date(goalStore.findById(goalId).nextCheckAt!);
   expect(planner.reserveNext(["example"], new Date(due.getTime() - 1))).toBeNull();
+  for (let interval = 0; interval < 21; interval++) {
+    expect(
+      createPlanningStore(database.db).reserveNext(
+        ["example"],
+        new Date(due.getTime() + interval * 60000),
+      ),
+    ).toBeNull();
+  }
+  expect(database.db.select().from(planningCycles).all()).toHaveLength(1);
+  expect(database.db.select().from(runs).all()).toHaveLength(1);
+  database.close();
+  database = openDatabase(join(directory, "hub.sqlite"));
+  expect(
+    createPlanningStore(database.db).reserveNext(["example"], new Date(due.getTime() + 86400000)),
+  ).toBeNull();
+});
+
+test("a new accepted development revision wakes a waiting goal", async () => {
+  const plan = reserve();
+  await execute(plan.taskId, { outcome: "wait", tasks: [] });
+  const due = new Date(goalStore.findById(goalId).nextCheckAt!);
+  const id = randomUUID();
+  const intent = { id, projectId, source, directory: join(directory, "development") };
+  database.db
+    .insert(developmentRepositories)
+    .values({
+      id,
+      projectId,
+      createdByRunId: runRow(plan.taskId).id,
+      intent,
+      prepared: {
+        ...intent,
+        sourceRevision: git("rev-parse", "HEAD"),
+        head: "a".repeat(40),
+        headTree: "b".repeat(40),
+      },
+      createdAt: new Date(),
+      preparedAt: new Date(),
+    })
+    .run();
   expect(planner.reserveNext(["example"], due)?.taskId).not.toBe(plan.taskId);
   expect(database.db.select().from(planningCycles).all()).toHaveLength(2);
 });
+
+test("a legacy wait without a fingerprint establishes one new baseline, then stops repeated planning", async () => {
+  const first = reserve();
+  await execute(first.taskId, { outcome: "wait", tasks: [] });
+  const row = runRow(first.taskId);
+  const input = { ...row.planningInput! };
+  delete input.stateFingerprint;
+  database.db.update(runs).set({ planningInput: input }).where(eq(runs.id, row.id)).run();
+  const second = planner.reserveNext(
+    ["example"],
+    new Date(goalStore.findById(goalId).nextCheckAt!),
+  )!;
+  expect(second).not.toBeNull();
+  await execute(second.taskId, { outcome: "wait", tasks: [] });
+  expect(
+    planner.reserveNext(["example"], new Date(goalStore.findById(goalId).nextCheckAt!)),
+  ).toBeNull();
+  expect(database.db.select().from(runs).all()).toHaveLength(2);
+});
+
+test.each(["heartbeat", "state", "stale"])(
+  "waiting planner distinguishes service %s from unchanged evidence",
+  async (change) => {
+    const observer = {
+      enabledKeys: new Set(["fixture"]),
+      errors: new Set<string>(),
+      nextChecks: new Map<string, Date>(),
+    };
+    planner = createPlanningStore(database.db, undefined, () => observer);
+    store = createDrizzleRunStore(
+      database.db,
+      undefined,
+      {},
+      { getObserverStatus: () => observer },
+    );
+    database.db
+      .insert(serviceTargets)
+      .values({
+        key: "fixture",
+        projectId,
+        name: "Fixture",
+        fingerprint: "fixture",
+        configured: true,
+        intervalMs: 60000,
+        staleAfterMs: 600000,
+        allowWaiting: true,
+        activityTimeoutMs: null,
+      })
+      .run();
+    const observe = (time: Date, stopped = false) =>
+      database.db
+        .insert(serviceObservations)
+        .values({
+          id: randomUUID(),
+          targetKey: "fixture",
+          fingerprint: "fixture",
+          receivedAt: time,
+          success: true,
+          snapshot: {
+            observedAt: time.toISOString(),
+            processState: stopped ? "stopped" : "running",
+            activityState: "working",
+            lastSuccessAt: time.toISOString(),
+            nextExpectedAt: null,
+            errorCount: 0,
+            summary: "Fixture",
+          },
+        })
+        .run();
+    observe(new Date());
+    const plan = reserve();
+    await execute(plan.taskId, { outcome: "wait", tasks: [] });
+    const due = new Date(goalStore.findById(goalId).nextCheckAt!);
+    if (change !== "stale") observe(due, change === "state");
+    const next = planner.reserveNext(
+      ["example"],
+      change === "stale" ? new Date(due.getTime() + 600000) : due,
+    );
+    if (change === "heartbeat") expect(next).toBeNull();
+    else expect(next).toMatchObject({ goalId });
+  },
+);
 
 test.each(["goal", "source"])(
   "a changed %s rejects a completed proposal without generating work",
@@ -490,6 +621,9 @@ test("the next plan receives bounded prior results without leaking authenticatio
     summary: "Earlier evidence sk-fixture_secret",
   });
   const due = new Date(goalStore.findById(goalId).nextCheckAt!);
+  goalStore.change(goalId, "recheck-with-new-criteria", 1, {
+    definition: { ...definition, completionCriteria: "Check additional evidence" },
+  });
   const next = planner.reserveNext(["example"], due)!;
   const context = readPlanningContext(database.db, next.taskId)!;
   expect(context.history).toHaveLength(1);

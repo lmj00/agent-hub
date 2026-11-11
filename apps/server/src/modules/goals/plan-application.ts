@@ -273,7 +273,9 @@ export function applyPlanningCompletion(
         ? "목표의 모든 완료 기준을 검증해 완료했습니다."
         : createdTaskIds.length
           ? `생성한 작업: ${createdTaskIds.length}개`
-          : "새 작업 없이 다음 점검 시각까지 기다립니다.",
+          : reason === "wait"
+            ? "새 작업 없이 입력 변화를 기다립니다. 같은 상태에서는 AI를 다시 호출하지 않습니다."
+            : "새 작업 없이 다음 점검 시각까지 기다립니다.",
     ].join("\n"),
   };
 }

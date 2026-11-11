@@ -228,7 +228,16 @@ export function buildApp({
           });
           const developmentWorkspaceKeys = () =>
             configuredDevelopmentWorkspaces(execution.config, baseExecutor);
-          const planning = createPlanningStore(database.db, owner.token);
+          const planning = createPlanningStore(
+            database.db,
+            owner.token,
+            () =>
+              serviceObserver?.getStatus() ?? {
+                enabledKeys: new Set(),
+                errors: new Set(),
+                nextChecks: new Map(),
+              },
+          );
           canTrackTermination = typeof executor.confirmTermination === "function";
           if (execution.config.automaticRecovery && !canTrackTermination)
             throw new Error("Automatic recovery requires execution termination tracking");

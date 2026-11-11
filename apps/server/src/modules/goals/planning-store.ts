@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, inArray, lte, ne, or, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import {
@@ -24,14 +24,71 @@ import { readServiceViews, type ObserverStatus } from "../services/drizzle-servi
 type Db = ReturnType<typeof openDatabase>["db"];
 type QueryDb = Pick<Db, "select">;
 
+const disabledObserver: ObserverStatus = {
+  enabledKeys: new Set(),
+  errors: new Set(),
+  nextChecks: new Map(),
+};
+
+// Planning history and heartbeat timestamps must not wake their own waiting loop.
+function planningStateFingerprint(
+  db: QueryDb,
+  goal: typeof goals.$inferSelect,
+  observer: ObserverStatus,
+  now: Date,
+) {
+  const repository = db
+    .select()
+    .from(developmentRepositories)
+    .where(eq(developmentRepositories.projectId, goal.projectId))
+    .get();
+  const work = db
+    .select({
+      id: tasks.id,
+      status: tasks.status,
+      goalVersion: tasks.goalVersion,
+      cancelRequestedAt: tasks.cancelRequestedAt,
+    })
+    .from(tasks)
+    .where(and(eq(tasks.goalId, goal.id), eq(tasks.kind, "work")))
+    .orderBy(asc(tasks.id))
+    .all()
+    .map((task) => ({ ...task, cancelRequestedAt: !!task.cancelRequestedAt }));
+  const services = readServiceViews(db, goal.projectId, observer, now, true)
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((service) => ({
+      key: service.key,
+      enabled: service.enabled,
+      state: service.state,
+      reason: service.reason,
+      success: service.latest?.success ?? null,
+      errorCode: service.latest?.errorCode ?? null,
+      snapshot: service.latest?.snapshot
+        ? {
+            processState: service.latest.snapshot.processState,
+            activityState: service.latest.snapshot.activityState,
+            errorCount: service.latest.snapshot.errorCount,
+            summary: service.latest.snapshot.summary,
+          }
+        : null,
+    }));
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        version: 1,
+        goalVersion: goal.version,
+        revision: repository?.prepared?.head ?? null,
+        work,
+        services,
+      }),
+    )
+    .digest("hex");
+}
+
 export function readPlanningContext(
   db: QueryDb,
   taskId: string,
-  observer: ObserverStatus = {
-    enabledKeys: new Set(),
-    errors: new Set(),
-    nextChecks: new Map(),
-  },
+  observer: ObserverStatus = disabledObserver,
   now = new Date(),
 ): PlanningContext | undefined {
   const cycle = db.select().from(planningCycles).where(eq(planningCycles.taskId, taskId)).get();
@@ -51,6 +108,7 @@ export function readPlanningContext(
     goalVersion: goal.version,
     definition: goal.definition,
     capturedAt: now.toISOString(),
+    stateFingerprint: planningStateFingerprint(db, goal, observer, now),
     historyCount: db
       .select({ total: count() })
       .from(tasks)
@@ -160,7 +218,11 @@ export function readPlanningContext(
   };
 }
 
-export function createPlanningStore(db: Db, ownerToken?: string) {
+export function createPlanningStore(
+  db: Db,
+  ownerToken?: string,
+  getObserverStatus?: () => ObserverStatus,
+) {
   return {
     reserveNext(
       workspaceKeys: string[],
@@ -257,6 +319,31 @@ export function createPlanningStore(db: Db, ownerToken?: string) {
             )
               continue;
             if (readBudgetWait(tx, { projectId: goal.projectId, goalId: goal.id }, now)) continue;
+            const previous = tx
+              .select({ cycle: planningCycles, input: runs.planningInput })
+              .from(planningCycles)
+              .innerJoin(runs, eq(runs.id, planningCycles.resultRunId))
+              .where(
+                and(
+                  eq(planningCycles.goalId, goal.id),
+                  eq(planningCycles.goalVersion, goal.version),
+                  eq(planningCycles.status, "applied"),
+                ),
+              )
+              .orderBy(desc(planningCycles.createdAt), desc(planningCycles.taskId))
+              .get();
+            if (
+              previous?.cycle.reason === "wait" &&
+              previous.input?.stateFingerprint &&
+              previous.input.stateFingerprint ===
+                planningStateFingerprint(tx, goal, getObserverStatus?.() ?? disabledObserver, now)
+            ) {
+              tx.update(goals)
+                .set({ nextCheckAt: new Date(now.getTime() + goal.definition.checkIntervalMs) })
+                .where(eq(goals.id, goal.id))
+                .run();
+              continue;
+            }
             const taskId = randomUUID();
             tx.insert(tasks)
               .values({

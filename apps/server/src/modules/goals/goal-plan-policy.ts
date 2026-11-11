@@ -43,6 +43,8 @@ export type PlanningContext = {
   goalVersion: number;
   definition: GoalDefinition;
   capturedAt: string;
+  // Optional for planning snapshots saved before change-driven waiting was introduced.
+  stateFingerprint?: string;
   historyCount: number;
   services: PlanningService[];
   suppressedWork: {

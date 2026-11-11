@@ -503,7 +503,7 @@ async function checkedAgain(app: ReturnType<typeof buildApp>) {
   });
 }
 
-test("goal registration starts planning, waits without repeated calls and resumes a due check after server restart", async () => {
+test("a waiting goal survives server restart and only calls AI again after a goal change", async () => {
   preparePlanningSource();
   const executor = waitingPlanner();
   const execution = { config, executor, pollIntervalMs: 5 };
@@ -545,6 +545,23 @@ test("goal registration starts planning, waits without repeated calls and resume
     .set({ nextCheckAt: new Date(0) })
     .where(eq(goals.id, id))
     .run();
+  await vi.waitFor(() =>
+    expect(
+      database.db.select().from(goals).where(eq(goals.id, id)).get()!.nextCheckAt!.getTime(),
+    ).toBeGreaterThan(Date.now()),
+  );
+  expect(executor.analyze).toHaveBeenCalledTimes(1);
+  expect(database.db.select().from(tasks).all()).toHaveLength(1);
+  const changed = await restarted.inject({
+    method: "PATCH",
+    url: `/goals/${id}`,
+    payload: {
+      requestKey: "new-evidence",
+      expectedVersion: 1,
+      definition: { ...autonomousGoal, completionCriteria: "Review newly supplied evidence" },
+    },
+  });
+  expect(changed.statusCode).toBe(200);
   await vi.waitFor(
     () =>
       expect(
