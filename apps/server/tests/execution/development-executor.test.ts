@@ -342,6 +342,10 @@ test("runs developer/test/reviewer and feeds the real failure into bounded rewor
   expect(callBudgets).toEqual([1, 1, 2, 3, 3, 4]);
   expect(calls[3]!.instruction).toContain("102 !== 200");
   expect(calls[3]!.instruction).toContain("실제 테스트 실패");
+  for (const call of calls.filter((call) => call.responseMode === "assessment")) {
+    const context = JSON.parse(call.instruction.split("\n").at(-1)!);
+    expect(context.configuredVerification).toEqual(configuration);
+  }
   expect(calls[2]!.development).toBeUndefined();
   expect(calls.filter((value) => !value.verification).map((value) => value.effort)).toEqual([
     "medium",

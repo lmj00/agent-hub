@@ -1,7 +1,7 @@
 import type { AnalysisAssessment, Effort } from "@agent-hub/contracts";
 import { AnalysisError } from "./analysis.js";
 import { parseAssessment, type AnalysisWorkflowPolicy } from "./analysis-workflow.js";
-import type { VerificationResult } from "./verification-config.js";
+import type { VerificationConfig, VerificationResult } from "./verification-config.js";
 import type { DevelopmentCandidate } from "../workspace/development-workspace.js";
 import type { PlannedWork } from "../goals/goal-plan-policy.js";
 
@@ -78,6 +78,7 @@ export function developmentInstruction(input: {
   work: PlannedWork;
   round: number;
   role: "developer" | "reviewer";
+  verificationConfig: VerificationConfig;
   candidate?: DevelopmentCandidate;
   verification?: VerificationResult;
   previousReview?: AnalysisAssessment;
@@ -88,6 +89,7 @@ export function developmentInstruction(input: {
       ? "Implement the requested change. Use prior test failures and review findings to correct the same candidate. Do not change test expectations to hide a failure. The server runs the fixed verification separately. Your report cannot approve or apply the change. Propose effort (medium/high/xhigh) for the independent review."
       : "Independently inspect the prepared candidate, task criteria, changed paths and actual server test result. You cannot modify files. Approve only if the task criteria are satisfied and the server test passed. For actionable defects set complete=false and propose the next correction and effort (medium/high/xhigh). If missing information prevents progress, next=null. Do not approve based only on the developer's claim.",
     "Return the supplied assessment JSON schema. Korean report and findings. Developers must set complete=false because their implementation is still a candidate. Only an independent reviewer may set complete=true, with unresolved=[] and next=null; it never bypasses server validation or change application.",
+    "The operator-configured verification below runs separately from the developer sandbox. A command unavailable in the developer sandbox is not evidence that the server test failed. Judge the recorded test result for this exact candidate. When task criteria name a test command, compare its test suite, toolchain and required options with the server command; a different launcher path alone is not a missing test. Do not assume equivalence without evidence, waive a required test or treat a wrapper-specific requirement as satisfied by a different launcher. If coverage or equivalence is unknown, describe exactly what evidence is missing.",
     ...(input.role === "developer"
       ? [
           "Include one separate line in report: Commit message: <subject>. Describe the actual change, following the repository's commit convention if supplied in the task or project documentation. Otherwise use an English Conventional Commit in the unscoped form type: description, at most 100 ASCII characters, with a lowercase type and initial verb (for example, fix: preserve accepted changes on resume). This line is a suggested message, not a claim that a commit was created. Do not include internal task or run IDs.",
@@ -100,6 +102,7 @@ export function developmentInstruction(input: {
       acceptanceCriteria: input.work.acceptanceCriteria,
       writePaths: input.work.paths,
       evidence: input.work.evidence,
+      configuredVerification: input.verificationConfig,
       ...(input.candidate
         ? {
             candidateDigest: input.candidate.digest,
