@@ -84,4 +84,16 @@ TypeScript, Node.js, Fastify, React·Vite, SQLite, better-sqlite3·Drizzle을 �
 
 코드·문서·가상 설정 예시를 공개합니다. 실제 프로젝트 소스, 인증, 서버 접속 정보, 작업 DB, 로그와 AI 결과는 비공개로 보관합니다. 공개 저장소의 CI는 개인 계정으로 인증한 에이전트를 호출하지 않습니다.
 
-저장소 공개와 관리 화면의 공개 접근은 별개입니다. 소스의 공개 재사용을 허용할 라이선스도 별도로 선택합니다.
+저장소 공개와 관리 화면의 공개 접근은 별개입니다.
+
+## 라이선스
+
+agent-hub의 직접 작성한 코드와 문서는 [MIT License](LICENSE)로 제공합니다.
+저작권·라이선스 표시를 유지하면 사용·수정·배포와 상업적 이용이 가능합니다.
+
+포함된 외부 자료에는 각 원본의 라이선스가 적용됩니다.
+
+- gstack 기반 역할 지침: [MIT 라이선스](apps/server/skills/gstack/LICENSE), [출처와 수정 내용](apps/server/skills/gstack/NOTICE.md)
+- Moby 기반 보안 정책: [Apache 2.0 라이선스](apps/server/security/LICENSE.moby), [출처와 수정 내용](apps/server/security/README.md)
+
+외부 자료의 기존 저작권·라이선스·출처 표시는 함께 보존합니다.
