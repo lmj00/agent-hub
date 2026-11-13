@@ -108,6 +108,15 @@ test("scope proposals keep old history readable but cannot self-approve or omit 
   expect(() =>
     parseAssessment({ ...report(next), scopeExpansion: { ...scopeExpansion, paths: [] } }),
   ).toThrow();
+  expect(() =>
+    parseAssessment({
+      ...report(next),
+      scopeExpansion: {
+        ...scopeExpansion,
+        paths: ["tests/integration.ts", "tests/integration.ts"],
+      },
+    }),
+  ).toThrow();
 });
 
 test("validates limits, reports and wire messages before granting a next call", () => {

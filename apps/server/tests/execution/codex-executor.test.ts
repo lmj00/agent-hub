@@ -274,6 +274,9 @@ test("the developer response contract permits pending candidates but rejects sel
     () => {},
   );
   const schema = fake.run.mock.lastCall![1].outputSchema;
+  // The actual Codex response-format endpoint rejects this JSON Schema keyword.
+  // Duplicate scope paths are still rejected by the server assessment parser.
+  expect(JSON.stringify(schema)).not.toContain('"uniqueItems"');
   expect(parseResponse(schema, candidate)).toEqual(candidate);
   // The real provider returned complete=true alongside pending review. Its
   // supplied schema must rule this out, without relaxing the server parser.

@@ -6,7 +6,6 @@ const scopeExpansionSchema = nullable(
     paths: Type.Array(Type.String({ minLength: 1, maxLength: 500 }), {
       minItems: 1,
       maxItems: 20,
-      uniqueItems: true,
     }),
     reason: Type.String({ minLength: 1, maxLength: 1000 }),
   }),

@@ -59,7 +59,10 @@ export function parseAssessment(value: unknown): AnalysisAssessment {
       !parsed.report.trim() ||
       (parsed.complete &&
         (parsed.next !== null || parsed.unresolved.length || parsed.scopeExpansion)) ||
-      (parsed.scopeExpansion && (!parsed.next || !parsed.scopeExpansion.reason.trim()))
+      (parsed.scopeExpansion &&
+        (!parsed.next ||
+          !parsed.scopeExpansion.reason.trim() ||
+          new Set(parsed.scopeExpansion.paths).size !== parsed.scopeExpansion.paths.length))
     )
       throw new Error("Contradictory analysis completion");
     if (parsed.next && (!parsed.next.purpose.trim() || !parsed.next.reason.trim()))
