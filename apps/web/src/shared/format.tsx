@@ -11,13 +11,17 @@ export const statusLabels: Record<TaskStatus, string> = {
   waiting_capacity: "사용량 대기",
   waiting_retry: "재개 대기",
 };
-export function Status({ value }: { value: TaskStatus }) {
+export function Status({ value, label }: { value: TaskStatus; label?: string | undefined }) {
   return (
     <span className={`status status-${value}`}>
       <span aria-hidden="true" className="status-dot" />
-      {statusLabels[value]}
+      {label ?? statusLabels[value]}
     </span>
   );
+}
+export function taskTitle(instruction: string) {
+  const line = instruction.trim().split("\n")[0] ?? instruction;
+  return line.length > 120 ? `${line.slice(0, 120)}…` : line;
 }
 export function dateTime(value: string | Date | null | undefined) {
   return value

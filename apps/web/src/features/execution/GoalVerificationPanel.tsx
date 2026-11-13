@@ -1,5 +1,7 @@
 import type { GoalVerificationEvidence } from "@agent-hub/contracts";
 import { dateTime } from "../../shared/format.js";
+import { TerminalBlock } from "../../shared/TerminalBlock.js";
+import { ReportContent } from "../../shared/ReportContent.js";
 
 export const goalVerificationPhaseLabels = {
   testing: "목표 전체 테스트",
@@ -49,7 +51,12 @@ export function GoalVerificationPanel({ evidence }: { evidence: GoalVerification
             {evidence.test.oomKilled ? <p>메모리 한도로 실행이 종료됐습니다.</p> : null}
             <details>
               <summary>테스트 출력 보기</summary>
-              <pre className="development-output">{evidence.test.output || "출력 없음"}</pre>
+              <div className="development-output">
+                <TerminalBlock
+                  title="목표 테스트 출력"
+                  text={evidence.test.output || "출력 없음"}
+                />
+              </div>
             </details>
           </>
         ) : (
@@ -60,7 +67,7 @@ export function GoalVerificationPanel({ evidence }: { evidence: GoalVerification
         <h4>독립 검토</h4>
         {evidence.review ? (
           <>
-            <p>{evidence.review.assessment.report}</p>
+            <ReportContent text={evidence.review.assessment.report} />
             {evidence.review.assessment.evidence.length ? (
               <ul>
                 {evidence.review.assessment.evidence.map((item, index) => (

@@ -13,12 +13,14 @@ test("owner publishes only a chosen name, visitors cannot issue work, and unpubl
   await page.getByLabel("프로젝트 이름", { exact: true }).fill("소유자만 아는 이름");
   await page.getByLabel("작업 공간 키", { exact: true }).fill("example");
   await page.getByRole("button", { name: "프로젝트 등록", exact: true }).click();
+  const menu = page.getByRole("navigation", { name: "프로젝트 메뉴" });
+  await menu.getByRole("button", { name: "설정", exact: true }).click();
   const settings = page.getByRole("region", { name: "프로젝트 공개 설정" });
   await settings.locator("summary").click();
   await page.getByLabel("공개용 이름", { exact: true }).fill("공개 작업실");
   await page.getByLabel("방문자에게 공개", { exact: true }).check();
   await page.getByRole("button", { name: "공개 설정 저장" }).click();
-  await expect(settings.locator("summary")).toHaveText("공개 여부 공개");
+  await expect(settings.locator("summary > span")).toHaveText("공개");
   const visitorContext = await browser.newContext();
   try {
     const visitor = await visitorContext.newPage();
@@ -51,13 +53,13 @@ test("owner publishes only a chosen name, visitors cannot issue work, and unpubl
     await expect(visitor.getByRole("heading", { name: "공개 작업실" })).toBeVisible();
     await page.getByLabel("방문자에게 공개", { exact: true }).uncheck();
     await page.getByRole("button", { name: "공개 설정 저장" }).click();
-    await expect(settings.locator("summary")).toHaveText("공개 여부 비공개");
+    await expect(settings.locator("summary > span")).toHaveText("비공개");
     await expect(visitor.getByRole("heading", { name: "공개 작업실" })).toHaveCount(0);
   } finally {
     await visitorContext.close();
   }
   const goals = page.getByRole("region", { name: "프로젝트 목표", exact: true });
-  await goals.locator("summary").first().click();
+  await menu.getByRole("button", { name: "목표", exact: true }).click();
   await goals.getByRole("button", { name: "목표 등록 +" }).click();
   await expect(page.getByRole("dialog", { name: "목표 추가" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "프로젝트 목표", exact: true })).toBeFocused();
@@ -67,4 +69,19 @@ test("owner publishes only a chosen name, visitors cannot issue work, and unpubl
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(goals.getByRole("button", { name: "목표 등록 +" })).toBeFocused();
+});
+
+test("loads the bundled Korean font and its license without external requests", async ({
+  page,
+}) => {
+  const fontResponse = page.waitForResponse((response) => response.url().endsWith(".woff2"));
+  await page.goto("/");
+  const response = await fontResponse;
+  expect(response.status()).toBe(200);
+  expect(new URL(response.url()).origin).toBe(new URL(page.url()).origin);
+  await page.evaluate(() => document.fonts.ready);
+  expect(await page.evaluate(() => document.fonts.check('400 14px "SUIT"'))).toBe(true);
+  const license = await page.request.get("/assets/SUIT-LICENSE.txt");
+  expect(license.status()).toBe(200);
+  expect(await license.text()).toContain("SIL OPEN FONT LICENSE Version 1.1");
 });

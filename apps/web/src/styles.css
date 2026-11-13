@@ -1,17 +1,24 @@
+/* SUIT v2.0.5, Copyright 2022 SUNN. SIL OFL 1.1: /assets/SUIT-LICENSE.txt */
+@font-face {
+  font-family: "SUIT";
+  src: url("./assets/fonts/SUIT-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 :root {
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  color: #243430;
+  font-family: "SUIT", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+  color: #20232b;
   background: #ffffff;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --ink: #243430;
-  --muted: #61706b;
+  --ink: #20232b;
+  --muted: #626773;
   --canvas: #ffffff;
-  --line: #dfe6e2;
+  --line: #e7e9ee;
   --white: #fff;
-  --accent: #007f73;
-  --teal: #007f73;
+  --accent: #3566bd;
+  --teal: #17745e;
   --amber: #9a5a17;
   --danger: #ae3446;
 }
@@ -678,10 +685,10 @@ a {
   margin-top: 12px;
 }
 .task-list-heading {
-  margin: 25px 1px 12px;
+  margin: 0 1px 12px;
 }
 .task-list-heading h2 {
-  font-size: 13px;
+  font-size: 16px;
 }
 .task-list {
   display: grid;
@@ -699,6 +706,7 @@ a {
 }
 .task-row:hover {
   color: var(--accent);
+  background: #f4faf8;
 }
 .task-row.selected {
   color: var(--accent);
@@ -716,7 +724,7 @@ a {
   font-size: 12px;
 }
 .task-row > p {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.8;
   margin: 12px 0;
   display: -webkit-box;
@@ -869,7 +877,7 @@ a {
   margin-bottom: 4px;
 }
 .run-facts dd {
-  font-size: 12px;
+  font-size: 14px;
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -1266,7 +1274,7 @@ a {
   color: var(--amber);
 }
 
-.execution-bar > .capacity-summary {
+.execution-bar .capacity-summary {
   display: grid;
   flex-basis: 100%;
   gap: 5px;
@@ -1558,7 +1566,7 @@ a {
   margin-top: 12px;
 }
 
-/* Shared app direction: white canvas, teal selection, open rows and fine dividers.
+/* Shared app direction: quiet canvas, clear selection, open rows and fine dividers.
    Design review informed by Unslop by Damir Sokolovsky (CC BY 4.0). */
 .brand-link {
   text-decoration: none;
@@ -1575,7 +1583,7 @@ a {
   align-items: center;
   gap: 48px;
   max-width: 1280px;
-  padding: 32px 48px;
+  padding: 20px 40px;
   margin: auto;
 }
 .public-header > a {
@@ -1591,29 +1599,31 @@ a {
   padding: 12px 0;
 }
 .public-workspace {
-  border-top: 4px solid var(--accent);
+  min-height: 100dvh;
 }
 .public-main {
   border-top: 1px solid var(--line);
   max-width: 1280px;
   margin: auto;
-  padding: 48px;
+  padding: 40px;
 }
 .public-main .workspace-heading {
-  margin-bottom: 48px;
+  margin-bottom: 32px;
 }
 .public-main h1 {
+  font-size: 26px;
   margin-top: 12px;
   font-weight: 600;
 }
 .public-intro {
   color: var(--muted);
-  margin-top: 16px;
+  margin-top: 12px;
+  font-size: 14px;
 }
 .public-columns {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 64px;
+  gap: 48px;
 }
 .public-project-list {
   margin-top: 24px;
@@ -1626,7 +1636,7 @@ a {
   align-items: baseline;
   gap: 16px;
   text-align: left;
-  padding: 28px 0;
+  padding: 22px 12px;
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--line);
@@ -1634,18 +1644,19 @@ a {
 }
 .public-project-row strong {
   display: block;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 500;
   overflow-wrap: anywhere;
 }
 .public-project-row small {
   display: block;
   color: var(--muted);
-  margin-top: 12px;
+  margin-top: 6px;
 }
 .public-project-row[aria-pressed="true"],
 .public-project-row:hover {
   color: var(--accent);
+  background: #f5f7fb;
 }
 .public-state {
   color: var(--muted);
@@ -1689,7 +1700,7 @@ a {
   justify-content: space-between;
 }
 .public-detail h2 {
-  font-size: 32px;
+  font-size: 26px;
   font-weight: 500;
   margin: 24px 0;
   overflow-wrap: anywhere;
@@ -1702,6 +1713,8 @@ a {
 .public-detail-note p {
   color: var(--muted);
   margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.8;
 }
 .publication-panel {
   padding: 24px 0;
@@ -1851,4 +1864,105 @@ a {
   .drawer[open] {
     animation: none;
   }
+}
+
+/* Work history controls and recorded development stages. */
+.task-filters {
+  display: flex;
+  gap: 18px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+.task-filters button {
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.task-filters button[aria-pressed="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.task-search {
+  min-height: 44px;
+  background: #f7f9f8;
+  border-color: transparent;
+}
+.filter-note {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 10px;
+}
+.instruction-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 6px;
+}
+.run-technical {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.run-technical summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.goal-status-summary {
+  margin-left: 16px;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 13px;
+}
+.project-settings {
+  border-top: 1px solid var(--line);
+  margin-top: 48px;
+  padding-top: 24px;
+}
+@media (min-width: 901px) {
+  .task-list {
+    max-height: 65vh;
+    overflow-y: auto;
+    padding-right: 10px;
+    scrollbar-gutter: stable;
+  }
+}
+@media (max-width: 600px) {
+  .goal-status-summary {
+    display: block;
+    margin: 5px 0 0 18px;
+  }
+}
+
+.analysis-composer {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.analysis-composer > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+  padding: 8px 0;
+}
+.analysis-composer .task-composer {
+  margin-top: 16px;
+}
+.task-instruction {
+  margin: 0 0 16px;
+}
+.task-instruction summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 0;
+}
+.task-instruction pre {
+  font: inherit;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px 0;
+  margin: 0;
 }

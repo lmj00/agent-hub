@@ -94,6 +94,7 @@ agent-hub의 직접 작성한 코드와 문서는 [MIT License](LICENSE)로 제�
 포함된 외부 자료에는 각 원본의 라이선스가 적용됩니다.
 
 - gstack 기반 역할 지침: [MIT 라이선스](apps/server/skills/gstack/LICENSE), [출처와 수정 내용](apps/server/skills/gstack/NOTICE.md)
+- SUIT 글꼴: [SIL Open Font License 1.1](apps/web/public/assets/SUIT-LICENSE.txt), [원본 v2.0.5](https://github.com/sun-typeface/SUIT/releases/tag/v2.0.5) — 수정 없이 포함하며 웹 빌드에도 라이선스를 복사합니다.
 - Moby 기반 보안 정책: [Apache 2.0 라이선스](apps/server/security/LICENSE.moby), [출처와 수정 내용](apps/server/security/README.md)
 
 외부 자료의 기존 저작권·라이선스·출처 표시는 함께 보존합니다.

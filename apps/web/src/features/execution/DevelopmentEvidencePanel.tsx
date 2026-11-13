@@ -1,5 +1,7 @@
 import type { DevelopmentEvidence } from "@agent-hub/contracts";
 import { dateTime } from "../../shared/format.js";
+import { TerminalBlock } from "../../shared/TerminalBlock.js";
+import { ReportContent } from "../../shared/ReportContent.js";
 
 export const developmentPhaseLabels: Record<DevelopmentEvidence["phase"], string> = {
   preparing: "개발 준비",
@@ -26,7 +28,7 @@ export function DevelopmentEvidencePanel({ evidence }: { evidence: DevelopmentEv
       <div className="section-heading">
         <h3>개발·검증 기록</h3>
         <span className="count">
-          {evidence.rounds.length} / {evidence.maxRounds}회 수정
+          이번 실행 · {evidence.rounds.length} / {evidence.maxRounds}회 수정
         </span>
       </div>
       <p className="subtle-note">
@@ -130,7 +132,9 @@ export function DevelopmentEvidencePanel({ evidence }: { evidence: DevelopmentEv
                 <details>
                   <summary>테스트 출력</summary>
                   {round.test.output ? (
-                    <pre className="analysis-result development-output">{round.test.output}</pre>
+                    <div className="development-output">
+                      <TerminalBlock title="테스트 출력" text={round.test.output} />
+                    </div>
                   ) : (
                     <p>저장된 출력이 없습니다.</p>
                   )}
@@ -154,7 +158,7 @@ export function DevelopmentEvidencePanel({ evidence }: { evidence: DevelopmentEv
                   {round.review.assessment.complete ? "승인" : "보완 필요"}
                 </span>
                 <p className="subtle-note">결과 저장 {dateTime(round.review.recordedAt)}</p>
-                <pre className="analysis-result">{round.review.assessment.report}</pre>
+                <ReportContent text={round.review.assessment.report} />
                 {round.review.assessment.unresolved.length ? (
                   <ul>
                     {round.review.assessment.unresolved.map((item, i) => (

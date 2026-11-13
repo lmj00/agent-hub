@@ -13,10 +13,10 @@ import {
   type RecoveryAction,
 } from "@agent-hub/contracts";
 import { api, ApiError, errorMessage } from "../../shared/api.js";
-import { dateTime, Status, statusLabels } from "../../shared/format.js";
+import { dateTime, Status, statusLabels, taskTitle } from "../../shared/format.js";
 import { usePolling } from "../../shared/use-polling.js";
 
-import { RunRecord } from "../execution/RunRecord.js";
+import { RunActivity, RunAttention, RunRecord, type RunView } from "../execution/RunRecord.js";
 
 const actions: Record<RecoveryAction, string> = {
   cancel: "취소",
@@ -50,6 +50,10 @@ export function TaskDetail({
   onExpired,
   onChanged,
   onSelectTask,
+  onBack,
+  executionConnected,
+  focused,
+  onFocusChange,
 }: {
   task: Task;
   queue: Queue | null;
@@ -57,8 +61,13 @@ export function TaskDetail({
   onExpired: () => void;
   onChanged: () => void;
   onSelectTask: (id: string) => void;
+  onBack: () => void;
+  executionConnected: boolean;
+  focused: boolean;
+  onFocusChange: (focused: boolean) => void;
 }) {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [runView, setRunView] = useState<RunView>("result");
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => {
     setRevision((value) => value + 1);
@@ -177,6 +186,7 @@ export function TaskDetail({
     queue.state !== "stopped" &&
     queue.state !== "stopping";
   const viewingLatest = run?.id === latest?.id;
+  const title = taskTitle(task.instruction);
   const capacityLimited =
     gate?.reason === "capacity" &&
     !!gate.capacityState &&
@@ -192,31 +202,121 @@ export function TaskDetail({
       (task.retryState.policy.maxTotalRunMs !== null &&
         task.retryState.totalRunMs >= task.retryState.policy.maxTotalRunMs) ||
       (!!task.retryState.nextAttemptAt && Date.parse(task.retryState.nextAttemptAt) > Date.now()));
+  const goalReview = task.goalReview ? (
+    <details
+      className="task-context"
+      aria-label="목표 범위 재검사"
+      open={task.goalReview.decision !== "retained"}
+    >
+      <summary>
+        {task.goalReview.decision === "retained"
+          ? "변경된 목표에서도 허용된 작업입니다."
+          : "목표의 허용 범위를 벗어나 제외한 작업입니다."}
+      </summary>
+      <p>
+        목표 버전 {task.goalReview.fromVersion} → {task.goalReview.toVersion} · 확인{" "}
+        {dateTime(task.goalReview.checkedAt)}
+      </p>
+      <small>
+        {task.goalReview.decision === "retained"
+          ? "기존 실행 이력과 재시도·시간 제한은 유지합니다."
+          : "사용자 취소와 구분해 기록하며 이 작업을 자동 재개하지 않습니다."}
+      </small>
+    </details>
+  ) : null;
   return (
-    <section className="task-detail" aria-labelledby="detail-heading">
-      <div className="detail-top">
-        <p className="eyebrow">선택한 작업 · {task.id.slice(0, 8)}</p>
-        <Status value={task.status} />
-      </div>
-      <h2 id="detail-heading" className="instruction-title">
-        {task.instruction}
-      </h2>
-      <p className="detail-created">등록 {dateTime(task.createdAt)}</p>
-      {task.previousTaskId || task.nextTaskId ? (
-        <div className="notice" aria-label="다시 허용한 작업 연결">
-          <p>취소 기록과 이전 실행 한도를 이어받는 작업입니다.</p>
-          {task.previousTaskId ? (
-            <button className="quiet" onClick={() => onSelectTask(task.previousTaskId!)}>
-              이전 취소 작업 보기
+    <section
+      className="task-detail"
+      aria-labelledby="detail-heading"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && focused && !event.defaultPrevented) {
+          onFocusChange(false);
+          event.currentTarget.querySelector<HTMLButtonElement>(".detail-focus")?.focus();
+        }
+      }}
+    >
+      <button className="task-back quiet" onClick={onBack}>
+        <span aria-hidden="true">←</span> 작업 목록
+      </button>
+      <header className="task-detail-header">
+        <div className="detail-top">
+          <p className="eyebrow">{task.kind === "planning" ? "계획 기록" : "선택한 작업"}</p>
+          <div className="detail-tools">
+            <Status
+              value={task.status}
+              label={
+                task.kind === "planning" && task.status === "succeeded" ? "판단 완료" : undefined
+              }
+            />
+            <button
+              className="quiet detail-focus"
+              aria-pressed={focused}
+              onClick={() => onFocusChange(!focused)}
+              title={focused ? "Escape로 목록과 함께 보기" : "작업 목록을 접고 넓게 읽기"}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                aria-hidden="true"
+              >
+                <path
+                  d={
+                    focused
+                      ? "M4 9h5V4m6 0v5h5M4 15h5v5m6 0v-5h5"
+                      : "M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"
+                  }
+                />
+              </svg>
+              {focused ? "목록과 함께 보기" : "집중 보기"}
             </button>
-          ) : null}
-          {task.nextTaskId ? (
-            <button className="quiet" onClick={() => onSelectTask(task.nextTaskId!)}>
-              다시 허용한 작업 보기
-            </button>
-          ) : null}
+          </div>
         </div>
+        <h2 id="detail-heading" className="instruction-title" tabIndex={-1}>
+          {title}
+        </h2>
+      </header>
+      {run ? (
+        <RunActivity
+          run={run}
+          live={active && viewingLatest && task.status === "running"}
+          checkedAt={records.checkedAt}
+          disconnected={!!records.error || !executionConnected}
+        />
       ) : null}
+      <details className="task-info">
+        <summary>
+          작업 정보{" "}
+          <span>
+            등록 {dateTime(task.createdAt)} · 실행 {runs.length}회
+          </span>
+        </summary>
+        <div className="task-instruction">
+          <h3>작업 지시와 검증 기준</h3>
+          <pre>{task.instruction}</pre>
+        </div>
+        {task.previousTaskId || task.nextTaskId ? (
+          <details className="task-context" aria-label="다시 허용한 작업 연결">
+            <summary>이전 작업과의 연결</summary>
+            <p>취소 기록과 이전 실행 한도를 이어받는 작업입니다.</p>
+            {task.previousTaskId ? (
+              <button className="quiet" onClick={() => onSelectTask(task.previousTaskId!)}>
+                이전 취소 작업 보기
+              </button>
+            ) : null}
+            {task.nextTaskId ? (
+              <button className="quiet" onClick={() => onSelectTask(task.nextTaskId!)}>
+                다시 허용한 작업 보기
+              </button>
+            ) : null}
+          </details>
+        ) : null}
+        {task.goalReview?.decision === "retained" ? goalReview : null}
+      </details>
+      {task.goalReview?.decision !== "retained" ? goalReview : null}
       {task.status === "cancelled" && task.planningTaskId && !task.nextTaskId ? (
         <div className="notice" aria-label="취소 작업 다시 허용">
           <p>
@@ -230,24 +330,6 @@ export function TaskDetail({
           >
             취소한 작업 다시 허용
           </button>
-        </div>
-      ) : null}
-      {task.goalReview ? (
-        <div className="notice" aria-label="목표 범위 재검사">
-          <strong>
-            {task.goalReview.decision === "retained"
-              ? "변경된 목표에서도 허용된 작업입니다."
-              : "목표의 허용 범위를 벗어나 제외한 작업입니다."}
-          </strong>
-          <p>
-            목표 버전 {task.goalReview.fromVersion} → {task.goalReview.toVersion} · 확인{" "}
-            {dateTime(task.goalReview.checkedAt)}
-          </p>
-          <small>
-            {task.goalReview.decision === "retained"
-              ? "기존 실행 이력과 재시도·시간 제한은 유지합니다."
-              : "사용자 취소와 구분해 기록하며 이 작업을 자동 재개하지 않습니다."}
-          </small>
         </div>
       ) : null}
       {task.budgetWait ? (
@@ -266,6 +348,154 @@ export function TaskDetail({
             취소와 재시도 한도는 유지됩니다.
           </small>
         </div>
+      ) : null}
+      {records.error ? (
+        <div className="notice error" role="alert">
+          {errorMessage(records.error)}
+          <small>마지막 확인 {dateTime(records.checkedAt)}</small>
+        </div>
+      ) : null}
+      {run ? <RunAttention run={run} viewingLatest={viewingLatest} /> : null}
+      {task.status !== "succeeded" ? (
+        <div className="task-actions" aria-label="작업 제어">
+          <button
+            className="primary"
+            disabled={
+              !enabled ||
+              busy ||
+              pending ||
+              active ||
+              terminal ||
+              (viewingLatest && !!run?.developmentEvidence?.application) ||
+              retryLimited ||
+              capacityLimited ||
+              (!!task.budgetWait && Date.parse(task.budgetWait.retryAt) > Date.now()) ||
+              (task.status === "queued" && !gate?.blocked) ||
+              !records.data
+            }
+            onClick={() => void requestAction("resume")}
+          >
+            작업 재개
+          </button>
+          <button
+            className="secondary"
+            disabled={
+              !enabled ||
+              busy ||
+              pending ||
+              active ||
+              !latest ||
+              (!!run?.terminationConfirmedAt &&
+                viewingLatest &&
+                !run.developmentEvidence?.application)
+            }
+            onClick={() => void requestAction("reconcile")}
+          >
+            상태 확인
+          </button>
+          <button
+            className="danger-button"
+            disabled={
+              !enabled ||
+              busy ||
+              terminal ||
+              !!(pending && receipt.action === "cancel") ||
+              !records.data
+            }
+            onClick={() => void requestAction("cancel")}
+          >
+            작업 취소
+          </button>
+        </div>
+      ) : null}
+      {task.status !== "succeeded" ? (
+        <p className="action-help">
+          {terminal
+            ? task.planningTaskId
+              ? "취소가 완료됐습니다. 명시적으로 다시 허용하기 전에는 이 작업을 실행하지 않습니다."
+              : "취소가 완료됐습니다. 다시 분석하려면 새 작업을 등록하세요."
+            : !enabled
+              ? "자동 실행을 설정한 서버에서 취소·재개를 요청할 수 있습니다."
+              : active
+                ? "취소를 요청하면 현재 분석을 멈추고, 종료 여부를 확인합니다."
+                : "재개 요청은 종료 여부와 실행 제한을 확인한 뒤 대기열에 넣습니다."}
+        </p>
+      ) : null}
+      {error ? (
+        <div className="notice error" role="alert">
+          {errorMessage(error)}
+        </div>
+      ) : null}
+      {receipt ? (
+        <div className={`notice ${receipt.status === "rejected" ? "error" : ""}`} role="status">
+          <strong>
+            {actions[receipt.action]}{" "}
+            {receipt.status === "pending"
+              ? "요청 접수됨"
+              : receipt.status === "completed"
+                ? "요청 처리됨"
+                : "요청 보류됨"}
+          </strong>
+          <p>
+            {receipt.status === "pending"
+              ? "서버에서 조건을 확인하고 있습니다. 접수는 작업 완료를 뜻하지 않습니다."
+              : receipt.errorCode
+                ? errorMessage(new ApiError(409, receipt.errorCode))
+                : receipt.resultStatus
+                  ? `처리 결과: ${statusLabels[receipt.resultStatus]}`
+                  : "최신 실행 기록을 확인해 주세요."}
+          </p>
+          {receiptPoll.error ? (
+            <p className="error-text">
+              처리 결과를 확인하지 못했습니다. {errorMessage(receiptPoll.error)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {runs.length > 1 ? (
+        <div className="section-heading attempts-heading">
+          <h3>실행 시도</h3>
+          <span className="count">{runs.length}</span>
+        </div>
+      ) : null}
+      {runs.length > 1 ? (
+        <div className="attempts" aria-label="실행 시도 선택">
+          {runs.map((item, index) => (
+            <button
+              key={item.id}
+              className={`attempt ${run?.id === item.id ? "selected" : ""}`}
+              aria-pressed={run?.id === item.id}
+              onClick={() => setSelectedRunId(index === 0 ? null : item.id)}
+            >
+              <span className="attempt-number">{item.attempt}</span>
+              <span>
+                <strong>{index === 0 ? "최근 실행" : "이전 실행"}</strong>
+                <small>{statusLabels[item.status]}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : runs.length === 0 ? (
+        <p className="empty-list">
+          {records.data
+            ? task.status === "cancelled"
+              ? "실행 전에 취소된 작업입니다. 자동으로 시작하지 않습니다."
+              : task.budgetWait
+                ? "예산 대기 중이며 아직 실행을 시작하지 않았습니다."
+                : "아직 실행 기록이 없습니다. 대기 작업은 실행기가 순서대로 가져갑니다."
+            : "실행 기록을 불러오는 중…"}
+        </p>
+      ) : null}
+      {run ? (
+        <RunRecord
+          key={run.id}
+          run={run}
+          view={runView}
+          onView={setRunView}
+          viewingLatest={viewingLatest}
+          checkedAt={records.checkedAt}
+          disconnected={!!records.error || !executionConnected}
+        />
       ) : null}
       {task.retryState ? (
         <div className="notice retry-status" aria-label="자동 복구 정책">
@@ -302,147 +532,6 @@ export function TaskDetail({
             </small>
           ) : null}
         </div>
-      ) : null}
-      {records.error ? (
-        <div className="notice error" role="alert">
-          {errorMessage(records.error)}
-          <small>마지막 확인 {dateTime(records.checkedAt)}</small>
-        </div>
-      ) : null}
-      <div className="task-actions" aria-label="작업 제어">
-        <button
-          className="secondary"
-          disabled={
-            !enabled ||
-            busy ||
-            pending ||
-            active ||
-            terminal ||
-            (viewingLatest && !!run?.developmentEvidence?.application) ||
-            retryLimited ||
-            capacityLimited ||
-            (!!task.budgetWait && Date.parse(task.budgetWait.retryAt) > Date.now()) ||
-            (task.status === "queued" && !gate?.blocked) ||
-            !records.data
-          }
-          onClick={() => void requestAction("resume")}
-        >
-          작업 재개
-        </button>
-        <button
-          className="secondary"
-          disabled={
-            !enabled ||
-            busy ||
-            pending ||
-            active ||
-            !latest ||
-            task.status === "succeeded" ||
-            (!!run?.terminationConfirmedAt &&
-              viewingLatest &&
-              !run.developmentEvidence?.application)
-          }
-          onClick={() => void requestAction("reconcile")}
-        >
-          상태 확인
-        </button>
-        <button
-          className="danger-button"
-          disabled={
-            !enabled ||
-            busy ||
-            terminal ||
-            !!(pending && receipt.action === "cancel") ||
-            !records.data
-          }
-          onClick={() => void requestAction("cancel")}
-        >
-          작업 취소
-        </button>
-      </div>
-      <p className="action-help">
-        {terminal
-          ? task.status === "succeeded"
-            ? "작업이 완료됐습니다. 아래 결과와 기록을 확인할 수 있습니다."
-            : task.planningTaskId
-              ? "취소가 완료됐습니다. 명시적으로 다시 허용하기 전에는 이 작업을 실행하지 않습니다."
-              : "취소가 완료됐습니다. 다시 분석하려면 새 작업을 등록하세요."
-          : !enabled
-            ? "자동 실행을 설정한 서버에서 취소·재개를 요청할 수 있습니다."
-            : active
-              ? "취소를 요청하면 현재 분석을 멈추고, 종료 여부를 확인합니다."
-              : "재개 요청은 종료 여부와 실행 제한을 확인한 뒤 대기열에 넣습니다."}
-      </p>
-      {error ? (
-        <div className="notice error" role="alert">
-          {errorMessage(error)}
-        </div>
-      ) : null}
-      {receipt ? (
-        <div className={`notice ${receipt.status === "rejected" ? "error" : ""}`} role="status">
-          <strong>
-            {actions[receipt.action]}{" "}
-            {receipt.status === "pending"
-              ? "요청 접수됨"
-              : receipt.status === "completed"
-                ? "요청 처리됨"
-                : "요청 보류됨"}
-          </strong>
-          <p>
-            {receipt.status === "pending"
-              ? "서버에서 조건을 확인하고 있습니다. 접수는 작업 완료를 뜻하지 않습니다."
-              : receipt.errorCode
-                ? errorMessage(new ApiError(409, receipt.errorCode))
-                : receipt.resultStatus
-                  ? `처리 결과: ${statusLabels[receipt.resultStatus]}`
-                  : "최신 실행 기록을 확인해 주세요."}
-          </p>
-          {receiptPoll.error ? (
-            <p className="error-text">
-              처리 결과를 확인하지 못했습니다. {errorMessage(receiptPoll.error)}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-      <div className="section-heading attempts-heading">
-        <h3>실행 시도</h3>
-        <span className="count">{runs.length}</span>
-      </div>
-      {runs.length ? (
-        <div className="attempts" aria-label="실행 시도 선택">
-          {runs.map((item, index) => (
-            <button
-              key={item.id}
-              className={`attempt ${run?.id === item.id ? "selected" : ""}`}
-              aria-pressed={run?.id === item.id}
-              onClick={() => setSelectedRunId(index === 0 ? null : item.id)}
-            >
-              <span className="attempt-number">{item.attempt}</span>
-              <span>
-                <strong>{index === 0 ? "최근 실행" : "이전 실행"}</strong>
-                <small>{statusLabels[item.status]}</small>
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <p className="empty-list">
-          {records.data
-            ? task.status === "cancelled"
-              ? "실행 전에 취소된 작업입니다. 자동으로 시작하지 않습니다."
-              : task.budgetWait
-                ? "예산 대기 중이며 아직 실행을 시작하지 않았습니다."
-                : "아직 실행 기록이 없습니다. 대기 작업은 실행기가 순서대로 가져갑니다."
-            : "실행 기록을 불러오는 중…"}
-        </p>
-      )}
-      {run ? (
-        <RunRecord
-          run={run}
-          viewingLatest={viewingLatest}
-          checkedAt={records.checkedAt}
-          disconnected={!!records.error}
-        />
       ) : null}
     </section>
   );

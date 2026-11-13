@@ -68,8 +68,15 @@
     "apps/web/src/**": [
       "apps/web/e2e/workspace.spec.ts",
       "apps/web/tests/api.test.ts",
+      "apps/web/tests/report-content.test.ts",
       "apps/server/tests/operations.test.ts",
       "apps/server/tests/architecture.test.ts"
+    ],
+    "apps/web/package.json": [
+      "apps/web/tests/api.test.ts",
+      "apps/web/tests/report-content.test.ts",
+      "apps/web/e2e/workspace.spec.ts",
+      "apps/web/e2e/public-workspace.spec.ts"
     ],
     "apps/web/e2e/**": [
       "apps/web/e2e/workspace.spec.ts"

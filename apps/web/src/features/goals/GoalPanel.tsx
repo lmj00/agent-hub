@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   goalSchema,
   goalsSchema,
@@ -9,7 +9,7 @@ import {
 import { api, ApiError, errorMessage } from "../../shared/api.js";
 import { usePolling } from "../../shared/use-polling.js";
 import { Drawer } from "../../shared/Drawer.js";
-import { dateTime } from "../../shared/format.js";
+import { dateTime, taskTitle } from "../../shared/format.js";
 
 const labels = { active: "활성", paused: "일시정지", completed: "완료" };
 const defaults: GoalDefinition = {
@@ -23,7 +23,15 @@ const defaults: GoalDefinition = {
   budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
 };
 
-export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpired: () => void }) {
+export function GoalPanel({
+  projectId,
+  onExpired,
+  onObserved,
+}: {
+  projectId: string;
+  onExpired: () => void;
+  onObserved?: (projectId: string, goals: Goal[] | null) => void;
+}) {
   const [revision, setRevision] = useState(0),
     [editing, setEditing] = useState<Goal | "new" | null>(null);
   const [historyId, setHistoryId] = useState<string | null>(null),
@@ -37,6 +45,9 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
   );
   const poll = usePolling(`goals:${projectId}`, load, onExpired, 5000, revision);
   const goals = poll.data?.goals ?? [];
+  useEffect(() => {
+    onObserved?.(projectId, poll.error ? null : (poll.data?.goals ?? null));
+  }, [projectId, poll.data, poll.error, onObserved]);
   async function change(path: string, method: "POST" | "PATCH", body: object) {
     if (busy) return;
     const signature = JSON.stringify({ path, method, body });
@@ -64,13 +75,43 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
   }
   return (
     <section className="goals-panel" aria-label="프로젝트 목표">
-      <details>
-        <summary>
-          프로젝트 목표 <span className="count">{goals.length}</span>
-        </summary>
+      <div className="goals-content">
+        <div className="section-heading goals-toolbar">
+          <div>
+            <h3>
+              등록된 목표 <span className="count">{goals.length}</span>
+            </h3>
+            <span className="goal-status-summary">
+              {poll.error
+                ? "상태 확인 필요"
+                : !poll.data
+                  ? "불러오는 중…"
+                  : goals.length
+                    ? Object.entries(labels)
+                        .map(([status, label]) => {
+                          const count = goals.filter((goal) => goal.status === status).length;
+                          return count ? `${label} ${count}` : null;
+                        })
+                        .filter(Boolean)
+                        .join(" · ")
+                    : "목표를 등록해 작업을 맡기세요"}
+            </span>
+          </div>
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={(event) => {
+              focusTarget.current = event.currentTarget;
+              setEditing("new");
+              setError(null);
+            }}
+          >
+            목표 등록 +
+          </button>
+        </div>
         <p className="subtle-note">
-          목표와 실행 기준을 설정합니다. 서버의 개발·검증 설정이 준비되면 활성 목표에서 다음 작업을
-          자동으로 찾고, 코드를 수정한 뒤 테스트와 검토를 진행합니다.
+          활성 목표에서 할 일을 찾고 개발·검증을 이어갑니다. 완료 기준과 허용 범위는 목표별로
+          확인하세요.
         </p>
         {!editing && (poll.error || error) ? (
           <p className="error-text" role="alert">
@@ -82,12 +123,15 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
           {goals.map((goal) => (
             <article className="goal-card" key={goal.id}>
               <div className="section-heading">
-                <h3>{goal.definition.description.slice(0, 100)}</h3>
+                <h3>{taskTitle(goal.definition.description)}</h3>
                 <span>
                   {labels[goal.status]} · 버전 {goal.version}
                 </span>
               </div>
-              <p>{goal.definition.completionCriteria}</p>
+              <details className="goal-criteria">
+                <summary>완료 기준</summary>
+                <p>{goal.definition.completionCriteria}</p>
+              </details>
               <p className="subtle-note">
                 {goal.definition.kind === "finite" ? "완료 기준이 있는 목표" : "지속 관리 목표"} ·
                 우선순위 {goal.definition.priority}
@@ -152,17 +196,6 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
             </article>
           ))}
         </div>
-        <button
-          className="secondary"
-          disabled={busy}
-          onClick={(event) => {
-            focusTarget.current = event.currentTarget;
-            setEditing("new");
-            setError(null);
-          }}
-        >
-          목표 등록 +
-        </button>
         {editing ? (
           <Drawer
             returnFocus={focusTarget.current}
@@ -193,7 +226,7 @@ export function GoalPanel({ projectId, onExpired }: { projectId: string; onExpir
             />
           </Drawer>
         ) : null}
-      </details>
+      </div>
     </section>
   );
 }

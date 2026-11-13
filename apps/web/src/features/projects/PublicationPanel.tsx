@@ -75,6 +75,7 @@ export function PublicationPanel({
                     ? "공개"
                     : "비공개"}
           </span>
+          <small className="settings-hint">방문자에게 보여줄 이름과 공개 범위를 정합니다.</small>
         </summary>
         <p>
           공개를 켜면 누구나 공개용 이름과 실행 상태를 볼 수 있습니다. 목표·작업 지시·로그는
