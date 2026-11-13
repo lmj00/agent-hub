@@ -154,6 +154,60 @@ test("repair budget survives a new SHA while the same CI incident remains unreso
   const next = await f.observe();
   expect(next.incident).toEqual({ key, repairCommits: ["b".repeat(40)] });
 });
+test("retains the failed test and its cause before generic Gradle failure footers", async () => {
+  const f = fixture();
+  f.diagnostic(
+    [
+      "Received 128 of 128 (100.0%), 10 MBs/sec",
+      "Received 256 of 256 (100.0%), 20 MBs/sec",
+      'SocketClientTest > cancellationTerminatesTheActualConnection(Lookup, boolean) > [4] lookup = "CLOSED", closeClient = "true" FAILED',
+      "    java.util.concurrent.ExecutionException at SocketClientTest.java:89",
+      "        Caused by: java.net.SocketException at SocketClientTest.java:69",
+      "1018 tests completed, 1 failed",
+      "> Task :test FAILED",
+      "FAILURE: Build failed with an exception.",
+      "Execution failed for task ':test'.",
+      "> There were failing tests. See the report at: file:///workspace/build/reports/tests/test/index.html",
+      "BUILD FAILED in 4m 29s",
+      "##[error]Process completed with exit code 1.",
+    ]
+      .map((line) => `2026-01-01T00:00:00.1234567Z ${line}`)
+      .join("\n"),
+  );
+  const state = await f.observe();
+  expect(state.status).toBe("code_failure");
+  expect(state.summary).toContain("SocketClientTest > cancellationTerminatesTheActualConnection");
+  expect(state.summary).toContain(
+    "Caused by: java.net.SocketException at SocketClientTest.java:69",
+  );
+  expect(state.summary).not.toContain("2026-01-01T");
+  expect(state.summary.length).toBeLessThanOrEqual(500);
+  expect(f.writes).toHaveLength(0);
+});
+test("retains assertion values after a Jest failure heading", async () => {
+  const f = fixture();
+  f.diagnostic(
+    "FAIL tests/total.test.ts\nExpected: 42\nReceived: 41\nTest Suites: 1 failed\nTests: 1 failed\nProcess completed with exit code 1.",
+  );
+  const state = await f.observe();
+  expect(state.status).toBe("code_failure");
+  expect(state.summary).toContain("FAIL tests/total.test.ts");
+  expect(state.summary).toContain("Expected: 42");
+  expect(state.summary).toContain("Received: 41");
+  expect(f.writes).toHaveLength(0);
+});
+test("keeps actionable CI diagnostics bounded and redacted", async () => {
+  const f = fixture();
+  f.diagnostic(
+    `AssertionError: expected token=fixture-private-value ${"detail ".repeat(100)}\nBUILD FAILED\n##[error]Process completed with exit code 1.`,
+  );
+  const state = await f.observe();
+  expect(state.status).toBe("code_failure");
+  expect(state.summary).toContain("AssertionError: expected token=[REDACTED]");
+  expect(state.summary).not.toContain("fixture-private-value");
+  expect(state.summary.length).toBeLessThanOrEqual(500);
+  expect(f.writes).toHaveLength(0);
+});
 test("test network errors do not trigger an infrastructure retry", async () => {
   const f = fixture();
   f.diagnostic("Error: ECONNRESET during the API integration test");

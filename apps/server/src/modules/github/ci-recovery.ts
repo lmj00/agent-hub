@@ -221,13 +221,24 @@ export async function observeCi({
       const kind = classifyCiFailure(steps, log);
       const lines = log
         .split(/\r?\n/)
-        .filter((line) =>
-          /error|fail|expected|ECONN|ETIMEDOUT|EAI_AGAIN|Bad Gateway|Unavailable/i.test(line),
-        );
+        .map((line) => line.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "").trim());
+      const specific = lines.filter((line) =>
+        /\w+Test > .+ FAILED|^FAIL(?:ED)?\s|Assertion(?:Failed)?Error|^(?:Expected|Received):|^Caused by:|^(?:[\w$]+\.)+[\w$]*(?:Exception|Error)\b|error TS\d+|:\s*error:/i.test(
+          line,
+        ),
+      );
+      // Build tools append generic failure footers after the actionable test/exception details.
+      const excerpt = specific.length
+        ? specific.slice(0, 3)
+        : lines
+            .filter((line) =>
+              /error|fail|expected|ECONN|ETIMEDOUT|EAI_AGAIN|Bad Gateway|Unavailable/i.test(line),
+            )
+            .slice(-3);
       diagnostics.push({
         run,
         kind,
-        text: `${label(job.name)} / ${steps.join(", ")}: ${(lines.slice(-3).join(" ") || "구체적인 원인 미확인").slice(0, 250)}`,
+        text: `${label(job.name)} / ${steps.join(", ")}: ${(excerpt.join(" ") || "구체적인 원인 미확인").slice(0, 350)}`,
       });
     }
   }
