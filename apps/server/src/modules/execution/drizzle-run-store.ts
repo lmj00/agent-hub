@@ -5,7 +5,7 @@ import { saveWorkflowStep } from "./workflow-step-store.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import { defaultEffortPolicy, selectInitialEffort } from "./effort-policy.js";
 import { ensureRetryState, readRetryBaseline } from "./retry-state-store.js";
-import { retryLimitReason } from "./retry-policy.js";
+import { remainingRetryRunMs, retryLimitReason } from "./retry-policy.js";
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, notInArray, or, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
@@ -308,7 +308,7 @@ export function createDrizzleRunStore(
           if (retryState) {
             const reason = retryAttempt
               ? retryLimitReason(retryState)
-              : retryState.totalRunMs >= retryState.policy.maxTotalRunMs
+              : remainingRetryRunMs(retryState) <= 0
                 ? "task_time_limit"
                 : null;
             if (reason) {
@@ -382,8 +382,8 @@ export function createDrizzleRunStore(
             budget.periods,
             Math.min(
               budget.remainingRunMs,
-              policies.timeoutMs ?? 600000,
-              retryState ? retryState.policy.maxTotalRunMs - retryState.totalRunMs : Infinity,
+              policies.timeoutMs === undefined ? 600000 : (policies.timeoutMs ?? Infinity),
+              remainingRetryRunMs(retryState),
             ),
             now,
           );
@@ -475,12 +475,9 @@ export function createDrizzleRunStore(
                 : !task.plannedWork && policies.analysisWorkflow
                   ? { workflow: policies.analysisWorkflow }
                   : {}),
-              ...(retryState
+              ...(Number.isFinite(remainingRetryRunMs(retryState))
                 ? {
-                    remainingRunMs: Math.max(
-                      1,
-                      retryState.policy.maxTotalRunMs - retryState.totalRunMs,
-                    ),
+                    remainingRunMs: Math.max(1, remainingRetryRunMs(retryState)),
                   }
                 : {}),
               ...(probing ? { providerCheck: true } : {}),

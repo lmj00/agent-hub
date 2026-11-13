@@ -16,6 +16,8 @@ import {
   defaultRetryPolicy,
   parseRetryPolicy,
   retryDelay,
+  retryLimitReason,
+  initialRetryState,
   type RetryPolicy,
 } from "../../src/modules/execution/retry-policy.js";
 
@@ -105,6 +107,8 @@ test("policy rejects invalid limits and jitter cannot exceed the maximum delay",
     { maxDelayMs: 1000 },
     { jitterRatio: NaN },
     { unknown: true },
+    { initialDelayMs: null },
+    { maxDelayMs: null },
   ])
     expect(() => parseRetryPolicy(value)).toThrow();
   expect(retryDelay(policy, 0, 1)).toBe(1200);
@@ -113,6 +117,69 @@ test("policy rejects invalid limits and jitter cannot exceed the maximum delay",
     expect(classifyCodexError(message).code).toBe("transient");
   expect(classifyCodexError("unrecognized failure").code).toBe("provider_error");
   expect(classifyCodexError("429 network quota").code).toBe("capacity");
+});
+
+test("explicit null caps preserve accounting and allow a bounded backoff after any retry count", () => {
+  const unlimited = parseRetryPolicy({
+    maxRetries: null,
+    maxConsecutiveErrors: null,
+    maxTotalRunMs: null,
+  });
+  const state = {
+    ...initialRetryState(unlimited),
+    retries: 1000,
+    consecutiveErrors: 1000,
+    totalRunMs: 864000000,
+  };
+  expect(retryLimitReason(state)).toBeNull();
+  expect(retryDelay(unlimited, state.retries, 1)).toBe(unlimited.maxDelayMs);
+  for (const [key, value, reason] of [
+    ["maxRetries", 3, "retry_limit"],
+    ["maxConsecutiveErrors", 3, "repeated_error_limit"],
+    ["maxTotalRunMs", 1800000, "task_time_limit"],
+  ] as const)
+    expect(retryLimitReason({ ...state, policy: { ...unlimited, [key]: value } })).toBe(reason);
+});
+
+test("removing configured caps updates an existing blocked task without losing history or counters", () => {
+  failure();
+  const before = task().retryState!;
+  database.db
+    .update(tasks)
+    .set({
+      status: "blocked",
+      retryState: {
+        ...before,
+        retries: 20,
+        consecutiveErrors: 20,
+        totalRunMs: 3600000,
+      },
+    })
+    .where(eq(tasks.id, taskId))
+    .run();
+  automatic.tick();
+  expect(task().retryState?.reason).toBe("task_time_limit");
+  const recorded = task().retryState!;
+  owner.release();
+  database.close();
+  policy = { ...policy, maxRetries: null, maxConsecutiveErrors: null, maxTotalRunMs: null };
+  connect();
+  automatic.tick();
+  expect(task().retryState).toMatchObject({
+    retries: recorded.retries,
+    consecutiveErrors: recorded.consecutiveErrors,
+    totalRunMs: recorded.totalRunMs,
+    policy: { maxRetries: null, maxConsecutiveErrors: null, maxTotalRunMs: null },
+    reason: "retry_scheduled",
+  });
+  due();
+  automatic.tick();
+  const next = store.claimNext("fixture", ["example"]);
+  expect(next.kind).toBe("claimed");
+  if (next.kind !== "claimed") throw new Error("Expected resumed claim");
+  expect(next.run.remainingRunMs).toBeUndefined();
+  expect(task().retryState?.retries).toBe(recorded.retries + 1);
+  expect(store.listByTask(taskId)).toHaveLength(2);
 });
 
 test("one failed attempt schedules once, waits, and consumes a retry only at claim", () => {
@@ -174,54 +241,57 @@ test("restart and a larger new configuration cannot reset the saved policy, coun
   });
 });
 
-test("repeated errors block further automatic and manual attempts without blocking another task", () => {
-  for (let index = 0; index < 3; index++) {
-    failure();
-    automatic.tick();
-    if (index < 2) {
-      due();
+test.each(["transient", "development_continue"])(
+  "repeated %s respects stored caps without blocking another task",
+  (code) => {
+    for (let index = 0; index < 3; index++) {
+      failure(code);
       automatic.tick();
+      if (index < 2) {
+        due();
+        automatic.tick();
+      }
     }
-  }
-  expect(task()).toMatchObject({
-    status: "blocked",
-    retryState: {
-      retries: 2,
-      consecutiveErrors: 3,
-      reason: "repeated_error_limit",
-      nextAttemptAt: null,
-    },
-  });
-  const runId = store.listByTask(taskId)[0]!.id;
-  expect(() =>
-    recovery.request(
-      {
-        taskId,
-        runId,
-        requestKey: "manual",
-        action: "resume",
-        providerGateVersion: null,
+    expect(task()).toMatchObject({
+      status: "blocked",
+      retryState: {
+        retries: 2,
+        consecutiveErrors: 3,
+        reason: "repeated_error_limit",
+        nextAttemptAt: null,
       },
-      null,
-      true,
-    ),
-  ).toThrow("RECOVERY_LIMIT_REACHED");
-  const id = randomUUID();
-  database.db
-    .insert(tasks)
-    .values({
-      id,
-      projectId: task().projectId,
-      instruction: "other",
-      requestKey: id,
-      createdAt: new Date(),
-    })
-    .run();
-  expect(store.claimNext("fixture", ["example"])).toMatchObject({
-    kind: "claimed",
-    run: { taskId: id },
-  });
-});
+    });
+    const runId = store.listByTask(taskId)[0]!.id;
+    expect(() =>
+      recovery.request(
+        {
+          taskId,
+          runId,
+          requestKey: "manual",
+          action: "resume",
+          providerGateVersion: null,
+        },
+        null,
+        true,
+      ),
+    ).toThrow("RECOVERY_LIMIT_REACHED");
+    const id = randomUUID();
+    database.db
+      .insert(tasks)
+      .values({
+        id,
+        projectId: task().projectId,
+        instruction: "other",
+        requestKey: id,
+        createdAt: new Date(),
+      })
+      .run();
+    expect(store.claimNext("fixture", ["example"])).toMatchObject({
+      kind: "claimed",
+      run: { taskId: id },
+    });
+  },
+);
 
 test("total retry count stops alternating errors even when the consecutive counter resets", () => {
   for (const error of ["transient", "server_shutdown", "transient", "owner_lost"]) {
@@ -362,44 +432,52 @@ test("unconfirmed termination is observed once, stays held, and can recover afte
   expect(task().retryState?.reason).toBe("retry_scheduled");
 });
 
-test("cancellation during backoff clears the reservation and no restart requeues it", async () => {
-  const run = failure();
-  automatic.tick();
-  const cancelled = recovery.request(
-    {
-      taskId,
-      runId: run.id,
-      action: "cancel",
-      requestKey: "cancel",
-      providerGateVersion: null,
-    },
-    null,
-    true,
-  );
-  await createRecoveryProcessor(recovery, {
-    confirm: async () => new Date(),
-    cleanup: async () => {},
-  }).process(cancelled.request.id);
-  vi.setSystemTime(Date.now() + 100000);
-  automatic.tick();
-  expect(task()).toMatchObject({
-    status: "cancelled",
-    retryState: { nextAttemptAt: null, reason: "user_cancelled" },
-  });
-  expect(store.claimNext("fixture", ["example"]).kind).toBe("idle");
-});
-
-test.each(["timeout", "provider_error", "output_limit", "authentication", "capacity"])(
-  "%s is not silently retried",
-  (error) => {
-    failure(error);
+test.each(["transient", "development_continue"])(
+  "cancellation during %s backoff clears the reservation and no restart requeues it",
+  async (code) => {
+    const run = failure(code);
     automatic.tick();
-    expect(task().retryState?.nextAttemptAt).toBeNull();
-    vi.setSystemTime(Date.now() + 86400000);
-    expect(automatic.tick()).toBe(false);
-    expect(store.listByTask(taskId)).toHaveLength(1);
+    const cancelled = recovery.request(
+      {
+        taskId,
+        runId: run.id,
+        action: "cancel",
+        requestKey: "cancel",
+        providerGateVersion: null,
+      },
+      null,
+      true,
+    );
+    await createRecoveryProcessor(recovery, {
+      confirm: async () => new Date(),
+      cleanup: async () => {},
+    }).process(cancelled.request.id);
+    vi.setSystemTime(Date.now() + 100000);
+    automatic.tick();
+    expect(task()).toMatchObject({
+      status: "cancelled",
+      retryState: { nextAttemptAt: null, reason: "user_cancelled" },
+    });
+    expect(store.claimNext("fixture", ["example"]).kind).toBe("idle");
   },
 );
+
+test.each([
+  "timeout",
+  "provider_error",
+  "output_limit",
+  "workflow_limit",
+  "analysis_incomplete",
+  "authentication",
+  "capacity",
+])("%s is not silently retried", (error) => {
+  failure(error);
+  automatic.tick();
+  expect(task().retryState?.nextAttemptAt).toBeNull();
+  vi.setSystemTime(Date.now() + 86400000);
+  expect(automatic.tick()).toBe(false);
+  expect(store.listByTask(taskId)).toHaveLength(1);
+});
 
 test("provider gate prevents a due retry from bypassing another project's account block", () => {
   const first = failure();

@@ -28,7 +28,7 @@ const retryReasons: Record<string, string> = {
   capacity_check_ready: "사용량 제한을 확인할 실행 하나를 예약했습니다.",
   capacity_check_limit: "계정 확인 횟수 상한에 도달했습니다. 정책을 검토해 주세요.",
   capacity_termination_unconfirmed: "이전 실행의 종료를 확인하지 못해 한도 확인도 보류했습니다.",
-  retry_scheduled: "일시적 오류로 기다린 뒤 자동으로 다시 시도합니다.",
+  retry_scheduled: "예약된 시각에 실행 조건을 확인한 뒤 자동으로 이어갑니다.",
   retry_ready: "재시도 시각이 됐습니다. 배정 조건을 확인하고 있습니다.",
   retry_limit: "재시도 횟수 상한에 도달했습니다. 정책과 실패 원인을 검토해 주세요.",
   repeated_error_limit: "같은 오류가 반복되어 자동 실행을 보류했습니다.",
@@ -185,9 +185,12 @@ export function TaskDetail({
         Date.parse(gate.capacityState.nextCheckAt) > Date.now()));
   const retryLimited =
     !!task.retryState &&
-    (task.retryState.retries >= task.retryState.policy.maxRetries ||
-      task.retryState.consecutiveErrors >= task.retryState.policy.maxConsecutiveErrors ||
-      task.retryState.totalRunMs >= task.retryState.policy.maxTotalRunMs ||
+    ((task.retryState.policy.maxRetries !== null &&
+      task.retryState.retries >= task.retryState.policy.maxRetries) ||
+      (task.retryState.policy.maxConsecutiveErrors !== null &&
+        task.retryState.consecutiveErrors >= task.retryState.policy.maxConsecutiveErrors) ||
+      (task.retryState.policy.maxTotalRunMs !== null &&
+        task.retryState.totalRunMs >= task.retryState.policy.maxTotalRunMs) ||
       (!!task.retryState.nextAttemptAt && Date.parse(task.retryState.nextAttemptAt) > Date.now()));
   return (
     <section className="task-detail" aria-labelledby="detail-heading">
@@ -267,12 +270,20 @@ export function TaskDetail({
       {task.retryState ? (
         <div className="notice retry-status" aria-label="자동 복구 정책">
           <strong>
-            재시도 {task.retryState.retries} / {task.retryState.policy.maxRetries}회 · 같은 오류{" "}
-            {task.retryState.consecutiveErrors} / {task.retryState.policy.maxConsecutiveErrors}회
+            재시도 {task.retryState.retries}
+            {task.retryState.policy.maxRetries === null
+              ? "회 · 제한 없음"
+              : ` / ${task.retryState.policy.maxRetries}회`}{" "}
+            · 같은 오류 {task.retryState.consecutiveErrors}
+            {task.retryState.policy.maxConsecutiveErrors === null
+              ? "회 · 제한 없음"
+              : ` / ${task.retryState.policy.maxConsecutiveErrors}회`}
           </strong>
           <span>
-            누적 실행 {Math.ceil(task.retryState.totalRunMs / 1000)}초 /{" "}
-            {Math.ceil(task.retryState.policy.maxTotalRunMs / 1000)}초
+            누적 실행 {Math.ceil(task.retryState.totalRunMs / 1000)}초
+            {task.retryState.policy.maxTotalRunMs === null
+              ? " · 제한 없음"
+              : ` / ${Math.ceil(task.retryState.policy.maxTotalRunMs / 1000)}초`}
           </span>
           {task.retryState.nextAttemptAt ? (
             <span>다음 시도 가능 시각 {dateTime(task.retryState.nextAttemptAt)}</span>

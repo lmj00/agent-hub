@@ -99,6 +99,7 @@ export const analysisErrorCodes = [
   "invalid_plan",
   "invalid_change",
   "workflow_limit",
+  "development_continue",
   "analysis_incomplete",
   "budget_limit",
   "input_unavailable",

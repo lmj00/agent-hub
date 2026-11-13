@@ -145,7 +145,7 @@ export async function runTask(
     taskId: string;
     model: string;
     workspace: string;
-    timeoutMs: number;
+    timeoutMs: number | null;
     signal: AbortSignal;
   },
   store: RunStore,
@@ -161,7 +161,7 @@ export async function runTask(
 
 export async function runClaimedTask(
   run: ClaimedRun,
-  options: { model: string; workspace: string; timeoutMs: number; signal: AbortSignal },
+  options: { model: string; workspace: string; timeoutMs: number | null; signal: AbortSignal },
   store: RunStore,
   executor: AnalysisExecutor,
 ) {
@@ -201,17 +201,18 @@ export async function runClaimedTask(
   // a quiet model call emits no events. A failed read stops rather than assuming
   // the old permissions still apply.
   const stopObserver = store.requestedStop ? setInterval(observeStop, 500) : undefined;
-  const regularLimit = Math.min(options.timeoutMs, run.remainingRunMs ?? options.timeoutMs);
+  const regularLimit = Math.min(options.timeoutMs ?? Infinity, run.remainingRunMs ?? Infinity);
   const budgetLimit =
     run.budgetDeadlineAt === undefined
       ? Infinity
       : Math.max(0, Math.min(run.budgetDeadlineAt - Date.now(), run.budgetRunMs ?? Infinity));
-  const timer = setTimeout(
-    () => {
-      requestAbort(budgetLimit < regularLimit ? "budget_limit" : "timeout");
-    },
-    Math.min(regularLimit, budgetLimit),
-  );
+  const limit = Math.min(regularLimit, budgetLimit);
+  // Infinity passed to setTimeout becomes an immediate timeout in Node.
+  const timer = Number.isFinite(limit)
+    ? setTimeout(() => {
+        requestAbort(budgetLimit < regularLimit ? "budget_limit" : "timeout");
+      }, limit)
+    : undefined;
   if (budgetLimit <= 0) requestAbort("budget_limit");
   let completion: RunCompletion;
   try {
@@ -286,7 +287,9 @@ export async function runClaimedTask(
             ? "blocked"
             : code === "capacity" || code === "budget_limit"
               ? "waiting_capacity"
-              : "failed";
+              : code === "development_continue"
+                ? "waiting_retry"
+                : "failed";
       completion = {
         status,
         result: null,

@@ -14,6 +14,8 @@ import {
 } from "../../src/modules/execution/analysis.js";
 import { createDrizzleRunStore } from "../../src/modules/execution/drizzle-run-store.js";
 import { runTask } from "../../src/modules/execution/run-task.js";
+import { createProjectBudgetStore } from "../../src/modules/budgets/project-budget-store.js";
+import { defaultRetryPolicy } from "../../src/modules/execution/retry-policy.js";
 
 let directory: string;
 let databasePath: string;
@@ -213,6 +215,60 @@ test("leaves timeout as interrupted until child-process termination can be verif
   expect(result).toMatchObject({ status: "interrupted", errorCode: "timeout" });
   expect(store.findById(result.runId)?.finishedAt).toBeNull();
   expect(() => store.claim(otherTaskId, "test-model")).toThrow("previous run");
+});
+
+test("unlimited runs survive elapsed time and remain cancellable with confirmed termination", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const projectId = database.db.select().from(projects).get()!.id;
+  const budgets = createProjectBudgetStore(database.db);
+  const view = budgets.view(projectId);
+  budgets.change(projectId, view.version, { ...view.policy, unlimited: true });
+  store = createDrizzleRunStore(database.db, undefined, {
+    timeoutMs: null,
+    automaticRecovery: {
+      ...defaultRetryPolicy,
+      maxRetries: null,
+      maxConsecutiveErrors: null,
+      maxTotalRunMs: null,
+    },
+  });
+  const controller = new AbortController();
+  const started = Promise.withResolvers<AbortSignal>();
+  const pending = runTask(
+    { taskId, model: "test", workspace: directory, timeoutMs: null, signal: controller.signal },
+    store,
+    {
+      analyze(request) {
+        started.resolve(request.signal);
+        return new Promise((_resolve, reject) =>
+          request.signal.addEventListener("abort", () => reject(new Error("cancelled")), {
+            once: true,
+          }),
+        );
+      },
+      confirmTermination: async () => new Date(),
+    },
+  );
+  try {
+    const signal = await Promise.race([
+      started.promise,
+      pending.then(() => {
+        throw new Error("Execution ended before starting");
+      }),
+    ]);
+    await vi.advanceTimersByTimeAsync(3 * 60 * 60 * 1000);
+    expect(signal.aborted).toBe(false);
+    expect(store.listByTask(taskId)[0]?.status).toBe("running");
+    controller.abort();
+    const result = await pending;
+    expect(result.errorCode).toBe("cancel_requested");
+    expect(store.findById(result.runId)?.terminationConfirmedAt).not.toBeNull();
+    expect(budgets.view(projectId).accounts[0]?.period?.chargedRunMs).toBe(3 * 60 * 60 * 1000);
+  } finally {
+    controller.abort();
+    await pending;
+    vi.useRealTimers();
+  }
 });
 
 test.each(["resolve", "reject"] as const)(

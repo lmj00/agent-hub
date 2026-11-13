@@ -339,7 +339,9 @@ export function createDevelopmentExecutor(options: {
           previous = candidate;
           previousReview = assessment;
         }
-        throw new AnalysisError("workflow_limit");
+        // Carry the saved candidate and actionable review into another Run of
+        // this same Task, under its existing recovery and budget policy.
+        throw new AnalysisError("development_continue");
       } finally {
         settled.resolve();
       }

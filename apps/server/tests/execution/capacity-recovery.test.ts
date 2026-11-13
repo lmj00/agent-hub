@@ -258,7 +258,7 @@ test("a Task limit stops automatic checks even if the account budget remains", (
   database.db
     .update(tasks)
     .set({
-      retryState: { ...current, totalRunMs: current.policy.maxTotalRunMs },
+      retryState: { ...current, totalRunMs: defaultRetryPolicy.maxTotalRunMs },
     })
     .where(eq(tasks.id, taskId))
     .run();

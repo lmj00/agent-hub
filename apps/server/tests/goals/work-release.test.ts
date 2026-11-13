@@ -347,10 +347,10 @@ test.each(["retries", "consecutiveErrors", "totalRunMs"] as const)(
     const state = initialRetryState(defaultRetryPolicy);
     state[field] =
       field === "retries"
-        ? state.policy.maxRetries
+        ? defaultRetryPolicy.maxRetries
         : field === "consecutiveErrors"
-          ? state.policy.maxConsecutiveErrors
-          : state.policy.maxTotalRunMs;
+          ? defaultRetryPolicy.maxConsecutiveErrors
+          : defaultRetryPolicy.maxTotalRunMs;
     const source = work({ retryState: state });
     recordedRun(source);
     reject(source, "RECOVERY_LIMIT_REACHED");

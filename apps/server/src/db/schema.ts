@@ -574,7 +574,7 @@ export const budgetReservations = sqliteTable(
   (table) => [
     check(
       "budget_reservations_valid",
-      sql`${table.reservedRunMs} > 0 AND (${table.settledRunMs} IS NULL OR ${table.settledRunMs} >= 0)`,
+      sql`${table.reservedRunMs} >= 0 AND (${table.settledRunMs} IS NULL OR ${table.settledRunMs} >= 0)`,
     ),
   ],
 );

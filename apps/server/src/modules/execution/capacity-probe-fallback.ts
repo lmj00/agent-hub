@@ -8,7 +8,7 @@ import { assignableGoal, readGoalExecutionBlock } from "../goals/goal-execution-
 import { capacityCheckAt, type CapacityPolicy } from "./capacity-policy.js";
 import { providerScope, reserveProviderCheck, type readProviderGate } from "./provider-gate.js";
 import { ensureRetryState, readRetryBaseline } from "./retry-state-store.js";
-import { retryLimitReason, type RetryPolicy } from "./retry-policy.js";
+import { remainingRetryRunMs, retryLimitReason, type RetryPolicy } from "./retry-policy.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "insert" | "update">;
 type Gate = NonNullable<ReturnType<typeof readProviderGate>>;
@@ -101,7 +101,7 @@ export function replaceUnavailableGoalProbe(
       if (
         (last || (readRetryBaseline(db, task.id)?.priorAttempts ?? 0) > 0
           ? retryLimitReason(retry)
-          : retry.totalRunMs >= retry.policy.maxTotalRunMs) ||
+          : remainingRetryRunMs(retry) <= 0) ||
         (retry.nextAttemptAt && Date.parse(retry.nextAttemptAt) > now.getTime())
       )
         continue;

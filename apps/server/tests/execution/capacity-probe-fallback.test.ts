@@ -308,8 +308,8 @@ test.each([
       .run();
   if (kind === "retry-limit" || kind === "retry-count" || kind === "retry-time") {
     const retry = initialRetryState(defaultRetryPolicy);
-    if (kind === "retry-limit") retry.totalRunMs = retry.policy.maxTotalRunMs;
-    else if (kind === "retry-count") retry.retries = retry.policy.maxRetries;
+    if (kind === "retry-limit") retry.totalRunMs = defaultRetryPolicy.maxTotalRunMs;
+    else if (kind === "retry-count") retry.retries = defaultRetryPolicy.maxRetries;
     else retry.nextAttemptAt = new Date(Date.now() + 30000).toISOString();
     database.db.update(tasks).set({ retryState: retry }).where(eq(tasks.id, next.taskId)).run();
   }

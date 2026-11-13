@@ -13,6 +13,7 @@ import {
 import {
   defaultRetryPolicy,
   retryLimitReason,
+  remainingRetryRunMs,
   type RetryPolicy,
 } from "../execution/retry-policy.js";
 import { ensureRetryState, readRetryBaseline } from "../execution/retry-state-store.js";
@@ -139,7 +140,7 @@ export function createWorkReleaseStore(
           if (
             priorAttempts
               ? retryLimitReason(priorRetryState)
-              : priorRetryState.totalRunMs >= priorRetryState.policy.maxTotalRunMs
+              : remainingRetryRunMs(priorRetryState) <= 0
           )
             throw new WorkReleaseError("RECOVERY_LIMIT_REACHED");
           const now = new Date(),

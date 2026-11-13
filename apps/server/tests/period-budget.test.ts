@@ -187,6 +187,105 @@ test("unlimited periods still account for calls and time across their reporting 
   expect(store.claimNext("fixture", ["example"])).toEqual({ kind: "idle" });
 });
 
+test("fully unlimited execution stores finite reservations and settles elapsed usage once", () => {
+  configure({ ...policy, unlimited: true });
+  const linked = goal({ ...policy, unlimited: true });
+  store = createDrizzleRunStore(database.db, undefined, {
+    timeoutMs: null,
+    automaticRecovery: {
+      ...defaultRetryPolicy,
+      maxTotalRunMs: null,
+      maxRetries: null,
+      maxConsecutiveErrors: null,
+    },
+  });
+  const run = store.claim(task(linked), "fixture");
+  expect(run.budgetDeadlineAt).toBeUndefined();
+  expect(run.remainingRunMs).toBeUndefined();
+  expect(database.db.select().from(budgetReservations).get()?.reservedRunMs).toBe(0);
+  expect(
+    summary().accounts.every((a) => a.period!.reservedRunMs === 0 && a.period!.chargedRunMs === 0),
+  ).toBe(true);
+  vi.setSystemTime(Date.now() + 7200000);
+  reserveNextBudgetCall(database.db, run.id, new Date());
+  finish(run.id, null, true, 0);
+  expect(
+    summary().accounts.every((a) => a.period!.calls === 2 && a.period!.chargedRunMs === 7200000),
+  ).toBe(true);
+});
+
+test("the unlimited reservation migration preserves existing usage and keeps negative values invalid", () => {
+  const folder = join(directory, "bounded-migrations");
+  cpSync(migrationsDirectory, folder, { recursive: true });
+  const journalFile = join(folder, "meta", "_journal.json");
+  const journal = JSON.parse(readFileSync(journalFile, "utf8"));
+  journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 34);
+  writeFileSync(journalFile, JSON.stringify(journal));
+  const oldPath = join(directory, "bounded.sqlite");
+  const old = openDatabase(oldPath, folder);
+  const id = randomUUID(),
+    taskId = randomUUID();
+  old.db
+    .insert(projects)
+    .values({ id, name: "Preserved", workspaceKey: "example", createdAt: new Date() })
+    .run();
+  old.db
+    .insert(tasks)
+    .values({
+      id: taskId,
+      projectId: id,
+      instruction: "Preserved task",
+      requestKey: "migration",
+      createdAt: new Date(),
+    })
+    .run();
+  const oldStore = createDrizzleRunStore(old.db);
+  const run = oldStore.claim(taskId, "fixture");
+  vi.setSystemTime(Date.now() + 1234);
+  oldStore.finish(run.id, {
+    status: "succeeded",
+    result: "Preserved result",
+    errorCode: null,
+    usage: null,
+    terminationConfirmedAt: new Date(),
+  });
+  const reservations = old.db.select().from(budgetReservations).all();
+  const periods = old.db.select().from(budgetPeriods).all();
+  old.close();
+  const upgraded = openDatabase(oldPath);
+  try {
+    expect(upgraded.db.select().from(budgetReservations).all()).toEqual(reservations);
+    expect(upgraded.db.select().from(budgetPeriods).all()).toEqual(periods);
+    expect(upgraded.db.select().from(runs).get()?.result).toBe("Preserved result");
+    expect(upgraded.client.pragma("foreign_key_check")).toEqual([]);
+    expect(() =>
+      upgraded.client
+        .prepare("UPDATE budget_reservations SET reserved_run_ms=0 WHERE run_id=?")
+        .run(run.id),
+    ).not.toThrow();
+    expect(() =>
+      upgraded.client
+        .prepare("UPDATE budget_reservations SET reserved_run_ms=-1 WHERE run_id=?")
+        .run(run.id),
+    ).toThrow("budget_reservations_valid");
+  } finally {
+    upgraded.close();
+  }
+});
+
+test("a configured period budget still bounds a run whose execution caps are unlimited", () => {
+  configure();
+  store = createDrizzleRunStore(database.db, undefined, {
+    timeoutMs: null,
+    automaticRecovery: { ...defaultRetryPolicy, maxTotalRunMs: null },
+  });
+  const run = store.claim(task(), "fixture");
+  expect(run.remainingRunMs).toBeUndefined();
+  expect(run.budgetRunMs).toBe(policy.maxRunMs);
+  expect(run.budgetDeadlineAt).toBe(Date.now() + policy.maxRunMs);
+  expect(database.db.select().from(budgetReservations).get()?.reservedRunMs).toBe(policy.maxRunMs);
+});
+
 test("both scopes must be unlimited, and enabling limits again keeps recorded consumption", () => {
   configure({ ...policy, maxCalls: 1 });
   const linked = goal({ ...policy, maxCalls: 1 });

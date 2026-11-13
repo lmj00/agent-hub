@@ -39,6 +39,33 @@ test("resolves prepared workspaces relative to the private config", () => {
   expect(isWithin(workspace, join(workspace, "..", "sibling"))).toBe(false);
 });
 
+test("accepts explicit unlimited execution and retry caps while rejecting invalid timer values", () => {
+  const base = JSON.parse(readFileSync(file, "utf8"));
+  writeFileSync(
+    file,
+    JSON.stringify({
+      ...base,
+      timeoutMs: null,
+      automaticRecovery: {
+        maxRetries: null,
+        maxConsecutiveErrors: null,
+        maxTotalRunMs: null,
+      },
+    }),
+  );
+  const config = loadExecutionConfig(file);
+  expect(config.timeoutMs).toBeNull();
+  expect(config.automaticRecovery).toMatchObject({
+    maxRetries: null,
+    maxConsecutiveErrors: null,
+    maxTotalRunMs: null,
+  });
+  for (const timeoutMs of [0, -1, 999, 1800001, "unlimited", false]) {
+    writeFileSync(file, JSON.stringify({ ...base, timeoutMs }));
+    expect(() => loadExecutionConfig(file)).toThrow("timeoutMs");
+  }
+});
+
 test("accepts operator-fixed test image and argv for a configured workspace", () => {
   const base = JSON.parse(readFileSync(file, "utf8"));
   writeFileSync(

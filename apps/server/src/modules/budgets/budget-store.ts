@@ -122,20 +122,23 @@ export function reserveRunBudget(
   durationMs: number,
   now: Date,
 ) {
+  // An unlimited run has no finite time to reserve. Settle its actual duration
+  // after confirmed termination; call counts and finite period budgets still apply.
+  const reservedRunMs = Number.isFinite(durationMs) ? durationMs : 0;
   db.insert(budgetReservations)
     .values({
       runId,
       projectPeriodId: periods.find((p) => !p.goalId)!.id,
       goalPeriodId: periods.find((p) => p.goalId)?.id ?? null,
       startedAt: now,
-      reservedRunMs: durationMs,
+      reservedRunMs,
     })
     .run();
   for (const period of periods)
     db.update(budgetPeriods)
       .set({
         calls: sql`${budgetPeriods.calls} + 1`,
-        runMs: sql`${budgetPeriods.runMs} + ${durationMs}`,
+        runMs: sql`${budgetPeriods.runMs} + ${reservedRunMs}`,
       })
       .where(eq(budgetPeriods.id, period.id))
       .run();

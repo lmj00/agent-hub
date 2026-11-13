@@ -42,14 +42,15 @@ export function loadExecutionConfig(file: string) {
     throw new Error("codexHome is required");
   const codexHome = realpathSync(resolve(dirname(configPath), config.codexHome));
   validateCodexHome(codexHome);
-  const timeoutMs = config.timeoutMs ?? 300000;
+  const timeoutMs = config.timeoutMs === undefined ? 300000 : config.timeoutMs;
   if (
-    typeof timeoutMs !== "number" ||
-    !Number.isInteger(timeoutMs) ||
-    timeoutMs < 1000 ||
-    timeoutMs > 1800000
+    timeoutMs !== null &&
+    (typeof timeoutMs !== "number" ||
+      !Number.isInteger(timeoutMs) ||
+      timeoutMs < 1000 ||
+      timeoutMs > 1800000)
   ) {
-    throw new Error("timeoutMs must be an integer between 1000 and 1800000");
+    throw new Error("timeoutMs must be null or an integer between 1000 and 1800000");
   }
   if (
     !config.workspaces ||

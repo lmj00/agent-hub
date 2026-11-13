@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { openDatabase } from "../../src/db/connection.js";
 import { budgetPeriods, goals, projects, runs, steps, tasks } from "../../src/db/schema.js";
 import type { AnalysisAssessment } from "@agent-hub/contracts";
@@ -45,6 +45,9 @@ import { createDrizzleRecoveryStore } from "../../src/modules/execution/drizzle-
 import { createRecoveryProcessor } from "../../src/modules/execution/recover-task.js";
 import { createContainerExecutor } from "../../src/modules/execution/execution-process.js";
 import type { PlannedWork } from "../../src/modules/goals/goal-plan-policy.js";
+import { acquireExecutionOwner } from "../../src/modules/execution/execution-owner.js";
+import { createAutomaticRecovery } from "../../src/modules/execution/automatic-recovery.js";
+import { parseRetryPolicy } from "../../src/modules/execution/retry-policy.js";
 
 let directory: string,
   source: string,
@@ -182,9 +185,10 @@ function claim() {
   database.db.update(tasks).set({ plannedWork: work }).where(eq(tasks.id, taskId)).run();
   run = store.claim(taskId, "fixture");
 }
-function wrap(base: AnalysisExecutor, verification = true) {
+function wrap(base: AnalysisExecutor, verification = true, ownerToken?: string) {
   return createDevelopmentExecutor({
     db: database.db,
+    ...(ownerToken ? { ownerToken } : {}),
     analysis: base,
     development: base,
     config: {
@@ -372,12 +376,12 @@ test("runs developer/test/reviewer and feeds the real failure into bounded rewor
   ).toBe(true);
 }, 20000);
 
-test("stops after three failed rounds and six AI calls without resetting Task or budget limits", async () => {
+test("yields after three correction rounds without resetting Task or budget limits", async () => {
   claim();
   const result = await runWith(wrap(fake({ alwaysFail: true })));
   expect(result).toMatchObject({
-    status: "blocked",
-    errorCode: "workflow_limit",
+    status: "waiting_retry",
+    errorCode: "development_continue",
   });
   expect(readDevelopmentRounds(database.db, run.id)).toHaveLength(3);
   expect(readExecutions(database.db, run.id)).toHaveLength(9);
@@ -391,11 +395,94 @@ test("stops after three failed rounds and six AI calls without resetting Task or
   ).toBe(true);
 }, 15000);
 
+test("automatically continues the saved candidate after three reviews and verifies it before applying", async () => {
+  const owner = acquireExecutionOwner(database.db);
+  const policy = parseRetryPolicy({
+    maxRetries: null,
+    maxConsecutiveErrors: null,
+    maxTotalRunMs: null,
+  });
+  store = createDrizzleRunStore(
+    database.db,
+    owner.token,
+    { automaticRecovery: policy },
+    {
+      developmentWorkspaceKeys: ["fixture"],
+    },
+  );
+  try {
+    claim();
+    const firstRun = run.id;
+    const first = await runWith(wrap(fake({ firstPass: true, rework: true }), true, owner.token));
+    expect(first).toMatchObject({ status: "waiting_retry", errorCode: "development_continue" });
+    const before = readDevelopmentRounds(database.db, firstRun);
+    const candidate = before.at(-1)!.candidate!;
+    expect(before).toHaveLength(3);
+    expect(before.at(-1)!.verificationResult!.status).toBe("passed");
+    expect(before.at(-1)!.review!.assessment.complete).toBe(false);
+    const saved = database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!.retryState!;
+    const recovery = createDrizzleRecoveryStore(database.db, owner.token);
+    const automatic = createAutomaticRecovery({
+      db: database.db,
+      ownerToken: owner.token,
+      policy,
+      workspaceKeys: ["fixture"],
+      recovery,
+      random: () => 0,
+    });
+    expect(automatic.tick()).toBe(true);
+    const waiting = database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+    expect(waiting.retryState!.reason).toBe("retry_scheduled");
+    expect(waiting.retryState!.totalRunMs).toBe(saved.totalRunMs);
+    expect(store.claimNext("fixture", ["fixture"]).kind).toBe("idle");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(waiting.retryState!.nextAttemptAt!));
+    expect(automatic.tick()).toBe(true);
+    const next = store.claimNext("fixture", ["fixture"]);
+    expect(next.kind).toBe("claimed");
+    if (next.kind !== "claimed") throw new Error("Expected automatic continuation");
+    run = next.run;
+    expect(run.id).not.toBe(firstRun);
+    expect(run.taskId).toBe(taskId);
+    calls = [];
+    expect((await runWith(wrap(fake({ firstPass: true }), true, owner.token))).status).toBe(
+      "succeeded",
+    );
+    expect(calls).toHaveLength(3);
+    expect(calls[0]!.instruction).toContain("Fix arithmetic");
+    expect(calls[0]!.instruction).toContain(candidate.digest);
+    const continued = readDevelopmentRounds(database.db, run.id)[0]!;
+    expect(continued.intent.previousCandidate).toBe(candidate.digest);
+    expect(continued.verificationResult!.status).toBe("passed");
+    expect(continued.review!.assessment.complete).toBe(true);
+    expect(readDevelopmentRounds(database.db, firstRun)).toEqual(before);
+    expect(database.db.select().from(tasks).all()).toHaveLength(1);
+    expect(
+      database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!.retryState,
+    ).toMatchObject({
+      retries: saved.retries + 1,
+      policy: { maxRetries: null, maxConsecutiveErrors: null, maxTotalRunMs: null },
+    });
+    expect(
+      database.db
+        .select()
+        .from(budgetPeriods)
+        .all()
+        .every((period) => period.calls === 8),
+    ).toBe(true);
+  } finally {
+    vi.useRealTimers();
+    owner.release();
+  }
+}, 20000);
+
 test("resumes the same task from the latest accepted tree after another task lands", async () => {
   claim();
   const firstRun = run.id;
   const firstTask = taskId;
-  expect((await runWith(wrap(fake({ firstPass: true, rework: true })))).status).toBe("blocked");
+  expect((await runWith(wrap(fake({ firstPass: true, rework: true })))).status).toBe(
+    "waiting_retry",
+  );
   const oldRounds = readDevelopmentRounds(database.db, firstRun);
   const oldCandidate = oldRounds.at(-1)!.candidate!;
   const task = database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
@@ -680,7 +767,7 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
 test("caps effort changes across development and review while preserving proposed effort", async () => {
   claim();
   const result = await runWith(wrap(fake({ alwaysFail: true, rework: true })));
-  expect(result.errorCode).toBe("workflow_limit");
+  expect(result.errorCode).toBe("development_continue");
   const history = store.findById(run.id)!.steps;
   expect(history.map((step) => step.effort)).toEqual([
     "medium",
