@@ -15,7 +15,7 @@ import { runVerificationContainer } from "../../src/modules/execution/verificati
 
 // Control pipe delivery order; keep the production collector, redactor and
 // truncation. Actual container exit/termination is covered by verification-process.
-function execution() {
+function execution(timeoutMs: number | null = 1000) {
   const child = Object.assign(new EventEmitter(), {
     stdin: new PassThrough(),
     stdout: new PassThrough(),
@@ -52,7 +52,7 @@ function execution() {
         config: {
           image: "fixture",
           command: ["node", "--test"],
-          timeoutMs: 1000,
+          timeoutMs,
         },
       },
     },
@@ -60,6 +60,24 @@ function execution() {
   );
   return { child, pending };
 }
+
+test("an explicit unlimited timeout preserves a long verification until its real exit", async () => {
+  vi.useFakeTimers();
+  try {
+    const { child, pending } = execution(null);
+    await vi.advanceTimersByTimeAsync(600001);
+    expect(child.kill).not.toHaveBeenCalled();
+    child.emit("close", 1);
+    const result = await pending;
+    expect(result.verification).toMatchObject({
+      status: "failed",
+      exitCode: 1,
+      configuration: { timeoutMs: null },
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 test.each(["stdout", "stderr"] as const)(
   "preserves diagnostics arriving between long %s chunks",

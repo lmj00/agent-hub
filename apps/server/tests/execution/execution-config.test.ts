@@ -83,6 +83,23 @@ test("accepts operator-fixed test image and argv for a configured workspace", ()
   });
 });
 
+test("preserves an explicit unlimited verification timeout in workspace and import profiles", () => {
+  const base = JSON.parse(readFileSync(file, "utf8"));
+  const profile = { image: "node-test:local", command: ["node", "--test"], timeoutMs: null };
+  writeFileSync(
+    file,
+    JSON.stringify({
+      ...base,
+      containerImage: "hub:local",
+      verification: { example: profile },
+      importProfiles: { fixture: profile },
+    }),
+  );
+  const config = loadExecutionConfig(file);
+  expect(config.verification?.get("example")).toEqual(profile);
+  expect(config.importProfiles?.get("fixture")).toEqual(profile);
+});
+
 test.each([
   { verification: { example: { image: "test:local", command: ["node", "--test"] } } },
   {

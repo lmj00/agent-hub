@@ -4,7 +4,7 @@ import { redactOutput, type ExecutionIdentity } from "./analysis.js";
 export type VerificationConfig = {
   image: string;
   command: string[];
-  timeoutMs: number;
+  timeoutMs: number | null;
 };
 export type VerificationRequest = {
   candidateDigest: string;
@@ -43,13 +43,16 @@ export function parseVerificationConfig(value: unknown): VerificationConfig {
     )
   )
     throw new Error("Verification requires a local image and a bounded command argument array");
-  const timeoutMs = value.timeoutMs ?? 60000;
-  if (!Number.isInteger(timeoutMs) || Number(timeoutMs) < 1000 || Number(timeoutMs) > 300000)
-    throw new Error("Verification timeoutMs must be between 1000 and 300000");
+  const timeoutMs = value.timeoutMs === undefined ? 60000 : value.timeoutMs;
+  if (
+    timeoutMs !== null &&
+    (!Number.isInteger(timeoutMs) || Number(timeoutMs) < 1000 || Number(timeoutMs) > 300000)
+  )
+    throw new Error("Verification timeoutMs must be null or between 1000 and 300000");
   return {
     image: value.image,
     command: [...value.command] as string[],
-    timeoutMs: Number(timeoutMs),
+    timeoutMs: timeoutMs === null ? null : Number(timeoutMs),
   };
 }
 

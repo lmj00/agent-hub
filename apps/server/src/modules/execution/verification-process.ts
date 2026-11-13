@@ -90,10 +90,13 @@ export async function runVerificationContainer(
   child.stderr!.on("data", (chunk: Buffer) => receive(stderr, chunk));
   const onAbort = () => stop();
   request.signal.addEventListener("abort", onAbort, { once: true });
-  const timer = setTimeout(() => {
-    interrupted ??= "timed_out";
-    stop();
-  }, verification.config.timeoutMs);
+  const timer =
+    verification.config.timeoutMs === null
+      ? undefined
+      : setTimeout(() => {
+          interrupted ??= "timed_out";
+          stop();
+        }, verification.config.timeoutMs);
   try {
     await new Promise<void>((resolve, reject) => {
       child.once("error", reject);

@@ -122,7 +122,10 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("actual verification co
     database.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  function request(command = ["node", "tests/verify.mjs"], timeoutMs = 10000): AnalysisRequest {
+  function request(
+    command = ["node", "tests/verify.mjs"],
+    timeoutMs: number | null = 10000,
+  ): AnalysisRequest {
     const manifest = Object.entries(files).map(([path, content]) => ({
       path,
       bytes: Buffer.byteLength(content),
@@ -358,34 +361,38 @@ console.log('isolation and calculation verified');`,
     15000,
   );
 
-  test("cancellation shares termination observation and never returns a test success", async () => {
-    const selected = request(["node", "-e", "setInterval(()=>{},1000)"]),
-      controller = new AbortController();
-    selected.signal = controller.signal;
-    const prepared = Promise.withResolvers<ExecutionIdentity>();
-    const pending = executor.analyze(selected, (event) => {
-      record(event);
-      if (event.execution) prepared.resolve(event.execution);
-    });
-    const rejected = expect(pending).rejects.toBeDefined();
-    const identity = await prepared.promise;
-    for (let i = 0; i < 40; i++) {
-      if ((await inspect(identity)).State.Running) break;
-      await delay(50);
-    }
-    expect((await inspect(identity)).State.Running).toBe(true);
-    controller.abort("user_cancel");
-    const first = executor.confirmTermination!(run.id),
-      second = executor.confirmTermination!(run.id);
-    await rejected;
-    expect(await first).toBeInstanceOf(Date);
-    expect(await second).toBeInstanceOf(Date);
-    expect((await inspect(identity)).State).toMatchObject({
-      Running: false,
-      Pid: 0,
-    });
-    await expect(executor.analyze(request(), record)).rejects.toThrow("Previous execution");
-  }, 15000);
+  test.each([10000, null])(
+    "cancellation shares termination observation with timeout %s",
+    async (timeoutMs) => {
+      const selected = request(["node", "-e", "setInterval(()=>{},1000)"], timeoutMs),
+        controller = new AbortController();
+      selected.signal = controller.signal;
+      const prepared = Promise.withResolvers<ExecutionIdentity>();
+      const pending = executor.analyze(selected, (event) => {
+        record(event);
+        if (event.execution) prepared.resolve(event.execution);
+      });
+      const rejected = expect(pending).rejects.toBeDefined();
+      const identity = await prepared.promise;
+      for (let i = 0; i < 40; i++) {
+        if ((await inspect(identity)).State.Running) break;
+        await delay(50);
+      }
+      expect((await inspect(identity)).State.Running).toBe(true);
+      controller.abort("user_cancel");
+      const first = executor.confirmTermination!(run.id),
+        second = executor.confirmTermination!(run.id);
+      await rejected;
+      expect(await first).toBeInstanceOf(Date);
+      expect(await second).toBeInstanceOf(Date);
+      expect((await inspect(identity)).State).toMatchObject({
+        Running: false,
+        Pid: 0,
+      });
+      await expect(executor.analyze(request(), record)).rejects.toThrow("Previous execution");
+    },
+    15000,
+  );
 
   test("rejects image-declared volumes before creating an execution", async () => {
     const volumeImage = "agent-hub-verification-volume-test:local";
