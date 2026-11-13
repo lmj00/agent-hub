@@ -43,6 +43,10 @@ const retryReasons: Record<string, string> = {
   not_retryable: "자동 재시도 대상이 아닌 오류입니다. 실행 결과를 확인해 주세요.",
   user_cancelled: "사용자가 취소하여 다시 실행하지 않습니다.",
 };
+const continuationReasons: Record<string, string> = {
+  retry_limit: "추가 실행 횟수 상한에 도달했습니다. 남은 수정과 실행 정책을 확인해 주세요.",
+  repeated_error_limit: "연속 이어가기 횟수 상한에 도달하여 자동 실행을 보류했습니다.",
+};
 export function TaskDetail({
   task,
   queue,
@@ -500,11 +504,13 @@ export function TaskDetail({
       {task.retryState ? (
         <div className="notice retry-status" aria-label="자동 복구 정책">
           <strong>
-            재시도 {task.retryState.retries}
+            {task.retryState.lastError === "development_continue" ? "추가 실행" : "재시도"}{" "}
+            {task.retryState.retries}
             {task.retryState.policy.maxRetries === null
               ? "회 · 제한 없음"
               : ` / ${task.retryState.policy.maxRetries}회`}{" "}
-            · 같은 오류 {task.retryState.consecutiveErrors}
+            · {task.retryState.lastError === "development_continue" ? "연속 이어가기" : "같은 오류"}{" "}
+            {task.retryState.consecutiveErrors}
             {task.retryState.policy.maxConsecutiveErrors === null
               ? "회 · 제한 없음"
               : ` / ${task.retryState.policy.maxConsecutiveErrors}회`}
@@ -520,7 +526,11 @@ export function TaskDetail({
           ) : null}
           {task.retryState.reason ? (
             <span>
-              {retryReasons[task.retryState.reason] ?? "저장된 복구 조건을 확인하고 있습니다."}
+              {(task.retryState.lastError === "development_continue"
+                ? continuationReasons[task.retryState.reason]
+                : undefined) ??
+                retryReasons[task.retryState.reason] ??
+                "저장된 복구 조건을 확인하고 있습니다."}
             </span>
           ) : null}
           {gate?.blocked && task.retryState.nextAttemptAt ? (

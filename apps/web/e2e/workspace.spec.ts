@@ -1048,43 +1048,66 @@ test("explains development continuation without presenting it as a required manu
   await expect(attention).not.toContainText("원인을 해결한 뒤 재개하세요");
 });
 
-test("shows unlimited retry caps without disabling manual recovery or losing usage", async ({
-  page,
-}) => {
-  await page.route("**/projects/*/tasks", async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    for (const task of body.tasks) {
-      if (task.instruction !== "계산 오류 수정 기록") continue;
-      task.retryState = {
-        policy: {
-          version: 1,
-          initialDelayMs: 10000,
-          maxDelayMs: 300000,
-          jitterRatio: 0.2,
-          maxRetries: null,
-          maxConsecutiveErrors: null,
-          maxTotalRunMs: null,
-        },
-        retries: 9,
-        consecutiveErrors: 4,
-        totalRunMs: 7200000,
-        lastError: "timeout",
-        decisionRunId: null,
-        nextAttemptAt: null,
-        reason: "not_retryable",
-      };
-    }
-    await route.fulfill({ response, json: body });
+for (const [code, reason] of [
+  ["timeout", "not_retryable"],
+  ["development_continue", null],
+  ["development_continue", "retry_limit"],
+  ["development_continue", "repeated_error_limit"],
+] as const) {
+  test(`shows ${code} ${reason ?? "unlimited"} with accurate continuation labels and usage`, async ({
+    page,
+  }) => {
+    const limited = reason === "retry_limit" || reason === "repeated_error_limit";
+    await page.route("**/projects/*/tasks", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      for (const task of body.tasks) {
+        if (task.instruction !== "계산 오류 수정 기록") continue;
+        task.retryState = {
+          policy: {
+            version: 1,
+            initialDelayMs: 10000,
+            maxDelayMs: 300000,
+            jitterRatio: 0.2,
+            maxRetries: limited ? 9 : null,
+            maxConsecutiveErrors: limited ? 4 : null,
+            maxTotalRunMs: null,
+          },
+          retries: 9,
+          consecutiveErrors: 4,
+          totalRunMs: 7200000,
+          lastError: code,
+          decisionRunId: null,
+          nextAttemptAt: null,
+          reason,
+        };
+      }
+      await route.fulfill({ response, json: body });
+    });
+    await login(page);
+    await page.getByRole("button", { name: /개발 검증 예제 example/ }).click();
+    await page.getByRole("button", { name: /계산 오류 수정 기록/ }).click();
+    await expect(page.getByLabel("자동 복구 정책")).toContainText(
+      `${code === "development_continue" ? "추가 실행" : "재시도"} 9${limited ? " / 9회" : "회 · 제한 없음"}`,
+    );
+    await expect(page.getByLabel("자동 복구 정책")).toContainText(
+      `${code === "development_continue" ? "연속 이어가기" : "같은 오류"} 4${limited ? " / 4회" : "회 · 제한 없음"}`,
+    );
+    if (code === "development_continue")
+      await expect(page.getByLabel("자동 복구 정책")).not.toContainText("같은 오류");
+    if (reason === "retry_limit")
+      await expect(page.getByLabel("자동 복구 정책")).toContainText(
+        "추가 실행 횟수 상한에 도달했습니다",
+      );
+    if (reason === "repeated_error_limit")
+      await expect(page.getByLabel("자동 복구 정책")).toContainText(
+        "연속 이어가기 횟수 상한에 도달하여",
+      );
+    await expect(page.getByLabel("자동 복구 정책")).toContainText("누적 실행 7200초 · 제한 없음");
+    if (!limited)
+      await expect(page.getByRole("button", { name: "작업 재개", exact: true })).toBeEnabled();
   });
-  await login(page);
-  await page.getByRole("button", { name: /개발 검증 예제 example/ }).click();
-  await page.getByRole("button", { name: /계산 오류 수정 기록/ }).click();
-  await expect(page.getByLabel("자동 복구 정책")).toContainText("재시도 9회 · 제한 없음");
-  await expect(page.getByLabel("자동 복구 정책")).toContainText("같은 오류 4회 · 제한 없음");
-  await expect(page.getByLabel("자동 복구 정책")).toContainText("누적 실행 7200초 · 제한 없음");
-  await expect(page.getByRole("button", { name: "작업 재개", exact: true })).toBeEnabled();
-});
+}
 
 test("checks GitHub configuration explicitly and clears repository data after revoked access", async ({
   page,
