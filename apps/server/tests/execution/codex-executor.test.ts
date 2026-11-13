@@ -23,7 +23,12 @@ import {
   threadOptions,
 } from "../../src/modules/execution/codex-executor.js";
 import { type AnalysisEvent, classifyCodexError } from "../../src/modules/execution/analysis.js";
-import { analysisAssessmentSchema, goalPlanSchema, parseResponse } from "@agent-hub/contracts";
+import {
+  analysisAssessmentSchema,
+  analysisResponseSchema,
+  goalPlanSchema,
+  parseResponse,
+} from "@agent-hub/contracts";
 import { loadRuntimeSkill } from "../../src/modules/execution/runtime-skills.js";
 
 const request = {
@@ -205,7 +210,7 @@ test("parent-managed assessment mode selects the fixed review schema", async () 
   );
   expect(fake.run).toHaveBeenLastCalledWith(
     expect.stringContaining("Return JSON matching the supplied schema"),
-    expect.objectContaining({ outputSchema: analysisAssessmentSchema }),
+    expect.objectContaining({ outputSchema: analysisResponseSchema }),
   );
 });
 
@@ -251,6 +256,7 @@ test("the developer response contract permits pending candidates but rejects sel
   };
   const candidate = {
     report: "Implementation ready for verification",
+    scopeExpansion: null,
     evidence: ["src/main.mjs"],
     unresolved: ["Server tests and independent review pending"],
     complete: false,

@@ -1,6 +1,6 @@
 import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk";
 import {
-  analysisAssessmentSchema,
+  analysisResponseSchema,
   developmentAssessmentSchema,
   goalPlanSchema,
 } from "@agent-hub/contracts";
@@ -115,7 +115,7 @@ export function createCodexExecutor(
           : request.responseMode === "assessment"
             ? request.development
               ? developmentAssessmentSchema
-              : analysisAssessmentSchema
+              : analysisResponseSchema
             : request.outputSchema;
       const codex = new Codex(
         codexOptions(

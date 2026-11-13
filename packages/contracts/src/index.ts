@@ -53,6 +53,7 @@ export {
 } from "./states.js";
 export {
   analysisAssessmentSchema,
+  analysisResponseSchema,
   type AnalysisAssessment,
   developmentAssessmentSchema,
 } from "./assessments.js";

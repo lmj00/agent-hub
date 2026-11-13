@@ -24,6 +24,7 @@ import type {
   AnalysisRequest,
   ExecutionIdentity,
 } from "../../src/modules/execution/analysis.js";
+import { AnalysisError } from "../../src/modules/execution/analysis.js";
 import { createDrizzleRunStore } from "../../src/modules/execution/drizzle-run-store.js";
 import { runClaimedTask, type ClaimedRun } from "../../src/modules/execution/run-task.js";
 import { readExecutions } from "../../src/modules/execution/execution-record-store.js";
@@ -33,6 +34,7 @@ import {
 } from "../../src/modules/execution/verification-config.js";
 import { createProjectBudgetStore } from "../../src/modules/budgets/project-budget-store.js";
 import { createDrizzleGoalStore } from "../../src/modules/goals/drizzle-goal-store.js";
+import { createWorkReleaseStore } from "../../src/modules/goals/work-release-store.js";
 import { createDevelopmentExecutor } from "../../src/modules/execution/workflows/development-executor.js";
 import {
   readDevelopmentRepository,
@@ -312,6 +314,234 @@ const runWith = (executor: AnalysisExecutor, signal = new AbortController().sign
     store,
     executor,
   );
+
+function scopeRepair(paths = ["tests/check.mjs"], beforeReview?: () => void): AnalysisExecutor {
+  const base = fake({ firstPass: true });
+  return {
+    ...base,
+    async analyze(request, onEvent) {
+      const result = await base.analyze(request, onEvent);
+      const test = readFileSync(join(request.workspace, "tests/check.mjs"), "utf8");
+      const expanded = request.development?.writePaths.includes("tests/check.mjs");
+      if (result.development && expanded)
+        result.development.changes.push({
+          path: "tests/check.mjs",
+          mode: "100644",
+          content: Buffer.from(`${test}\nassert.equal(total(0, 2), 0); // new contract\n`).toString(
+            "base64",
+          ),
+        });
+      if (result.verification && !test.includes("new contract")) {
+        result.verification.status = "failed";
+        result.verification.exitCode = 1;
+        result.verification.output = "Integration contract is missing tests/check.mjs coverage";
+      }
+      if (!request.development && !test.includes("new contract")) {
+        beforeReview?.();
+        result.output = JSON.stringify({
+          ...developerReport(),
+          scopeExpansion: { paths, reason: "Update the integration contract for this same change" },
+          unresolved: ["The required integration test is outside Task writePaths"],
+        });
+      }
+      return result;
+    },
+  };
+}
+
+test("repairs an omitted test path from the independent review and verifies the same candidate", async () => {
+  claim();
+  expect((await runWith(wrap(scopeRepair()))).status).toBe("succeeded");
+  const rounds = readDevelopmentRounds(database.db, run.id);
+  expect(rounds).toHaveLength(2);
+  expect(rounds[0]!.input!.writePaths).toEqual(["src"]);
+  expect(rounds[0]!.verificationResult!.status).toBe("failed");
+  expect(rounds[0]!.review!.assessment.scopeExpansion!.paths).toEqual(["tests/check.mjs"]);
+  expect(rounds[1]!.input!.writePaths).toEqual(["src", "tests/check.mjs"]);
+  expect(rounds[1]!.intent.previousCandidate).toBe(rounds[0]!.candidate!.digest);
+  expect(rounds[1]!.verificationResult!.status).toBe("passed");
+  expect(rounds[1]!.candidate!.changes.map((change) => change.path)).toContain("tests/check.mjs");
+  const task = database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+  expect(task.plannedWork).toEqual({ ...work, paths: ["src", "tests/check.mjs"] });
+  expect(task.retryState).toBeNull();
+  expect(database.db.select().from(runs).all()).toHaveLength(1);
+  expect(calls).toHaveLength(6);
+  expect(
+    calls.filter((call) => call.verification).map((call) => call.verification!.config),
+  ).toEqual([configuration, configuration]);
+}, 20000);
+
+test.each(["tests", ".", "../check.mjs", ".env", "tests/missing.mjs"])(
+  "holds an unsafe or unprepared scope request (%s) without repeating the failed round",
+  async (path) => {
+    claim();
+    const result = await runWith(wrap(scopeRepair([path])));
+    expect(result).toMatchObject({ status: "blocked", errorCode: "analysis_incomplete" });
+    expect(calls).toHaveLength(3);
+    expect(readDevelopmentRounds(database.db, run.id)).toHaveLength(1);
+    expect(database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!.plannedWork).toEqual(
+      work,
+    );
+  },
+);
+
+test("does not expand over another unfinished task or broaden the Goal permission", async () => {
+  database.db
+    .insert(tasks)
+    .values({
+      id: randomUUID(),
+      projectId,
+      instruction: "Separate integration work",
+      requestKey: "other",
+      plannedWork: { ...work, paths: ["tests/check.mjs"] },
+      createdAt: new Date(),
+    })
+    .run();
+  claim();
+  expect(await runWith(wrap(scopeRepair()))).toMatchObject({
+    status: "blocked",
+    errorCode: "analysis_incomplete",
+  });
+  expect(calls).toHaveLength(3);
+  expect(database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!.plannedWork).toEqual(
+    work,
+  );
+});
+
+test.each(["released", "excluded"])(
+  "does not treat a %s historical Task as a path reservation",
+  async (kind) => {
+    const goal = database.db.select().from(goals).get()!;
+    const oldId = randomUUID();
+    database.db
+      .insert(tasks)
+      .values({
+        id: oldId,
+        projectId,
+        goalId: goal.id,
+        goalVersion: goal.version,
+        instruction: "Historical work",
+        requestKey: oldId,
+        status: "cancelled",
+        plannedWork: { ...work, paths: ["tests/check.mjs"] },
+        createdAt: new Date(),
+        ...(kind === "released"
+          ? { cancelRequestedAt: new Date() }
+          : {
+              goalReview: {
+                fromVersion: goal.version,
+                toVersion: goal.version,
+                decision: "excluded" as const,
+                checkedAt: new Date().toISOString(),
+                paths: ["tests/check.mjs"],
+              },
+            }),
+      })
+      .run();
+    if (kind === "released") {
+      const release = createWorkReleaseStore(database.db).release(oldId, {
+        requestKey: "release-history",
+        expectedGoalVersion: goal.version,
+      }).release;
+      database.db
+        .update(tasks)
+        .set({ status: "succeeded" })
+        .where(eq(tasks.id, release.newTaskId))
+        .run();
+    }
+    claim();
+    expect((await runWith(wrap(scopeRepair()))).status).toBe("succeeded");
+    expect(readDevelopmentRounds(database.db, run.id)).toHaveLength(2);
+    expect(database.db.select().from(tasks).where(eq(tasks.id, oldId)).get()!.status).toBe(
+      "cancelled",
+    );
+  },
+  20000,
+);
+
+test("keeps review evidence but refuses scope expansion after the owner pauses the Goal", async () => {
+  claim();
+  const beforeReview = () => {
+    const goal = database.db.select().from(goals).get()!;
+    createDrizzleGoalStore(database.db).change(goal.id, "pause-during-review", goal.version, {
+      action: "pause",
+    });
+  };
+  expect(await runWith(wrap(scopeRepair(["tests/check.mjs"], beforeReview)))).toMatchObject({
+    status: "blocked",
+    errorCode: "goal_changed",
+  });
+  expect(calls).toHaveLength(3);
+  expect(readDevelopmentRounds(database.db, run.id)[0]!.review).not.toBeNull();
+  expect(database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!.plannedWork).toEqual(
+    work,
+  );
+});
+
+test.each(["before", "after", "goal-update"])(
+  "recovers a crash %s the scope acknowledgement without replacing the Task or its candidate",
+  async (timing) => {
+    claim();
+    const firstRun = run.id;
+    const record = store.record;
+    const interruption = vi.spyOn(store, "record").mockImplementation((id, event) => {
+      if (event.kind !== "development.scope.expanded") return record(id, event);
+      if (timing !== "before") record(id, event);
+      throw new AnalysisError("transient");
+    });
+    expect(await runWith(wrap(scopeRepair()))).toMatchObject({
+      status: "failed",
+      errorCode: "transient",
+    });
+    interruption.mockRestore();
+    const prior = readDevelopmentRounds(database.db, firstRun);
+    expect(prior[0]!.review!.assessment.scopeExpansion).not.toBeNull();
+    if (timing === "goal-update") {
+      const goal = database.db.select().from(goals).get()!;
+      createDrizzleGoalStore(database.db).change(goal.id, "same-scope-new-version", goal.version, {
+        definition: { ...goal.definition, priority: goal.definition.priority + 1 },
+      });
+    }
+    const recovery = createDrizzleRecoveryStore(database.db);
+    const receipt = recovery.request(
+      {
+        taskId,
+        runId: firstRun,
+        requestKey: `resume-scope-${timing}`,
+        action: "resume",
+        providerGateVersion: null,
+      },
+      null,
+      true,
+    ).request;
+    await createRecoveryProcessor(recovery, {
+      confirm: async () => new Date(),
+      cleanup: async () => {},
+    }).process(receipt.id);
+    expect(recovery.findById(receipt.id)!.status).toBe("completed");
+    calls = [];
+    run = store.claim(taskId, "fixture");
+    expect((await runWith(wrap(scopeRepair()))).status).toBe("succeeded");
+    expect(calls).toHaveLength(3);
+    const current = readDevelopmentRounds(database.db, run.id)[0]!;
+    expect(current.input!.writePaths).toEqual(["src", "tests/check.mjs"]);
+    expect(current.intent.previousCandidate).toBe(prior[0]!.candidate!.digest);
+    expect(readDevelopmentRounds(database.db, firstRun)).toEqual(prior);
+    expect(database.db.select().from(tasks).all()).toHaveLength(1);
+    expect(database.db.select().from(tasks).get()!.plannedWork).toEqual({
+      ...work,
+      paths: ["src", "tests/check.mjs"],
+    });
+    expect(
+      database.db
+        .select()
+        .from(budgetPeriods)
+        .all()
+        .every((period) => period.calls === 4),
+    ).toBe(true);
+  },
+  20000,
+);
 
 test("runs developer/test/reviewer and feeds the real failure into bounded rework on the same Task with saved budgets", async () => {
   claim();

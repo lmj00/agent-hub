@@ -95,6 +95,21 @@ function scripted(reports: AnalysisAssessment[]) {
   return { analyze };
 }
 
+test("scope proposals keep old history readable but cannot self-approve or omit a next correction", () => {
+  const scopeExpansion = { paths: ["tests/integration.ts"], reason: "Update the same contract" };
+  const next = { purpose: "Update test", effort: "high", reason: "Required assertion changed" };
+  expect(parseAssessment(report())).toEqual(report());
+  expect(parseAssessment({ ...report(next), scopeExpansion })).toMatchObject({ scopeExpansion });
+  expect(() => parseAssessment({ ...report(), scopeExpansion })).toThrow();
+  expect(() => parseAssessment({ ...report(null), complete: false, scopeExpansion })).toThrow();
+  expect(() =>
+    parseAssessment({ ...report(next), scopeExpansion: { ...scopeExpansion, reason: " " } }),
+  ).toThrow();
+  expect(() =>
+    parseAssessment({ ...report(next), scopeExpansion: { ...scopeExpansion, paths: [] } }),
+  ).toThrow();
+});
+
 test("validates limits, reports and wire messages before granting a next call", () => {
   for (const invalid of [
     false,

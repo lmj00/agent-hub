@@ -22,6 +22,28 @@ export function overlappingWorkPaths(first: string[], second: string[]) {
   );
 }
 
+export function retiredPlanningWork(db: Db, task: typeof tasks.$inferSelect) {
+  if (task.status !== "cancelled") return false;
+  const history = db.select().from(runs).where(eq(runs.taskId, task.id)).all();
+  if (
+    history.some((run) => run.status === "running" || !run.terminationConfirmedAt) ||
+    db
+      .select({ id: recoveryRequests.id })
+      .from(recoveryRequests)
+      .where(and(eq(recoveryRequests.taskId, task.id), eq(recoveryRequests.status, "pending")))
+      .get()
+  )
+    return false;
+  return (
+    !!db
+      .select({ id: taskReleases.newTaskId })
+      .from(taskReleases)
+      .where(eq(taskReleases.sourceTaskId, task.id))
+      .get() ||
+    (!task.cancelRequestedAt && task.goalReview?.decision === "excluded" && !history.length)
+  );
+}
+
 // Read every unfinished work item, independently of the bounded prompt history.
 // Terminal problems suppress their own paths; active/unknown work still holds
 // planning until its result and termination can be trusted.
@@ -63,6 +85,7 @@ export function readPlanningWork(db: Db, goalId: string) {
   let unresolved = !!uncertain || !!pendingRecovery;
   for (const task of previous) {
     if (task.status === "succeeded" && !task.cancelRequestedAt) continue;
+    if (retiredPlanningWork(db, task)) continue;
     const history = db.select().from(runs).where(eq(runs.taskId, task.id)).all();
     const pending = db
       .select({ id: recoveryRequests.id })
@@ -73,24 +96,6 @@ export function readPlanningWork(db: Db, goalId: string) {
       unresolved = true;
       continue;
     }
-    if (
-      task.status === "cancelled" &&
-      db
-        .select({ id: taskReleases.newTaskId })
-        .from(taskReleases)
-        .where(eq(taskReleases.sourceTaskId, task.id))
-        .get()
-    )
-      continue;
-    // Scope exclusion before any attempt consumes no task retry budget. The
-    // current Goal can be planned afresh without reviving the old Task.
-    if (
-      task.status === "cancelled" &&
-      !task.cancelRequestedAt &&
-      task.goalReview?.decision === "excluded" &&
-      !history.length
-    )
-      continue;
     const work = task.plannedWork;
     if (
       !work ||

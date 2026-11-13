@@ -130,6 +130,13 @@ export function createDevelopmentExecutor(options: {
         current.started = true;
         return development.analyze(phase, emit);
       };
+      const expandScope = async (sourceRunId: string, sequence: number) => {
+        await emit({
+          kind: "development.scope.expanded",
+          development: { type: "scope.expanded", sourceRunId, sequence },
+        });
+        task.plannedWork = db.select().from(tasks).where(eq(tasks.id, task.id)).get()!.plannedWork;
+      };
       try {
         signal.throwIfAborted();
         const configured = config.verification?.get(project.workspaceKey);
@@ -182,6 +189,12 @@ export function createDevelopmentExecutor(options: {
             verification = undefined;
           }
         }
+        if (
+          previous &&
+          prior?.round.review?.assessment.scopeExpansion &&
+          prior.run.goalVersion === run.goalVersion
+        )
+          await expandScope(prior.run.id, prior.round.sequence);
         let usage: AnalysisUsage | null = {
           inputTokens: 0,
           cachedInputTokens: 0,
@@ -336,6 +349,7 @@ export function createDevelopmentExecutor(options: {
             return { output: assessment.report, usage };
           }
           if (!assessment.next) throw new AnalysisError("analysis_incomplete");
+          if (assessment.scopeExpansion) await expandScope(run.id, sequence);
           previous = candidate;
           previousReview = assessment;
         }

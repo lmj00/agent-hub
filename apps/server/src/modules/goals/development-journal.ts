@@ -9,6 +9,7 @@ import {
 } from "../execution/development-workflow.js";
 import { readGoalExecutionBlock } from "./goal-execution-store.js";
 import { readGoalScope } from "./prepared-input-store.js";
+import { expandDevelopmentScope } from "./development-scope.js";
 import {
   saveDevelopmentVerification,
   type DevelopmentVerificationUpdate,
@@ -26,6 +27,7 @@ import {
 export { maxDevelopmentRounds };
 export type DevelopmentUpdate =
   | { type: "workflow.started" }
+  | { type: "scope.expanded"; sourceRunId: string; sequence: number }
   | DevelopmentVerificationUpdate
   | { type: "repository.intent"; repository: DevelopmentRepositoryIntent }
   | { type: "repository.ready"; repository: DevelopmentRepository }
@@ -90,6 +92,11 @@ export function saveDevelopmentUpdate(
     throw new AnalysisError("goal_changed");
   const executions = readExecutions(db, run.id);
   const idle = executions.every((entry) => entry.terminationConfirmedAt !== null);
+  if (update.type === "scope.expanded") {
+    if (!idle || run.developmentVersion !== 1) fail();
+    expandDevelopmentScope(db, run, selected, update.sourceRunId, update.sequence);
+    return;
+  }
   if (update.type === "workflow.started") {
     if (run.developmentVersion === 1) {
       if (!same(run.workflowPolicy, developmentWorkflowPolicy)) fail();
