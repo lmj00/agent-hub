@@ -257,6 +257,7 @@ test("the developer response contract permits pending candidates but rejects sel
   const candidate = {
     report: "Implementation ready for verification",
     criterionChecks: [],
+    blocker: null,
     scopeExpansion: null,
     evidence: ["src/main.mjs"],
     unresolved: ["Server tests and independent review pending"],

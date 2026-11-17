@@ -1,4 +1,4 @@
-import { object, nullable } from "./schema.js";
+import { object, nullable, enumeration } from "./schema.js";
 import { Type, type Static } from "@sinclair/typebox";
 import { criterionChecksSchema } from "./goal-progress.js";
 
@@ -12,7 +12,23 @@ const scopeExpansionSchema = nullable(
   }),
 );
 
+const blockerSchema = nullable(
+  object({
+    kind: enumeration([
+      "implementation",
+      "information",
+      "environment",
+      "permission",
+      "decision",
+      "unknown",
+    ] as const),
+    reason: Type.String({ minLength: 1, maxLength: 500 }),
+    nextAction: Type.String({ minLength: 1, maxLength: 500 }),
+  }),
+);
+
 export const analysisAssessmentSchema = object({
+  blocker: Type.Optional(blockerSchema),
   criterionChecks: Type.Optional(criterionChecksSchema),
   report: Type.String({ minLength: 1, maxLength: 16000 }),
   evidence: Type.Array(Type.String({ minLength: 1, maxLength: 500 }), {
@@ -38,6 +54,7 @@ export const analysisResponseSchema = object({
   ...analysisAssessmentSchema.properties,
   criterionChecks: criterionChecksSchema,
   scopeExpansion: scopeExpansionSchema,
+  blocker: blockerSchema,
 });
 // A developer only produces a candidate. Independent verification owns approval.
 export const developmentAssessmentSchema = object({

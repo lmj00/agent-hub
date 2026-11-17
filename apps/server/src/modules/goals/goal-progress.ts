@@ -12,6 +12,7 @@ import { goalCriteria, validCriterionChecks } from "./goal-criteria.js";
 import { readAppliedCriterionEvidence } from "./change-application.js";
 import { goalVerificationOutcome } from "./goal-verification.js";
 import { GoalError } from "./goal-policy.js";
+import { readDevelopmentBlocker } from "./development-journal.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select">;
 
@@ -147,13 +148,20 @@ export function readGoalProgress(db: Db, goalId: string): GoalProgress {
             : status === "queued"
               ? "연결된 작업이 실행을 기다립니다."
               : `연결된 작업의 확인이 필요합니다.${last?.errorCode ? ` (${last.errorCode})` : ""}`;
+      if (status === "blocked" && last) {
+        const blocker = readDevelopmentBlocker(db, last.id);
+        if (last.errorCode === "development_stalled")
+          reason =
+            "같은 코드와 테스트 조건으로 세 번 검토했지만 진전이 없어 보류했습니다. 원인이나 접근 방법을 바꾼 뒤 재개해야 합니다.";
+        else if (blocker) reason = `${blocker.reason} 다음 조치: ${blocker.nextAction}`;
+      }
     }
     if (verified) {
       status = fresh ? "verified" : "recheck";
       reason = fresh
         ? "현재 개발 코드에서 실제 테스트·독립 검토 근거를 확인했습니다."
         : "이전 검증 이후 목표 또는 코드가 달라졌거나 현재 코드를 확인할 수 없어 재확인이 필요합니다.";
-    } else if (fresh && check) {
+    } else if (fresh && check && status !== "blocked") {
       reason = `${check.status === "unmet" ? "미충족" : "근거 부족"}: ${check.evidence.join(" · ")}`;
     }
     return {
@@ -187,7 +195,7 @@ export function readGoalProgress(db: Db, goalId: string): GoalProgress {
       ? "목표가 일시정지되어 있습니다. 재개하면 남은 조건을 확인합니다."
       : goal.status === "completed"
         ? "전체 목표 검증을 통과해 자동 작업을 종료했습니다."
-        : latest &&
+        : latest?.kind === "planning" &&
             ![
               "queued",
               "running",
@@ -201,7 +209,9 @@ export function readGoalProgress(db: Db, goalId: string): GoalProgress {
             ? "연결된 작업을 검증한 뒤 남은 조건을 다시 판단합니다."
             : items.some((item) => item.status === "queued")
               ? "대기 중인 작업부터 실행합니다. 예산·실행 조건은 기존 정책을 따릅니다."
-              : "다음 계획에서 남은 조건을 확인하고 필요한 전문 역할에 작업을 배정합니다.";
+              : items.some((item) => item.status === "blocked")
+                ? "보류된 조건의 조치는 유지하고, 다음 계획에서 독립적으로 진행할 수 있는 다른 조건을 확인합니다."
+                : "다음 계획에서 남은 조건을 확인하고 필요한 전문 역할에 작업을 배정합니다.";
   return {
     goalId,
     goalVersion: goal.version,

@@ -121,8 +121,10 @@ export function applyPlanningCompletion(
   const createdTaskIds: string[] = [];
   const suppressed: NonNullable<PlanResult["suppressed"]> = [];
   for (const [proposalIndex, proposed] of plan.tasks.entries()) {
-    const blocking = work.suppressed.filter((item) =>
-      overlappingWorkPaths(item.paths, proposed.paths),
+    const blocking = work.suppressed.filter(
+      (item) =>
+        overlappingWorkPaths(item.paths, proposed.paths) ||
+        item.criterionIds?.some((id) => proposed.criterionIds?.includes(id)),
     );
     if (blocking.length) {
       suppressed.push({

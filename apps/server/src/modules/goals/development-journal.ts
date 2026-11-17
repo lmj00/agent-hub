@@ -1,7 +1,7 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { developmentRepositories, developmentRounds, runs, steps, tasks } from "../../db/schema.js";
-import { AnalysisError } from "../execution/analysis.js";
+import { AnalysisError, redactOutput } from "../execution/analysis.js";
 import { readExecutions } from "../execution/execution-record-store.js";
 import {
   developmentWorkflowPolicy,
@@ -59,6 +59,23 @@ export function readDevelopmentRounds(db: Pick<Db, "select">, runId: string) {
     .where(eq(developmentRounds.runId, runId))
     .orderBy(asc(developmentRounds.sequence))
     .all();
+}
+
+export function readDevelopmentBlocker(db: Pick<Db, "select">, runId: string) {
+  const assessment = db
+    .select({ review: developmentRounds.review })
+    .from(developmentRounds)
+    .where(eq(developmentRounds.runId, runId))
+    .orderBy(desc(developmentRounds.sequence))
+    .get()?.review?.assessment;
+  const blocker = assessment?.blocker;
+  return blocker
+    ? {
+        ...blocker,
+        reason: redactOutput(blocker.reason),
+        nextAction: redactOutput(blocker.nextAction),
+      }
+    : null;
 }
 
 // Called inside RunStore's owner-checked transaction. All Git/file I/O happens

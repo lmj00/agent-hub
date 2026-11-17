@@ -9,6 +9,7 @@ export type SuppressedWork = {
   status: "failed" | "blocked" | "cancelled";
   paths: string[];
   acceptanceCriteria: string;
+  criterionIds?: string[];
 };
 
 const canonical = (path: string) => path.normalize("NFC").toLowerCase();
@@ -119,6 +120,7 @@ export function readPlanningWork(db: Db, goalId: string) {
       status: task.status as SuppressedWork["status"],
       paths: work.paths,
       acceptanceCriteria: work.acceptanceCriteria,
+      ...(work.criterionIds ? { criterionIds: work.criterionIds } : {}),
     });
   }
   return { previous, unresolved, suppressed };

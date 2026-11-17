@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import type { Effort } from "@agent-hub/contracts";
 import type { openDatabase } from "../../../db/connection.js";
 import { developmentRounds, projects, runs, steps, tasks } from "../../../db/schema.js";
@@ -16,6 +16,8 @@ import {
   maxDevelopmentRounds,
   readDevelopmentAssessment,
   reviewerAssessment,
+  developmentBlockCode,
+  developmentProgressKey,
 } from "../development-workflow.js";
 import { readExecutions } from "../execution-record-store.js";
 import { parseVerificationConfig, verificationResultDigest } from "../verification-config.js";
@@ -172,6 +174,34 @@ export function createDevelopmentExecutor(options: {
         let previous = prior?.round.candidate ?? undefined;
         let previousReview = prior?.round.review?.assessment;
         let verification = prior?.round.verificationResult ?? undefined;
+        // A crash before review must not erase the preceding completed reviews.
+        const progressKeys = db
+          .select({ round: developmentRounds, run: runs })
+          .from(developmentRounds)
+          .innerJoin(runs, eq(runs.id, developmentRounds.runId))
+          .where(
+            and(
+              eq(runs.taskId, task.id),
+              isNotNull(developmentRounds.candidate),
+              isNotNull(developmentRounds.verificationResult),
+              isNotNull(developmentRounds.review),
+            ),
+          )
+          .orderBy(desc(runs.attempt), desc(developmentRounds.sequence))
+          .limit(2)
+          .all()
+          .reverse()
+          .map(({ round, run: priorRun }) =>
+            round.candidate &&
+            round.verificationResult &&
+            round.review &&
+            !round.review.assessment.complete
+              ? developmentProgressKey(round.candidate, round.verificationResult, {
+                  goalVersion: priorRun.goalVersion,
+                  paths: round.intent.writePaths,
+                })
+              : null,
+          );
         let instruction = request.instruction;
         const repository = readDevelopmentRepository(db, project.id)?.prepared;
         if (previous) {
@@ -348,8 +378,22 @@ export function createDevelopmentExecutor(options: {
             await applyChangeApplication(db, run.id, signal, options.ownerToken);
             return { output: assessment.report, usage };
           }
-          if (!assessment.next) throw new AnalysisError("analysis_incomplete");
+          const block = developmentBlockCode(assessment);
+          if (block) throw new AnalysisError(block);
+          const beforeExpansion = JSON.stringify(task.plannedWork!.paths);
           if (assessment.scopeExpansion) await expandScope(run.id, sequence);
+          progressKeys.push(
+            developmentProgressKey(candidate, verification, {
+              goalVersion: run.goalVersion,
+              paths: prepared.input.writePaths,
+            }),
+          );
+          if (
+            beforeExpansion === JSON.stringify(task.plannedWork!.paths) &&
+            progressKeys.length >= 3 &&
+            progressKeys.slice(-3).every((key) => key === progressKeys.at(-1))
+          )
+            throw new AnalysisError("development_stalled");
           previous = candidate;
           previousReview = assessment;
         }

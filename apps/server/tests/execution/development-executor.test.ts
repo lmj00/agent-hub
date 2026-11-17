@@ -18,7 +18,15 @@ import { promisify } from "node:util";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { openDatabase } from "../../src/db/connection.js";
-import { budgetPeriods, goals, projects, runs, steps, tasks } from "../../src/db/schema.js";
+import {
+  budgetPeriods,
+  developmentRounds,
+  goals,
+  projects,
+  runs,
+  steps,
+  tasks,
+} from "../../src/db/schema.js";
 import type { AnalysisAssessment } from "@agent-hub/contracts";
 import type {
   AnalysisExecutor,
@@ -209,6 +217,9 @@ function fake(
     firstPass?: boolean;
     missingInput?: boolean;
     rework?: boolean;
+    progress?: boolean;
+    progressUntil?: number;
+    blocker?: AnalysisAssessment["blocker"];
     waitAt?: number;
     onCall?: (request: AnalysisRequest) => void;
   } = {},
@@ -237,7 +248,15 @@ function fake(
         executionTermination: { identity: execution, confirmedAt: new Date() },
       });
       if (request.verification) {
-        const passed = readFileSync(join(request.workspace, "src/main.mjs"), "utf8") === correct;
+        let passed = true;
+        try {
+          execFileSync(process.execPath, ["tests/check.mjs"], {
+            cwd: request.workspace,
+            stdio: "pipe",
+          });
+        } catch {
+          passed = false;
+        }
         return {
           output: "actual fixture result",
           usage: null,
@@ -260,7 +279,10 @@ function fake(
       expect(request.responseMode).toBe("assessment");
       if (request.development) {
         const count = calls.filter((value) => value.development && !value.verification).length;
-        const content = !options.alwaysFail && (options.firstPass || count > 1) ? correct : wrong;
+        const base = !options.alwaysFail && (options.firstPass || count > 1) ? correct : wrong;
+        const content = options.progress
+          ? `${base}// correction ${Math.min(count, options.progressUntil ?? count)}\n`
+          : base;
         return {
           output: JSON.stringify(developerReport()),
           usage,
@@ -279,25 +301,37 @@ function fake(
       }
       return {
         output: JSON.stringify(
-          options.missingInput
+          options.blocker
             ? {
                 ...approved(),
                 complete: false,
-                unresolved: ["Missing product criteria"],
-                next: null,
+                blocker: options.blocker,
+                unresolved: [options.blocker.reason],
+                next: {
+                  purpose: options.blocker.nextAction,
+                  effort: "high",
+                  reason: options.blocker.reason,
+                },
               }
-            : options.rework
+            : options.missingInput
               ? {
                   ...approved(),
                   complete: false,
-                  unresolved: ["Fix arithmetic"],
-                  next: {
-                    purpose: "Fix arithmetic",
-                    effort: "medium",
-                    reason: "Bounded correction",
-                  },
+                  unresolved: ["Missing product criteria"],
+                  next: null,
                 }
-              : approved(),
+              : options.rework
+                ? {
+                    ...approved(),
+                    complete: false,
+                    unresolved: ["Fix arithmetic"],
+                    next: {
+                      purpose: "Fix arithmetic",
+                      effort: "medium",
+                      reason: "Bounded correction",
+                    },
+                  }
+                : approved(),
         ),
         usage,
       };
@@ -609,7 +643,7 @@ test("runs developer/test/reviewer and feeds the real failure into bounded rewor
 
 test("yields after three correction rounds without resetting Task or budget limits", async () => {
   claim();
-  const result = await runWith(wrap(fake({ alwaysFail: true })));
+  const result = await runWith(wrap(fake({ alwaysFail: true, progress: true })));
   expect(result).toMatchObject({
     status: "waiting_retry",
     errorCode: "development_continue",
@@ -644,7 +678,9 @@ test("automatically continues the saved candidate after three reviews and verifi
   try {
     claim();
     const firstRun = run.id;
-    const first = await runWith(wrap(fake({ firstPass: true, rework: true }), true, owner.token));
+    const first = await runWith(
+      wrap(fake({ firstPass: true, rework: true, progress: true }), true, owner.token),
+    );
     expect(first).toMatchObject({ status: "waiting_retry", errorCode: "development_continue" });
     const before = readDevelopmentRounds(database.db, firstRun);
     const candidate = before.at(-1)!.candidate!;
@@ -711,9 +747,9 @@ test("resumes the same task from the latest accepted tree after another task lan
   claim();
   const firstRun = run.id;
   const firstTask = taskId;
-  expect((await runWith(wrap(fake({ firstPass: true, rework: true })))).status).toBe(
-    "waiting_retry",
-  );
+  expect(
+    (await runWith(wrap(fake({ firstPass: true, rework: true, progress: true })))).status,
+  ).toBe("waiting_retry");
   const oldRounds = readDevelopmentRounds(database.db, firstRun);
   const oldCandidate = oldRounds.at(-1)!.candidate!;
   const task = database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
@@ -997,7 +1033,7 @@ test.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")(
 
 test("caps effort changes across development and review while preserving proposed effort", async () => {
   claim();
-  const result = await runWith(wrap(fake({ alwaysFail: true, rework: true })));
+  const result = await runWith(wrap(fake({ alwaysFail: true, rework: true, progress: true })));
   expect(result.errorCode).toBe("development_continue");
   const history = store.findById(run.id)!.steps;
   expect(history.map((step) => step.effort)).toEqual([
@@ -1231,3 +1267,244 @@ test("specialist mission reaches development but not the independent reviewer in
   expect(reviewer).not.toContain(agent.mission);
   expect(reviewer).toContain("You cannot modify files");
 });
+
+test.each(["environment", "permission", "decision", "unknown"] as const)(
+  "holds a %s blocker even when the reviewer proposes an automatic next step",
+  async (kind) => {
+    const { goalCriteria } = await import("../../src/modules/goals/goal-criteria.js");
+    const goal = database.db.select().from(goals).get()!;
+    work.goalCriteria = goalCriteria(goal.id, goal.definition);
+    work.criterionIds = work.goalCriteria.map((item) => item.id);
+    claim();
+    const blocker = {
+      kind,
+      reason: "Required evidence is unavailable",
+      nextAction: "Operator must provide the missing prerequisite",
+    };
+    const result = await runWith(wrap(fake({ firstPass: true, blocker })));
+    expect(result).toMatchObject({
+      status: "blocked",
+      errorCode: kind === "unknown" ? "analysis_incomplete" : `${kind}_required`,
+      terminationConfirmedAt: expect.any(Date),
+    });
+    const rounds = readDevelopmentRounds(database.db, run.id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]!.review!.assessment.blocker).toEqual(blocker);
+    expect(rounds[0]!.review!.assessment.complete).toBe(false);
+    const { readGoalProgress } = await import("../../src/modules/goals/goal-progress.js");
+    const progress = readGoalProgress(database.db, goal.id);
+    expect(progress.criteria[0]).toMatchObject({
+      status: "blocked",
+      reason: expect.stringContaining(blocker.nextAction),
+    });
+    expect(progress.verifiedCount).toBe(0);
+    const { createPlanningStore, readPlanningContext } = await import(
+      "../../src/modules/goals/planning-store.js"
+    );
+    const plan = createPlanningStore(database.db).reserveNext(["fixture"]);
+    expect(plan).not.toBeNull();
+    expect(
+      readPlanningContext(database.db, plan!.taskId)!.history.find((item) => item.id === taskId)!
+        .lastRun!.blocker,
+    ).toEqual(blocker);
+    expect(readDevelopmentRepository(database.db, projectId)!.prepared!.head).toBe(
+      work.sourceRevision,
+    );
+  },
+  15000,
+);
+
+test("holds unchanged candidates after three incomplete reviews without scheduling unlimited retries", async () => {
+  const owner = acquireExecutionOwner(database.db);
+  const policy = parseRetryPolicy({
+    maxRetries: null,
+    maxConsecutiveErrors: null,
+    maxTotalRunMs: null,
+  });
+  store = createDrizzleRunStore(
+    database.db,
+    owner.token,
+    { automaticRecovery: policy },
+    { developmentWorkspaceKeys: ["fixture"] },
+  );
+  try {
+    claim();
+    const result = await runWith(wrap(fake({ alwaysFail: true, rework: true }), true, owner.token));
+    expect(result).toMatchObject({
+      status: "blocked",
+      errorCode: "development_stalled",
+      terminationConfirmedAt: expect.any(Date),
+    });
+    expect(readDevelopmentRounds(database.db, run.id)).toHaveLength(3);
+    const automatic = createAutomaticRecovery({
+      db: database.db,
+      ownerToken: owner.token,
+      policy,
+      workspaceKeys: ["fixture"],
+      recovery: createDrizzleRecoveryStore(database.db, owner.token),
+    });
+    expect(automatic.tick()).toBe(true);
+    expect(automatic.tick()).toBe(false);
+    expect(
+      database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!.retryState,
+    ).toMatchObject({ reason: "not_retryable", nextAttemptAt: null, policy: { maxRetries: null } });
+    expect(store.claimNext("fixture", ["fixture"]).kind).toBe("idle");
+    expect(readDevelopmentRepository(database.db, projectId)!.prepared!.head).toBe(
+      work.sourceRevision,
+    );
+  } finally {
+    owner.release();
+  }
+}, 15000);
+
+test("investigates available information before correcting and independently approving the same Task", async () => {
+  claim();
+  const base = fake({ firstPass: true });
+  let reviews = 0;
+  const executor: AnalysisExecutor = {
+    ...base,
+    async analyze(request, emit) {
+      const result = await base.analyze(request, emit);
+      if (!request.development && ++reviews === 1)
+        result.output = JSON.stringify({
+          ...approved(),
+          complete: false,
+          unresolved: ["Check the zero quantity case"],
+          blocker: {
+            kind: "information",
+            reason: "Zero quantity evidence is missing",
+            nextAction: "Inspect tests/check.mjs and check zero quantity in the allowed workspace",
+          },
+          next: {
+            purpose: "Inspect the zero quantity behavior",
+            effort: "high",
+            reason: "Available source can establish the missing evidence",
+          },
+        });
+      return result;
+    },
+  };
+  expect((await runWith(wrap(executor))).status).toBe("succeeded");
+  expect(readDevelopmentRounds(database.db, run.id)).toHaveLength(2);
+  expect(calls[3]!.instruction).toContain("Zero quantity evidence is missing");
+  expect(database.db.select().from(tasks).all()).toHaveLength(1);
+}, 15000);
+
+test.each([false, true])(
+  "unchanged review evidence survives restart; partial round=%s",
+  async (partial) => {
+    let owner = acquireExecutionOwner(database.db);
+    const policy = parseRetryPolicy({
+      maxRetries: null,
+      maxConsecutiveErrors: null,
+      maxTotalRunMs: null,
+    });
+    store = createDrizzleRunStore(
+      database.db,
+      owner.token,
+      { automaticRecovery: policy },
+      { developmentWorkspaceKeys: ["fixture"] },
+    );
+    try {
+      claim();
+      expect(
+        (
+          await runWith(
+            wrap(
+              fake({ alwaysFail: true, rework: true, progress: true, progressUntil: 2 }),
+              true,
+              owner.token,
+            ),
+          )
+        ).errorCode,
+      ).toBe("development_continue");
+      const previousRunId = run.id;
+      const before = readDevelopmentRounds(database.db, run.id);
+      if (partial) {
+        const interruptedId = randomUUID(),
+          inputId = randomUUID();
+        const previousRun = database.db.select().from(runs).where(eq(runs.id, run.id)).get()!;
+        database.db
+          .insert(runs)
+          .values({
+            ...previousRun,
+            id: interruptedId,
+            attempt: 2,
+            status: "interrupted",
+            errorCode: "server_shutdown",
+            stopReason: "server_shutdown",
+            terminationConfirmedAt: new Date(),
+            finishedAt: new Date(),
+            accountedDurationMs: 0,
+          })
+          .run();
+        const priorRound = before.at(-1)!;
+        database.db
+          .insert(developmentRounds)
+          .values({
+            runId: interruptedId,
+            sequence: 1,
+            repositoryId: priorRound.repositoryId,
+            inputId,
+            planningRevision: priorRound.planningRevision,
+            intent: { ...priorRound.intent, id: inputId, runId: interruptedId },
+            executionOffset: 0,
+            createdAt: new Date(),
+          })
+          .run();
+        database.db.update(tasks).set({ status: "interrupted" }).where(eq(tasks.id, taskId)).run();
+      }
+      owner.release();
+      database.close();
+      database = openDatabase(join(directory, "hub.sqlite"));
+      owner = acquireExecutionOwner(database.db);
+      store = createDrizzleRunStore(
+        database.db,
+        owner.token,
+        { automaticRecovery: policy },
+        { developmentWorkspaceKeys: ["fixture"] },
+      );
+      const automatic = createAutomaticRecovery({
+        db: database.db,
+        ownerToken: owner.token,
+        policy,
+        workspaceKeys: ["fixture"],
+        recovery: createDrizzleRecoveryStore(database.db, owner.token),
+        random: () => 0,
+      });
+      expect(automatic.tick()).toBe(true);
+      const waiting = database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(waiting.retryState!.nextAttemptAt!));
+      expect(automatic.tick()).toBe(true);
+      const next = store.claimNext("fixture", ["fixture"]);
+      expect(next.kind).toBe("claimed");
+      if (next.kind !== "claimed") throw new Error("Expected continuation");
+      run = next.run;
+      calls = [];
+      const base = fake({ alwaysFail: true, rework: true });
+      const same: AnalysisExecutor = {
+        ...base,
+        async analyze(request, emit) {
+          const result = await base.analyze(request, emit);
+          if (result.development)
+            result.development.changes[0]!.content = Buffer.from(
+              `${wrong}// correction 2\n`,
+            ).toString("base64");
+          return result;
+        },
+      };
+      expect(await runWith(wrap(same, true, owner.token))).toMatchObject({
+        status: "blocked",
+        errorCode: "development_stalled",
+      });
+      expect(readDevelopmentRounds(database.db, run.id)).toHaveLength(1);
+      expect(readDevelopmentRounds(database.db, previousRunId)).toEqual(before);
+      expect(database.db.select().from(tasks).all()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+      owner.release();
+    }
+  },
+  20000,
+);

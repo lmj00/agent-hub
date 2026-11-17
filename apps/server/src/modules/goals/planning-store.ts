@@ -19,6 +19,7 @@ import { revalidateGoalWork } from "./revalidate-goal-work.js";
 import { readGoalAgents } from "./agent-roles.js";
 import { readGoalProgress } from "./goal-progress.js";
 import { readPlanningWork } from "./planning-work-state.js";
+import { readDevelopmentBlocker } from "./development-journal.js";
 import { allowedGoalPath, privateInputPath } from "../workspace/prepared-workspace.js";
 
 import { readServiceViews, type ObserverStatus } from "../services/drizzle-service-store.js";
@@ -220,6 +221,7 @@ export function readPlanningContext(
               result: last.result ? redactOutput(last.result).slice(0, 1000) : null,
               errorCode: last.errorCode,
               terminationConfirmed: !!last.terminationConfirmedAt,
+              blocker: readDevelopmentBlocker(db, last.id),
             }
           : null,
       };

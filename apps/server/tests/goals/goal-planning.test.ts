@@ -1449,3 +1449,58 @@ test.each(["foreign", "duplicate"])(
     expect(workRows()).toHaveLength(0);
   },
 );
+
+test("a blocked condition cannot be renamed onto different paths while an independent condition proceeds", async () => {
+  goalStore.change(goalId, "separate-conditions", 1, {
+    definition: {
+      ...definition,
+      completionCriteria: "Exchange credentials verified\nLocal calculation documented",
+    },
+  });
+  const original = await terminalWork("blocked");
+  const { goalCriteria } = await import("../../src/modules/goals/goal-criteria.js");
+  const ids = goalCriteria(goalId, goalStore.findById(goalId).definition).map((item) => item.id);
+  database.db
+    .update(tasks)
+    .set({ plannedWork: { ...original.plannedWork!, criterionIds: [ids[0]!] } })
+    .where(eq(tasks.id, original.id))
+    .run();
+  const preserved = database.db.select().from(tasks).where(eq(tasks.id, original.id)).get();
+  const plan = reserve();
+  expect(readPlanningContext(database.db, plan.taskId)!.suppressedWork[0]!.criterionIds).toEqual([
+    ids[0],
+  ]);
+  const result = await execute(plan.taskId, {
+    tasks: [
+      { ...proposedWork(["tests/main.test.ts"], "Bypass held work"), criterionIds: [ids[0]!] },
+      {
+        ...proposedWork(["tests/independent.test.ts"], "Independent calculation"),
+        criterionIds: [ids[1]!],
+      },
+    ],
+  });
+  expect(result.status).toBe("succeeded");
+  const added = workRows().filter((task) => task.id !== original.id);
+  expect(added).toHaveLength(1);
+  expect(added[0]!.plannedWork!.criterionIds).toEqual([ids[1]]);
+  expect(runRow(plan.taskId).planResult).toMatchObject({
+    reason: "work_with_suppression",
+    suppressed: [{ blockedByTaskIds: [original.id] }],
+  });
+  expect(database.db.select().from(tasks).where(eq(tasks.id, original.id)).get()).toEqual(
+    preserved,
+  );
+});
+
+test("rejects tasks sharing a completion condition even when their paths are disjoint", async () => {
+  const plan = reserve();
+  const id = readPlanningContext(database.db, plan.taskId)!.progress!.criteria[0]!.id;
+  const result = await execute(plan.taskId, {
+    tasks: [
+      { ...proposedWork(["src/main.ts"]), criterionIds: [id] },
+      { ...proposedWork(["tests/main.test.ts"]), criterionIds: [id] },
+    ],
+  });
+  expect(result).toMatchObject({ status: "blocked", errorCode: "invalid_plan" });
+  expect(workRows()).toHaveLength(0);
+});

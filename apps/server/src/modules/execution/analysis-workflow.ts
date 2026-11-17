@@ -58,7 +58,11 @@ export function parseAssessment(value: unknown): AnalysisAssessment {
     if (
       !parsed.report.trim() ||
       (parsed.complete &&
-        (parsed.next !== null || parsed.unresolved.length || parsed.scopeExpansion)) ||
+        (parsed.next !== null ||
+          parsed.unresolved.length ||
+          parsed.scopeExpansion ||
+          parsed.blocker)) ||
+      (parsed.blocker && (!parsed.blocker.reason.trim() || !parsed.blocker.nextAction.trim())) ||
       (parsed.scopeExpansion &&
         (!parsed.next ||
           !parsed.scopeExpansion.reason.trim() ||
