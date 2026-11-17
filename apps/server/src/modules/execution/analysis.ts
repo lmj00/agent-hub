@@ -57,6 +57,7 @@ export type AnalysisRequest = {
   planning?: PlanningContext;
   responseMode?: "goal-plan" | "assessment";
   planningCriterionIds?: string[];
+  planningIdentity?: { goalVersion: number; inputDigest: string };
   development?: DevelopmentExecutionInput;
   verification?: VerificationRequest;
   runtimeSkillVersion?: number;

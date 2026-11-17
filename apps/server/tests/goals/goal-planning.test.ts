@@ -365,6 +365,11 @@ async function execute(
       expect(request.planningCriterionIds).toEqual(
         readPlanningContext(database.db, taskId)!.progress!.criteria.map((item) => item.id),
       );
+      const supplied = proposal(request, {});
+      expect(request.planningIdentity).toEqual({
+        goalVersion: supplied.goalVersion,
+        inputDigest: supplied.inputDigest,
+      });
       const output = JSON.stringify(proposal(request, overrides));
       beforeResult?.();
       return {

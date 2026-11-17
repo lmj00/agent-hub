@@ -106,11 +106,14 @@ export function createCodexExecutor(
         request.signal.throwIfAborted();
         skillInstructions = loaded.instructions;
       } else if (request.runtimeSkill) throw new AnalysisError("unsupported_settings");
-      if (request.planningCriterionIds && request.responseMode !== "goal-plan")
+      if (
+        (request.planningCriterionIds !== undefined || request.planningIdentity !== undefined) &&
+        request.responseMode !== "goal-plan"
+      )
         throw new AnalysisError("unsupported_settings");
       const outputSchema =
         request.responseMode === "goal-plan"
-          ? planningOutputSchema(request.planningCriterionIds)
+          ? planningOutputSchema(request.planningCriterionIds, request.planningIdentity)
           : request.responseMode === "assessment"
             ? request.development
               ? developmentAssessmentSchema

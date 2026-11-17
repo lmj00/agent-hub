@@ -1,5 +1,5 @@
 import { efforts, type Effort } from "@agent-hub/contracts";
-import { parsePlanningCriterionIds } from "./planning-schema.js";
+import { parsePlanningCriterionIds, parsePlanningIdentity } from "./planning-schema.js";
 import { createInterface } from "node:readline";
 import { AnalysisError } from "./analysis.js";
 import { createCodexExecutor } from "./codex-executor.js";
@@ -62,6 +62,7 @@ async function main() {
     workflow?: unknown;
     responseMode?: unknown;
     planningCriterionIds?: unknown;
+    planningIdentity?: unknown;
     development?: unknown;
     runtimeSkillVersion?: unknown;
     stepSequence?: unknown;
@@ -80,7 +81,8 @@ async function main() {
     throw new AnalysisError("unsupported_settings");
   if (request.responseMode && request.workflow) throw new AnalysisError("unsupported_settings");
   const planningCriterionIds = parsePlanningCriterionIds(request.planningCriterionIds);
-  if (planningCriterionIds && request.responseMode !== "goal-plan")
+  const planningIdentity = parsePlanningIdentity(request.planningIdentity);
+  if ((planningCriterionIds || planningIdentity) && request.responseMode !== "goal-plan")
     throw new AnalysisError("unsupported_settings");
   const development =
     request.development === undefined ? undefined : parseDevelopmentInput(request.development);
@@ -132,6 +134,7 @@ async function main() {
         effort: effort as Effort,
         ...(request.responseMode ? { responseMode: request.responseMode } : {}),
         ...(planningCriterionIds ? { planningCriterionIds } : {}),
+        ...(planningIdentity ? { planningIdentity } : {}),
         ...(effortPolicy ? { effortPolicy } : {}),
         ...(modelPolicy ? { modelPolicy } : {}),
         ...(workflow ? { workflow } : {}),

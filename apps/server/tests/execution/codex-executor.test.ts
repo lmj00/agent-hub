@@ -198,6 +198,74 @@ test("planning restricts completion references to the supplied Goal IDs", async 
   expect(schema.properties.tasks.items.properties.criterionIds.items).toMatchObject({ enum: ids });
 });
 
+test("planning pins the prepared identity without mutating other calls or the shared schema", async () => {
+  fake.events = [
+    { type: "item.completed", item: { type: "agent_message", text: "{}" } },
+    {
+      type: "turn.completed",
+      usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 },
+    },
+  ];
+  const identity = { goalVersion: 3, inputDigest: "a".repeat(64) };
+  await createCodexExecutor("/tmp/private-auth").analyze(
+    { ...request, responseMode: "goal-plan", planningIdentity: identity },
+    () => {},
+  );
+  const schema = fake.run.mock.lastCall![1].outputSchema as typeof goalPlanOutputSchema;
+  expect(schema.properties.goalVersion).toMatchObject({ enum: [identity.goalVersion] });
+  expect(schema.properties.inputDigest).toMatchObject({ enum: [identity.inputDigest] });
+  expect(goalPlanOutputSchema.properties.goalVersion).not.toHaveProperty("enum");
+  expect(goalPlanOutputSchema.properties.inputDigest).not.toHaveProperty("enum");
+  await createCodexExecutor("/tmp/private-auth").analyze(
+    {
+      ...request,
+      responseMode: "goal-plan",
+      planningIdentity: { goalVersion: 4, inputDigest: "b".repeat(64) },
+      planningCriterionIds: ["c".repeat(64)],
+    },
+    () => {},
+  );
+  const next = fake.run.mock.lastCall![1].outputSchema;
+  expect(next.properties.goalVersion.enum).toEqual([4]);
+  expect(next.properties.inputDigest.enum).toEqual(["b".repeat(64)]);
+  expect(next.properties.tasks.items.properties.criterionIds.items.enum).toEqual(["c".repeat(64)]);
+  expect(schema.properties.goalVersion).toMatchObject({ enum: [3] });
+  expect(schema.properties.inputDigest).toMatchObject({ enum: ["a".repeat(64)] });
+});
+
+test.each([
+  null,
+  {},
+  { goalVersion: 0, inputDigest: "a".repeat(64) },
+  { goalVersion: 1.5, inputDigest: "a".repeat(64) },
+  { goalVersion: 1, inputDigest: "bad" },
+  { goalVersion: 1, inputDigest: "a".repeat(64), extra: true },
+])("rejects malformed planning identity before calling the SDK: %j", async (identity) => {
+  fake.run.mockClear();
+  await expect(
+    createCodexExecutor("/tmp/private-auth").analyze(
+      {
+        ...request,
+        responseMode: "goal-plan",
+        planningIdentity: identity as { goalVersion: number; inputDigest: string },
+      },
+      () => {},
+    ),
+  ).rejects.toThrow("unsupported_settings");
+  expect(fake.run).not.toHaveBeenCalled();
+});
+
+test("planning identity cannot be supplied to an ordinary analysis", async () => {
+  fake.run.mockClear();
+  await expect(
+    createCodexExecutor("/tmp/private-auth").analyze(
+      { ...request, planningIdentity: { goalVersion: 1, inputDigest: "a".repeat(64) } },
+      () => {},
+    ),
+  ).rejects.toThrow("unsupported_settings");
+  expect(fake.run).not.toHaveBeenCalled();
+});
+
 test.each(
   [[], ["bad"], ["a".repeat(64), "a".repeat(64)], Array(33).fill("a".repeat(64))].map((ids) => ({
     ids,
