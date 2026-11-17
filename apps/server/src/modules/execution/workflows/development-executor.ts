@@ -123,9 +123,9 @@ export function createDevelopmentExecutor(options: {
           .from(steps)
           .where(and(eq(steps.runId, run.id), eq(steps.sequence, sequence)))
           .get();
-        if (step?.status !== "running" || !step.purpose || !step.effort)
+        if (step?.status !== "running" || !step.purpose || !step.effort || !step.model)
           throw new AnalysisError("input_unavailable");
-        return step.effort as Effort;
+        return { effort: step.effort as Effort, model: step.model };
       };
       const execute = (phase: AnalysisRequest) => {
         signal.throwIfAborted();
@@ -248,13 +248,14 @@ export function createDevelopmentExecutor(options: {
             },
             emit,
           );
-          const effort = await startStep(sequence * 2 - 1);
+          const { effort, model } = await startStep(sequence * 2 - 1);
           const changed = await execute({
             ...(run.runtimeSkillVersion !== null
               ? { runtimeSkillVersion: run.runtimeSkillVersion, stepSequence: sequence * 2 - 1 }
               : {}),
             runId: run.id,
-            model: run.model,
+            model,
+            ...(run.modelPolicy ? { modelPolicy: run.modelPolicy } : {}),
             effort,
             signal,
             responseMode: "assessment",
@@ -321,13 +322,14 @@ export function createDevelopmentExecutor(options: {
           });
           verification = readDevelopmentRounds(db, run.id).at(-1)?.verificationResult ?? undefined;
           if (!verification) throw new AnalysisError("input_unavailable");
-          const reviewEffort = await startStep(sequence * 2);
+          const { effort: reviewEffort, model: reviewModel } = await startStep(sequence * 2);
           const reviewed = await execute({
             ...(run.runtimeSkillVersion !== null
               ? { runtimeSkillVersion: run.runtimeSkillVersion, stepSequence: sequence * 2 }
               : {}),
             runId: run.id,
-            model: run.model,
+            model: reviewModel,
+            ...(run.modelPolicy ? { modelPolicy: run.modelPolicy } : {}),
             effort: reviewEffort,
             signal,
             responseMode: "assessment",

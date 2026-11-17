@@ -239,16 +239,47 @@ test("the unlimited reservation migration preserves existing usage and keeps neg
       createdAt: new Date(),
     })
     .run();
-  const oldStore = createDrizzleRunStore(old.db);
-  const run = oldStore.claim(taskId, "fixture");
-  vi.setSystemTime(Date.now() + 1234);
-  oldStore.finish(run.id, {
-    status: "succeeded",
-    result: "Preserved result",
-    errorCode: null,
-    usage: null,
-    terminationConfirmedAt: new Date(),
-  });
+  // Seed the historical schema directly; current stores require later columns.
+  const run = { id: randomUUID() },
+    periodId = randomUUID(),
+    startedAt = new Date();
+  const finishedAt = new Date(startedAt.getTime() + 1234);
+  old.client
+    .prepare(
+      "INSERT INTO runs (id, task_id, instance_id, status, model, effort, started_at, last_activity_at, finished_at, termination_confirmed_at, result) VALUES (?, ?, 'historical', 'succeeded', 'fixture', 'medium', ?, ?, ?, ?, 'Preserved result')",
+    )
+    .run(
+      run.id,
+      taskId,
+      startedAt.getTime(),
+      finishedAt.getTime(),
+      finishedAt.getTime(),
+      finishedAt.getTime(),
+    );
+  old.db
+    .insert(budgetPeriods)
+    .values({
+      id: periodId,
+      accountKey: `project:${id}`,
+      projectId: id,
+      startedAt,
+      endsAt: new Date(startedAt.getTime() + policy.windowMs),
+      policy,
+      calls: 1,
+      runMs: 1234,
+    })
+    .run();
+  old.db
+    .insert(budgetReservations)
+    .values({
+      runId: run.id,
+      projectPeriodId: periodId,
+      startedAt,
+      reservedRunMs: policy.maxRunMs,
+      settledRunMs: 1234,
+      settledAt: finishedAt,
+    })
+    .run();
   const reservations = old.db.select().from(budgetReservations).all();
   const periods = old.db.select().from(budgetPeriods).all();
   old.close();

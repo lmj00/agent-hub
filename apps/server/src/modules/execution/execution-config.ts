@@ -1,5 +1,6 @@
 import { isWithin } from "../../shared/path-containment.js";
 import { parseEffortPolicy } from "./effort-policy.js";
+import { parseModelRouting } from "./model-policy.js";
 import {
   parseVerificationWorkspaces,
   parseVerificationConfig,
@@ -99,6 +100,9 @@ export function loadExecutionConfig(file: string) {
     : false;
   return {
     model: config.model,
+    ...(config.modelRouting !== undefined
+      ? { modelRouting: parseModelRouting(config.modelRouting) }
+      : {}),
     codexHome,
     timeoutMs,
     workspaces,

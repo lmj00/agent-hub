@@ -4,6 +4,7 @@ import { parseAssessment, type AnalysisWorkflowPolicy } from "./analysis-workflo
 import type { VerificationConfig, VerificationResult } from "./verification-config.js";
 import type { DevelopmentCandidate } from "../workspace/development-workspace.js";
 import type { PlannedWork } from "../goals/goal-plan-policy.js";
+import { modelRecommendationInstruction } from "./model-policy.js";
 
 export const maxDevelopmentRounds = 3;
 
@@ -63,6 +64,7 @@ export function developerAssessment(value: AnalysisAssessment, effort: Effort): 
       purpose: "테스트 결과와 변경 내용 독립 검토",
       effort: value.next?.effort ?? effort,
       reason: value.next?.reason ?? "수정 후보를 별도 세션에서 검토합니다.",
+      model: value.next?.model ?? null,
     },
   });
 }
@@ -118,6 +120,7 @@ export function developmentInstruction(input: {
   previousReview?: AnalysisAssessment;
 }) {
   const prompt = [
+    modelRecommendationInstruction,
     input.role === "reviewer"
       ? criterionReviewInstruction
       : "Return criterionChecks=[]; only the independent reviewer evaluates Goal criteria.",

@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import { AnalysisError } from "./analysis.js";
 import { createCodexExecutor } from "./codex-executor.js";
 import { createAnalysisWorkflow, parseAnalysisWorkflow } from "./analysis-workflow.js";
+import { parseModelPolicy } from "./model-policy.js";
 import { parseEffortPolicy } from "./effort-policy.js";
 import {
   captureDevelopmentChanges,
@@ -30,11 +31,13 @@ async function main() {
     type?: unknown;
     runtimeSkillVersion?: unknown;
     bundleDigest?: unknown;
+    modelPolicyVersion?: unknown;
   } | null;
   let ready = false;
   if (hello?.type === "runner.hello") {
     if (
-      Object.keys(hello).length !== 3 ||
+      Object.keys(hello).length !== (hello.modelPolicyVersion === undefined ? 3 : 4) ||
+      (hello.modelPolicyVersion !== undefined && hello.modelPolicyVersion !== 1) ||
       hello.runtimeSkillVersion !== runtimeSkillPolicyVersion ||
       hello.bundleDigest !== loadRuntimeSkill("analyst").selection.bundleDigest
     )
@@ -43,6 +46,7 @@ async function main() {
       type: "runner.ready",
       runtimeSkillVersion: runtimeSkillPolicyVersion,
       bundleDigest: hello.bundleDigest,
+      ...(hello.modelPolicyVersion === 1 ? { modelPolicyVersion: 1 } : {}),
     });
     ready = true;
     line = (await lines.next()).value as string | undefined;
@@ -52,6 +56,7 @@ async function main() {
   const request = JSON.parse(line) as {
     instruction?: unknown;
     model?: unknown;
+    modelPolicy?: unknown;
     effort?: unknown;
     workflow?: unknown;
     responseMode?: unknown;
@@ -80,6 +85,10 @@ async function main() {
   const effort = request.effort ?? "medium";
   if (!efforts.includes(effort as Effort)) throw new AnalysisError("unsupported_settings");
   const workflow = request.workflow ? parseAnalysisWorkflow(request.workflow) : undefined;
+  const modelPolicy =
+    request.modelPolicy === undefined ? undefined : parseModelPolicy(request.modelPolicy);
+  if (ready && hello?.modelPolicyVersion !== modelPolicy?.version)
+    throw new AnalysisError("unsupported_settings");
   const effortPolicy = request.effortPolicy
     ? parseEffortPolicy({
         mode: request.effortPolicy.mode,
@@ -118,6 +127,7 @@ async function main() {
         effort: effort as Effort,
         ...(request.responseMode ? { responseMode: request.responseMode } : {}),
         ...(effortPolicy ? { effortPolicy } : {}),
+        ...(modelPolicy ? { modelPolicy } : {}),
         ...(workflow ? { workflow } : {}),
         ...(development ? { development } : {}),
         workspace: "/workspace",

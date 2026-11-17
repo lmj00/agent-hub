@@ -1,6 +1,7 @@
 import { stopReasons, type StopReason, type Effort } from "@agent-hub/contracts";
 import type { AnalysisWorkflowPolicy, StepUpdate } from "./analysis-workflow.js";
 import type { EffortPolicy } from "./effort-policy.js";
+import type { ModelPolicy } from "./model-policy.js";
 import type { GoalScope, PreparedInput } from "../workspace/prepared-workspace.js";
 import type { PlanningContext, PlanningInput } from "../goals/goal-plan-policy.js";
 import type { DevelopmentExecutionInput, DevelopmentChanges } from "./development-capture.js";
@@ -49,6 +50,7 @@ export type AnalysisRequest = {
   runId?: string;
   effort?: Effort;
   effortPolicy?: EffortPolicy;
+  modelPolicy?: ModelPolicy;
   workflow?: AnalysisWorkflowPolicy;
   outputSchema?: unknown;
   scope?: GoalScope;

@@ -1,5 +1,6 @@
 import type { AnalysisWorkflowPolicy } from "./analysis-workflow.js";
 import type { EffortPolicy } from "./effort-policy.js";
+import type { ModelPolicy } from "./model-policy.js";
 import type { Effort } from "@agent-hub/contracts";
 import {
   AnalysisError,
@@ -16,6 +17,8 @@ import type { GoalScope } from "../workspace/prepared-workspace.js";
 import type { PlanningContext } from "../goals/goal-plan-policy.js";
 
 export type ClaimedRun = {
+  model?: string;
+  modelPolicy?: ModelPolicy;
   id: string;
   taskId: string;
   instruction: string;
@@ -126,6 +129,7 @@ export type RunDetails = RunSummary & {
     proposedEffort: string | null;
     purpose: string | null;
     model: string | null;
+    modelReason?: string | null;
     assessment: import("@agent-hub/contracts").AnalysisAssessment | null;
     runtimeSkill?: import("@agent-hub/contracts").RuntimeSkillEvidence | null;
     usage: AnalysisUsage | null;
@@ -227,11 +231,12 @@ export async function runClaimedTask(
             : {}),
           instruction: run.instruction,
           workspace: options.workspace,
-          model: options.model,
+          model: run.model ?? options.model,
           signal: controller.signal,
           runId: run.id,
           effort: run.effort ?? "medium",
           ...(run.effortPolicy ? { effortPolicy: run.effortPolicy } : {}),
+          ...(run.modelPolicy ? { modelPolicy: run.modelPolicy } : {}),
           ...(run.workflow ? { workflow: run.workflow } : {}),
           ...(run.scope ? { scope: run.scope } : {}),
           ...(run.planning ? { planning: run.planning } : {}),

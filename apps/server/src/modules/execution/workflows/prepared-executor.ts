@@ -214,12 +214,13 @@ export function createPreparedExecutor(
             .from(steps)
             .where(and(eq(steps.runId, request.runId!), eq(steps.sequence, 2)))
             .get();
-          if (step?.status !== "running" || !step.effort)
+          if (step?.status !== "running" || !step.effort || !step.model)
             throw new AnalysisError("input_unavailable");
           const reviewed = await executor.analyze(
             {
               runId: request.runId!,
-              model: request.model,
+              model: step.model,
+              ...(request.modelPolicy ? { modelPolicy: request.modelPolicy } : {}),
               effort: step.effort as Effort,
               signal: request.signal,
               responseMode: "assessment",

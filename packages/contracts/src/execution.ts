@@ -45,6 +45,7 @@ export const runDetailsSchema = object({
       proposedEffort: nullable(text),
       purpose: nullable(text),
       model: nullable(text),
+      modelReason: Type.Optional(nullable(text)),
       assessment: nullable(analysisAssessmentSchema),
       runtimeSkill: nullable(runtimeSkillEvidenceSchema),
       usage: nullable(

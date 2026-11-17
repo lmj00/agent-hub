@@ -176,6 +176,43 @@ async function execute(
   );
 }
 
+test("the project coordinator saves its model recommendation with the work and claims that model", async () => {
+  const modelRouting = {
+    models: { luna: "fixture-luna", sol: "fixture-sol", astra: "fixture-astra" },
+  };
+  store = createDrizzleRunStore(
+    database.db,
+    undefined,
+    { modelRouting },
+    { developmentWorkspaceKeys: ["example"] },
+  );
+  const plan = reserve();
+  const result = await execute(plan.taskId, {
+    tasks: [
+      {
+        title: "Resolve ambiguous calculation",
+        instruction: "Compare calculation approaches",
+        acceptanceCriteria: "The result is 42",
+        paths: ["src/main.ts"],
+        evidence: ["src/main.ts"],
+        model: { tier: "astra", reason: "Several competing explanations need comparison" },
+      },
+    ],
+  });
+  expect(result.status).toBe("succeeded");
+  expect(runRow(plan.taskId).model).toBe("fixture-sol");
+  const work = workRows()[0]!;
+  expect(work.plannedWork?.model).toEqual({
+    tier: "astra",
+    reason: "Several competing explanations need comparison",
+  });
+  const claimed = store.claim(work.id, "fallback");
+  expect(claimed.model).toBe("fixture-astra");
+  expect(store.findById(claimed.id)?.steps[0]?.modelReason).toContain(
+    "Several competing explanations",
+  );
+});
+
 test.each([false, true])(
   "new-policy planning cannot create work without load evidence, recovery=%s",
   async (recover) => {

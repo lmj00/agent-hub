@@ -33,7 +33,12 @@ import {
 } from "./container-runtime.js";
 
 type RunnerMessage =
-  | { type: "runner.ready"; runtimeSkillVersion: number; bundleDigest: string }
+  | {
+      type: "runner.ready";
+      runtimeSkillVersion: number;
+      bundleDigest: string;
+      modelPolicyVersion?: number;
+    }
   | { type: "event"; event: AnalysisEvent }
   | { type: "result"; result: AnalysisResult }
   | { type: "error"; code: AnalysisError["code"]; retryAt?: string | null };
@@ -76,6 +81,8 @@ export function createContainerExecutor(image: string, codexHome: string): Analy
     runtimeSkillVersion: runtimeSkillPolicyVersion,
     async analyze(request, onEvent) {
       if (!request.runId) throw new Error("A run ID is required for container execution");
+      if (request.modelPolicy && request.runtimeSkillVersion !== runtimeSkillPolicyVersion)
+        throw new AnalysisError("unsupported_settings");
       const runId = request.runId;
       request.signal.throwIfAborted();
       if (request.development) {
@@ -218,7 +225,8 @@ function runContainerProtocol(
             if (!runnerReady) {
               if (
                 message?.type !== "runner.ready" ||
-                Object.keys(message).length !== 3 ||
+                Object.keys(message).length !== (request.modelPolicy ? 4 : 3) ||
+                message.modelPolicyVersion !== request.modelPolicy?.version ||
                 message.runtimeSkillVersion !== runtimeSkillPolicyVersion ||
                 message.bundleDigest !== currentSkill!.selection.bundleDigest
               )
@@ -370,6 +378,7 @@ function runContainerProtocol(
             type: "runner.hello",
             runtimeSkillVersion: runtimeSkillPolicyVersion,
             bundleDigest: currentSkill.selection.bundleDigest,
+            ...(request.modelPolicy ? { modelPolicyVersion: request.modelPolicy.version } : {}),
           }) + "\n"
         : runnerInput(request),
     );
@@ -382,6 +391,7 @@ function runnerInput(request: AnalysisRequest) {
     model: request.model,
     effort: request.effort ?? "medium",
     effortPolicy: request.effortPolicy,
+    modelPolicy: request.modelPolicy,
     workflow: request.workflow,
     responseMode: request.responseMode,
     development: request.development,

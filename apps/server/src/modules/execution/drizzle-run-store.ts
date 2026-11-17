@@ -4,6 +4,7 @@ import { recordExecution } from "./execution-record-store.js";
 import { saveWorkflowStep } from "./workflow-step-store.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import { defaultEffortPolicy, selectInitialEffort } from "./effort-policy.js";
+import { selectModel, sensitiveModelScope, type ModelPolicy } from "./model-policy.js";
 import { ensureRetryState, readRetryBaseline } from "./retry-state-store.js";
 import { remainingRetryRunMs, retryLimitReason } from "./retry-policy.js";
 import { randomUUID } from "node:crypto";
@@ -73,7 +74,12 @@ export function createDrizzleRunStore(
   policies: Partial<
     Pick<
       ExecutionConfig,
-      "automaticRecovery" | "capacityRecovery" | "effortPolicy" | "analysisWorkflow" | "timeoutMs"
+      | "automaticRecovery"
+      | "capacityRecovery"
+      | "effortPolicy"
+      | "analysisWorkflow"
+      | "timeoutMs"
+      | "modelRouting"
     >
   > = {},
   runtime: {
@@ -368,6 +374,24 @@ export function createDrizzleRunStore(
             .run();
           const effortPolicy = policies.effortPolicy ?? defaultEffortPolicy;
           const effortSelection = selectInitialEffort(task.instruction, effortPolicy);
+          const modelPolicy: ModelPolicy | null = policies.modelRouting
+            ? {
+                ...policies.modelRouting,
+                version: 1,
+                minimumTier:
+                  planning ||
+                  sensitiveModelScope(
+                    [
+                      task.instruction,
+                      task.plannedWork?.acceptanceCriteria,
+                      ...(task.plannedWork?.paths ?? []),
+                    ].join("\n"),
+                  )
+                    ? "sol"
+                    : "luna",
+              }
+            : null;
+          const modelSelection = selectModel(model, modelPolicy, task.plannedWork?.model);
           tx.insert(runs)
             .values({
               id,
@@ -376,7 +400,8 @@ export function createDrizzleRunStore(
               goalVersion: task.goalVersion,
               instanceId,
               status: "running",
-              model,
+              model: modelSelection.model,
+              modelPolicy,
               effort: effortSelection.effort,
               effortPolicy,
               workflowPolicy: task.plannedWork
@@ -427,7 +452,8 @@ export function createDrizzleRunStore(
               status: "running",
               startedAt: now,
               purpose: planning ? "목표 계획" : null,
-              model: planning ? model : null,
+              model: modelSelection.model,
+              modelReason: modelSelection.reason,
               effort: effortSelection.effort,
               effortReason: effortSelection.reason,
               effortPolicyVersion: effortSelection.policyVersion,
@@ -481,6 +507,8 @@ export function createDrizzleRunStore(
                   }
                 : {}),
               taskId: task.id,
+              model: modelSelection.model,
+              ...(modelPolicy ? { modelPolicy } : {}),
               instruction,
               effort: effortSelection.effort,
               effortPolicy,
@@ -748,6 +776,7 @@ export function createDrizzleRunStore(
             proposedEffort: steps.proposedEffort,
             purpose: steps.purpose,
             model: steps.model,
+            modelReason: steps.modelReason,
             assessment: steps.assessment,
             usage: steps.usage,
             startedAt: steps.startedAt,

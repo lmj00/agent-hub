@@ -16,6 +16,7 @@ import type {
 import type { VerificationResult } from "../modules/execution/verification-config.js";
 import type { RuntimeSkillSelection } from "../modules/execution/runtime-skills.js";
 import type { PlannedWork, PlanResult, PlanningInput } from "../modules/goals/goal-plan-policy.js";
+import type { ModelPolicy } from "../modules/execution/model-policy.js";
 import { sql } from "drizzle-orm";
 import type {
   ServiceSnapshot,
@@ -229,6 +230,7 @@ export const runs = sqliteTable(
     model: text("model").notNull(),
     effort: text("effort").notNull(),
     effortPolicy: text("effort_policy", { mode: "json" }).$type<EffortPolicy>(),
+    modelPolicy: text("model_policy", { mode: "json" }).$type<ModelPolicy>(),
     workflowPolicy: text("workflow_policy", { mode: "json" }).$type<AnalysisWorkflowPolicy>(),
     developmentVersion: integer("development_version"),
     runtimeSkillVersion: integer("runtime_skill_version"),
@@ -328,6 +330,7 @@ export const steps = sqliteTable(
     effortReason: text("effort_reason"),
     effortPolicyVersion: integer("effort_policy_version"),
     proposedEffort: text("proposed_effort"),
+    modelReason: text("model_reason"),
     purpose: text("purpose"),
     model: text("model"),
     runtimeSkill: text("runtime_skill", { mode: "json" }).$type<RuntimeSkillSelection>(),

@@ -350,6 +350,119 @@ const runWith = (executor: AnalysisExecutor, signal = new AbortController().sign
     executor,
   );
 
+test("project-selected developer and independently selected reviewer use the persisted Step models", async () => {
+  store = createDrizzleRunStore(
+    database.db,
+    undefined,
+    {
+      modelRouting: {
+        models: { luna: "fixture-luna", sol: "fixture-sol", astra: "fixture-astra" },
+      },
+    },
+    { developmentWorkspaceKeys: ["fixture"] },
+  );
+  work.model = { tier: "luna", reason: "One mechanical arithmetic correction with fixed tests" };
+  claim();
+  const base = fake({ firstPass: true });
+  const observed: string[] = [];
+  const result = await runWith(
+    wrap({
+      ...base,
+      async analyze(request, onEvent) {
+        if (!request.verification) {
+          observed.push(request.model);
+          expect(store.findById(run.id)?.steps.at(-1)?.model).toBe(request.model);
+        }
+        const response = await base.analyze(request, onEvent);
+        if (response.development) {
+          const report = JSON.parse(response.output);
+          report.next.model = "astra";
+          report.next.reason = "Review interacting arithmetic edge cases";
+          return { ...response, output: JSON.stringify(report) };
+        }
+        return response;
+      },
+    }),
+  );
+  expect(result.status).toBe("succeeded");
+  expect(observed).toEqual(["fixture-luna", "fixture-astra"]);
+  expect(store.findById(run.id)?.steps[1]?.modelReason).toContain("Review interacting arithmetic");
+});
+
+test.each([false, true])(
+  "sensitive scope added before a developer Step raises the floor (before first=%s)",
+  async (beforeFirst) => {
+    writeFileSync(join(source, "tests/auth-check.mjs"), "// authentication regression fixture\n");
+    git("add", "--all");
+    git("commit", "--quiet", "-m", "add auth fixture");
+    work.sourceRevision = git("rev-parse", "HEAD");
+    work.model = { tier: "luna", reason: "Small arithmetic change" };
+    store = createDrizzleRunStore(
+      database.db,
+      undefined,
+      {
+        modelRouting: {
+          models: { luna: "fixture-luna", sol: "fixture-sol", astra: "fixture-astra" },
+        },
+      },
+      { developmentWorkspaceKeys: ["fixture"] },
+    );
+    claim();
+    if (beforeFirst) {
+      // The recovered scope-expansion path updates the Task after claim, before Step1.
+      database.db
+        .update(tasks)
+        .set({ plannedWork: { ...work, paths: [...work.paths, "tests/auth-check.mjs"] } })
+        .where(eq(tasks.id, taskId))
+        .run();
+    }
+    const base = fake({ firstPass: true });
+    let reviews = 0;
+    const developerModels: string[] = [];
+    const result = await runWith(
+      wrap({
+        ...base,
+        async analyze(request, onEvent) {
+          if (request.development && !request.verification) developerModels.push(request.model);
+          const response = await base.analyze(request, onEvent);
+          if (!request.development && ++reviews === 1 && !beforeFirst) {
+            return {
+              ...response,
+              output: JSON.stringify({
+                ...approved(),
+                complete: false,
+                unresolved: ["Include auth regression"],
+                scopeExpansion: {
+                  paths: ["tests/auth-check.mjs"],
+                  reason: "Required regression for this task",
+                },
+                next: {
+                  purpose: "Inspect auth regression",
+                  effort: "medium",
+                  model: "luna",
+                  reason: "Small change",
+                },
+              }),
+            };
+          }
+          return response;
+        },
+      }),
+    );
+    expect(result.status).toBe("succeeded");
+    expect(developerModels).toEqual(
+      beforeFirst ? ["fixture-sol"] : ["fixture-luna", "fixture-sol"],
+    );
+    expect(
+      database.db.select().from(runs).where(eq(runs.id, run.id)).get()?.modelPolicy?.minimumTier,
+    ).toBe("sol");
+    expect(
+      store.findById(run.id)?.steps.find((step) => step.sequence === (beforeFirst ? 1 : 3))
+        ?.modelReason,
+    ).toContain("최소 등급");
+  },
+);
+
 function scopeRepair(paths = ["tests/check.mjs"], beforeReview?: () => void): AnalysisExecutor {
   const base = fake({ firstPass: true });
   return {

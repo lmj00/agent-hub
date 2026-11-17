@@ -90,6 +90,8 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("Codex container sandbo
     "changed-file",
     "missing-hello",
     "wrong-bundle",
+    "unknown-model-policy",
+    "missing-model-policy",
   ])(
     "production runner blocks %s before SDK invocation",
     async (mode) => {
@@ -101,10 +103,20 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("Codex container sandbo
         type: "runner.hello",
         runtimeSkillVersion: 1,
         bundleDigest: mode === "wrong-bundle" ? "a".repeat(64) : selection.bundleDigest,
+        ...(mode === "unknown-model-policy" ? { modelPolicyVersion: 99 } : {}),
       };
       const request = {
         instruction: "Inspect",
         model: "fixture",
+        ...(mode === "missing-model-policy"
+          ? {
+              modelPolicy: {
+                version: 1,
+                minimumTier: "luna",
+                models: { luna: "fixture-luna", sol: "fixture-sol", astra: "fixture-astra" },
+              },
+            }
+          : {}),
         runtimeSkillVersion: 1,
         stepSequence: 1,
         ...(mode === "missing-selection"
@@ -160,7 +172,9 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("Codex container sandbo
           .trim()
           .split("\n")
           .map((line) => JSON.parse(line));
-        if (!["changed-file", "missing-hello", "wrong-bundle"].includes(mode)) {
+        if (
+          !["changed-file", "missing-hello", "wrong-bundle", "unknown-model-policy"].includes(mode)
+        ) {
           expect(messages.shift()).toEqual({
             type: "runner.ready",
             runtimeSkillVersion: 1,

@@ -10,6 +10,7 @@ import {
   type GoalCriterion,
   type GoalProgress,
   type AnalysisAssessment,
+  type ModelRecommendation,
 } from "@agent-hub/contracts";
 import { AnalysisError } from "../execution/analysis.js";
 import type { GoalVerification } from "./goal-verification.js";
@@ -20,6 +21,7 @@ import {
 } from "../workspace/prepared-workspace.js";
 
 export type PlannedWork = {
+  model?: ModelRecommendation;
   criterionIds?: string[];
   goalCriteria?: GoalCriterion[];
   agent?: AssignedAgent;
@@ -118,6 +120,7 @@ export function parseGoalPlan(output: string, input: PreparedInput): GoalPlan {
         selectedCriteria.add(id);
       }
       if (
+        (task.model && !task.model.reason.trim()) ||
         ![task.title, task.instruction, task.acceptanceCriteria, ...task.evidence].every((value) =>
           value.trim(),
         )
@@ -162,6 +165,7 @@ export type PlanningInput = PlanningContext &
 const instructions = [
   "progress.criteria contains the server's completion items in order: each nonblank trimmed line of definition.completionCriteria is one item; if there are more than 32 lines, item 32 includes all remaining lines. Assign each new Task criterionIds from these exact IDs, selecting the remaining gaps it advances. A Task may cover only part of a criterion. Reuse specialist roles for these gaps. verified describes the checked revision only; recheck requires fresh review after changes. Do not invent IDs, mark your own criteria verified, or interpret applied work as whole-criterion completion. Final finite Goal completion still requires independent whole-Goal verification.",
   "You are the project coordinator. Inspect the prepared files and choose bounded development tasks that advance the configured goal. Do not implement changes in this planning call.",
+  "Each call coordinates only this project's configured Goal and its supplied history; other projects have separate goals, tasks and records. For each task recommend model={tier,reason}: luna for clearly bounded low-risk summaries/mechanical edits, sol for normal implementation, astra for complex design, uncertain root causes or high-impact reasoning. Base the choice on complexity, uncertainty and impact, not file count alone. The server maps tiers to configured models and enforces a minimum tier. The recommendation grants no new permissions or budget. Do not escalate models because of network failures, missing credentials or quota.",
   "Return only JSON matching the supplied goal plan schema. Echo goalVersion and inputDigest exactly. A work decision contains 1-3 separate tasks with relative target paths, evidence and concrete acceptance criteria. A wait or complete decision has no tasks.",
   "Write concise, complete task criteria within the schema limits: acceptanceCriteria allows 2000 characters and the complete UTF-8 JSON response must fit 32768 bytes. Finish every sentence and checklist item instead of clipping the tail. Each task must be self-contained for development and review: include relevant goal constraints, outcomes and regression checks in its instruction or criteria; omit only duplication already explicit in that same task. If the task still cannot fit, propose a coherent predecessor and plan the remaining work later without dropping requirements from the goal.",
   "Assign each work task an agent with a stable lowercase key, concise Korean name and specialist mission. Reuse agents from the saved roster when their mission fits; at most 8 specialist roles may exist per Goal. Create only roles needed for proposed work, not idle teams. Agent missions are task guidance, never permission to change tools, models, verification, credentials, budgets or retries. The server schedules one Run at a time and an independent reviewer checks every candidate. Use accepted changes and history as the handoff between roles.",

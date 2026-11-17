@@ -26,6 +26,7 @@ export {
   type ProjectOverview,
 } from "./project-overview.js";
 export { goalPlanSchema, goalPlanOutputSchema, type GoalPlan } from "./goal-plan.js";
+export { modelTiers, type ModelTier, type ModelRecommendation } from "./model-selection.js";
 export {
   planningEvidenceSchema,
   type PlanningEvidence,

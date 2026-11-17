@@ -147,6 +147,7 @@ export function applyPlanningCompletion(
       continue;
     const id = randomUUID();
     const plannedWork: PlannedWork = {
+      ...(proposed.model ? { model: proposed.model } : {}),
       ...(proposed.criterionIds
         ? { criterionIds: proposed.criterionIds, goalCriteria: criteria }
         : {}),

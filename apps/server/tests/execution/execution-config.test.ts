@@ -25,6 +25,19 @@ beforeEach(() => {
     }),
   );
 });
+
+test("model routing is opt-in and validates each configured model ID", () => {
+  expect(loadExecutionConfig(file).modelRouting).toBeUndefined();
+  const original = JSON.parse(readFileSync(file, "utf8"));
+  const modelRouting = { models: { luna: "gpt-6-luna", sol: "gpt-6.1-sol", astra: "gpt-6-astra" } };
+  writeFileSync(file, JSON.stringify({ ...original, modelRouting }));
+  expect(loadExecutionConfig(file).modelRouting).toEqual(modelRouting);
+  writeFileSync(
+    file,
+    JSON.stringify({ ...original, modelRouting: { models: { sol: "only-one" } } }),
+  );
+  expect(() => loadExecutionConfig(file)).toThrow("model ID");
+});
 afterEach(() => rmSync(directory, { recursive: true, force: true }));
 
 test("resolves prepared workspaces relative to the private config", () => {

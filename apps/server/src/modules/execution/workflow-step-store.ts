@@ -7,6 +7,7 @@ import { runs, steps, tasks } from "../../db/schema.js";
 import { AnalysisError } from "./analysis.js";
 import { defaultEffortPolicy } from "./effort-policy.js";
 import { parseStepUpdate, selectNextEffort } from "./analysis-workflow.js";
+import { selectModel, sensitiveModelScope } from "./model-policy.js";
 
 type StepDb = Pick<ReturnType<typeof openDatabase>["db"], "select" | "update" | "insert">;
 
@@ -49,16 +50,34 @@ export function saveWorkflowStep(
     return;
   }
   if (update.sequence > run.workflowPolicy.maxSteps) throw new AnalysisError("workflow_limit");
+  // A verified scope expansion may add sensitive paths after the Run was claimed.
+  const modelPolicy =
+    run.modelPolicy &&
+    sensitiveModelScope(
+      [
+        task?.instruction,
+        task?.plannedWork?.acceptanceCriteria,
+        ...(task?.plannedWork?.paths ?? []),
+      ].join("\n"),
+    )
+      ? { ...run.modelPolicy, minimumTier: "sol" as const }
+      : run.modelPolicy;
   if (update.sequence === 1) {
     if (history.length !== 1 || latest.purpose || latest.status !== "running")
       throw new AnalysisError("invalid_plan");
+    const selectedModel = selectModel(run.model, modelPolicy, task?.plannedWork?.model);
     db.update(steps)
       .set({
         purpose: task?.plannedWork ? "개발" : "초기 분석",
-        model: run.model,
+        model: selectedModel.model,
+        modelReason: selectedModel.reason,
         startedAt: now,
       })
       .where(eq(steps.id, latest.id))
+      .run();
+    db.update(runs)
+      .set({ model: selectedModel.model, modelPolicy })
+      .where(eq(runs.id, run.id))
       .run();
     return;
   }
@@ -81,6 +100,12 @@ export function saveWorkflowStep(
     run.workflowPolicy,
   );
   reserveNextBudgetCall(db, run.id, now);
+  const modelSelection = selectModel(
+    run.model,
+    modelPolicy,
+    proposal.model ? { tier: proposal.model, reason: proposal.reason } : null,
+    task?.kind === "planning" || (run.developmentVersion !== null && update.sequence % 2 === 0),
+  );
   db.insert(steps)
     .values({
       id: randomUUID(),
@@ -88,7 +113,8 @@ export function saveWorkflowStep(
       sequence: update.sequence,
       status: "running",
       purpose: proposal.purpose,
-      model: run.model,
+      model: modelSelection.model,
+      modelReason: modelSelection.reason,
       proposedEffort: proposal.effort,
       effort: selected.effort,
       effortReason: `${selected.reason} 제안 근거: ${proposal.reason}`,
@@ -97,7 +123,7 @@ export function saveWorkflowStep(
     })
     .run();
   db.update(runs)
-    .set({ effort: selected.effort })
+    .set({ effort: selected.effort, modelPolicy })
     .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
     .run();
 }

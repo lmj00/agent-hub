@@ -262,7 +262,12 @@ test("the developer response contract permits pending candidates but rejects sel
     evidence: ["src/main.mjs"],
     unresolved: ["Server tests and independent review pending"],
     complete: false,
-    next: { purpose: "Independent review", effort: "medium", reason: "Verify the exact candidate" },
+    next: {
+      purpose: "Independent review",
+      effort: "medium",
+      reason: "Verify the exact candidate",
+      model: null,
+    },
   };
   fake.events = [
     { type: "item.completed", item: { type: "agent_message", text: JSON.stringify(candidate) } },

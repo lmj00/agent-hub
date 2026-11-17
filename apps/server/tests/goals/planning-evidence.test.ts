@@ -492,6 +492,7 @@ test("preserves existing run records when adding durable planning input", () => 
   expect(database.client.prepare("SELECT * FROM runs").get()).toEqual({
     ...before,
     planning_input: null,
+    model_policy: null,
     development_version: null,
     runtime_skill_version: null,
   });
