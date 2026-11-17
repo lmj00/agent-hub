@@ -305,7 +305,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
                   errorCode: "goal_changed",
                 };
               completion = applyPlanningCompletion(tx, run, completion, now);
-              saveRunCompletion(tx, run, completion, now);
+              saveRunCompletion(tx, run, completion, now, "recovery");
               finalStatus = completion.status;
               // 종료가 확인된 옛 확인 실행만 예약을 정리합니다. 일반 과거 오류를 새 차단으로 기록하지 않습니다.
               const gate = readProviderGate(tx);

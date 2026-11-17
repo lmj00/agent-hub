@@ -12,6 +12,8 @@ import {
   idParamsSchema as projectParamsSchema,
   projectSchema as projectResponseSchema,
   projectOverviewSchema,
+  projectUsageSchema,
+  type ProjectUsage,
   projectOverviewQuerySchema,
   type ProjectOverview,
 } from "@agent-hub/contracts";
@@ -28,7 +30,8 @@ function toResponse(project: Project) {
 export const projectRoutes: FastifyPluginAsync<{
   store: ProjectStore;
   overview: (offset: number) => ProjectOverview;
-}> = async (app, { store, overview }) => {
+  usage: (id: string) => ProjectUsage;
+}> = async (app, { store, overview, usage }) => {
   app.addHook("onRequest", async (_request, reply) => {
     reply.header("Cache-Control", "no-store");
   });
@@ -109,6 +112,20 @@ export const projectRoutes: FastifyPluginAsync<{
         return reply.code(404).send({ error: "PROJECT_NOT_FOUND", message: "Project not found" });
       }
       return toResponse(project);
+    },
+  );
+  app.get<{ Params: { id: string } }>(
+    "/projects/:id/usage",
+    {
+      schema: {
+        params: projectParamsSchema,
+        response: { 200: projectUsageSchema, ...projectErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      if (!store.findById(request.params.id))
+        return reply.code(404).send({ error: "PROJECT_NOT_FOUND", message: "Project not found" });
+      return usage(request.params.id);
     },
   );
 };

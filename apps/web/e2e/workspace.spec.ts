@@ -2185,3 +2185,70 @@ test("allows owner resume after automatic capacity checks and cooldown, preservi
   await resume.click();
   await expect.poll(() => payload).toMatchObject({ providerGateVersion: 42, action: "resume" });
 });
+
+test("project usage shows reported tokens and partial cost without claiming subscription billing", async ({
+  page,
+}) => {
+  await login(page);
+  await createProject(page, "사용량 확인 프로젝트");
+  const projectId = /#project\/(.+)$/.exec(page.url())![1]!;
+  const menu = page.getByRole("navigation", { name: "프로젝트 메뉴" });
+  await menu.getByRole("button", { name: "사용량", exact: true }).click();
+  await expect(page.getByLabel("프로젝트 사용량")).toContainText(
+    "아직 기록된 AI 실행 단계가 없습니다",
+  );
+  await menu.getByRole("button", { name: "작업", exact: true }).click();
+  await page.route(`**/projects/${projectId}/usage`, async (route) => {
+    await route.fulfill({
+      json: {
+        projectId,
+        inputTokens: 1200,
+        cachedInputTokens: 200,
+        outputTokens: 300,
+        reportedSteps: 2,
+        unreportedSteps: 1,
+        pendingSteps: 1,
+        unpricedSteps: 1,
+        referenceCostUsd: 0.005,
+        pricing: {
+          date: "2026-11-17",
+          source: "https://developers.openai.com/api/docs/pricing",
+          basis: "api-standard-short-context",
+        },
+        models: [
+          {
+            model: "gpt-6.1-sol",
+            inputTokens: 1000,
+            cachedInputTokens: 200,
+            outputTokens: 300,
+            reportedSteps: 1,
+            unreportedSteps: 1,
+            pendingSteps: 1,
+            referenceCostUsd: 0.005,
+          },
+          {
+            model: "unknown-model",
+            inputTokens: 200,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reportedSteps: 1,
+            unreportedSteps: 0,
+            pendingSteps: 0,
+            referenceCostUsd: null,
+          },
+        ],
+      },
+    });
+  });
+  await menu.getByRole("button", { name: "사용량", exact: true }).click();
+  const panel = page.getByLabel("프로젝트 사용량");
+  await expect(panel).toContainText("1,500");
+  await expect(panel).toContainText("토큰 미집계 1단계");
+  await expect(panel).toContainText("실제 청구액이나 구독 사용량이 아닙니다");
+  await expect(panel.getByRole("row", { name: /unknown-model/ })).toContainText("미산정");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: "test-results/project-usage-mobile.png", fullPage: true });
+});

@@ -1,7 +1,7 @@
 import { accountRunDuration, refreshRetryErrorStreak } from "./retry-state-store.js";
 import { settleRunBudget, runBudgetWait } from "../budgets/budget-store.js";
 import { randomUUID } from "node:crypto";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, count, eq, ne, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { events, runs, steps, tasks } from "../../db/schema.js";
 import type { RunCompletion } from "./run-task.js";
@@ -15,6 +15,7 @@ export function saveRunCompletion(
   run: { id: string; taskId: string },
   completion: RunCompletion,
   now: Date,
+  source: "executor" | "recovery" = "executor",
 ) {
   const finishedAt = completion.status === "interrupted" ? null : now;
   confirmExecutions(db, run.id, completion.terminationConfirmedAt);
@@ -39,8 +40,17 @@ export function saveRunCompletion(
     .run();
   accountRunDuration(db, run.id, completion.terminationConfirmedAt ?? finishedAt);
   refreshRetryErrorStreak(db, run.taskId);
+  // A Run total cannot be attributed to unfinished workflow steps. Recovery has
+  // no new provider usage; keep each previously recorded value, including null.
+  const singleStep =
+    source === "executor" &&
+    db.select({ total: count() }).from(steps).where(eq(steps.runId, run.id)).get()!.total === 1;
   db.update(steps)
-    .set({ status: completion.status, usage: completion.usage, finishedAt })
+    .set({
+      status: completion.status,
+      ...(singleStep ? { usage: completion.usage } : {}),
+      finishedAt,
+    })
     .where(and(eq(steps.runId, run.id), ne(steps.status, "succeeded")))
     .run();
   const last = db

@@ -142,3 +142,5 @@ export {
   type ProjectPublication,
   type PublicProjects,
 } from "./public-projects.js";
+
+export { projectUsageSchema, type ProjectUsage } from "./project-usage.js";

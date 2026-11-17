@@ -16,6 +16,7 @@ import { healthRoutes } from "./modules/health/routes.js";
 import { createDrizzleProjectStore } from "./modules/projects/drizzle-project-store.js";
 import { readProjectOverview } from "./modules/projects/project-overview.js";
 import { publicationRoutes } from "./modules/projects/publication-routes.js";
+import { readProjectUsage } from "./modules/projects/project-usage.js";
 import { projectRoutes } from "./modules/projects/routes.js";
 import { createDrizzleTaskStore } from "./modules/tasks/drizzle-task-store.js";
 import { taskRoutes } from "./modules/tasks/routes.js";
@@ -372,6 +373,7 @@ export function buildApp({
     scope.register(projectRoutes, {
       store: projectStore,
       overview: (offset) => readProjectOverview(database.db, offset),
+      usage: (id) => readProjectUsage(database.db, id),
     });
     scope.register(goalRoutes, { store: createDrizzleGoalStore(database.db) });
     scope.register(workReleaseRoutes, {

@@ -1891,13 +1891,15 @@
   .workspace .project-navigation {
     grid-column: 1 / -1;
     flex-direction: row;
+    flex-wrap: wrap;
     gap: 6px;
     padding: 6px 0;
     margin: 0;
     border-bottom: 0;
   }
   .workspace .project-navigation button {
-    flex: 1;
+    flex: 0 0 auto;
+    white-space: nowrap;
     text-align: center;
     justify-content: center;
   }
@@ -1982,4 +1984,58 @@
   .workspace .run-tabs > button {
     transition: none;
   }
+}
+
+.usage-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem 4rem;
+  margin: 2rem 0;
+}
+.usage-totals div {
+  min-width: 10rem;
+}
+.usage-totals dt {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.usage-totals dd {
+  margin: 0.5rem 0 0;
+  font-size: 1.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.usage-totals small {
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
+}
+.usage-table-scroll {
+  overflow-x: auto;
+  margin: 2rem 0;
+}
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+.usage-table caption {
+  text-align: left;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+.usage-table th,
+.usage-table td {
+  padding: 0.85rem 1rem;
+  text-align: right;
+  white-space: nowrap;
+}
+.usage-table th:first-child {
+  text-align: left;
+  padding-left: 0;
+}
+.usage-table thead {
+  color: var(--muted);
+}
+.usage-table tbody tr:nth-child(odd) {
+  background: rgba(128, 128, 128, 0.05);
 }

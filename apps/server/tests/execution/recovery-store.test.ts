@@ -456,3 +456,57 @@ test("active runs and executors without termination tracking cannot be resumed",
   expect(() => recovery.request(input(run), run.id, true)).toThrow("RUN_ACTIVE");
   expect(recovery.nextPending()).toBeUndefined();
 });
+
+test("reconciling a partial workflow preserves each step usage without copying the first result", async () => {
+  const run = interrupted();
+  const { runs: runTable, steps } = await import("../../src/db/schema.js");
+  const { eq } = await import("drizzle-orm");
+  const { readProjectUsage } = await import("../../src/modules/projects/project-usage.js");
+  database.db
+    .update(runTable)
+    .set({ workflowPolicy: { version: 1, maxSteps: 3, maxEffortChanges: 1 } })
+    .where(eq(runTable.id, run.id))
+    .run();
+  const usage = { inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 };
+  database.db
+    .update(steps)
+    .set({
+      status: "succeeded",
+      usage,
+      assessment: {
+        report: "Continue",
+        evidence: [],
+        unresolved: ["More work"],
+        complete: false,
+        next: { purpose: "Continue", effort: "medium", reason: "More work" },
+      },
+      finishedAt: new Date(),
+    })
+    .where(eq(steps.runId, run.id))
+    .run();
+  database.db
+    .insert(steps)
+    .values({
+      id: randomUUID(),
+      runId: run.id,
+      sequence: 2,
+      status: "interrupted",
+      startedAt: new Date(),
+    })
+    .run();
+  const accepted = recovery.request(input(run, { action: "reconcile" }), null, true);
+  await processor().service.process(accepted.request.id);
+  const history = database.db
+    .select()
+    .from(steps)
+    .where(eq(steps.runId, run.id))
+    .orderBy(steps.sequence)
+    .all();
+  expect(history.map((step) => step.usage)).toEqual([usage, null]);
+  expect(readProjectUsage(database.db, projectId)).toMatchObject({
+    inputTokens: 100,
+    reportedSteps: 1,
+    unreportedSteps: 1,
+    pendingSteps: 0,
+  });
+});
