@@ -89,8 +89,11 @@ jobs:
           import { join } from 'node:path';
           const file = join(process.env.RUNNER_TEMP, 'systemd-tests.log');
           if (existsSync(file)) {
-            const text = readFileSync(file, 'utf8').slice(-7500).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
-            process.stdout.write(`::error title=systemd lifecycle::${text}\n`);
+            const tail = readFileSync(file, 'utf8').slice(-7500);
+            for (let offset = 0; offset < tail.length; offset += 2500) {
+              const text = tail.slice(offset, offset + 2500).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+              process.stdout.write(`::error title=systemd lifecycle part ${offset / 2500 + 1}::${text}\n`);
+            }
           }
           JS
       - name: Retain synthetic Linux lifecycle and resource measurements
