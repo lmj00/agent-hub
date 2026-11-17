@@ -43,26 +43,37 @@ export class ProviderGateError extends Error {
   }
 }
 
+// 자동 확인을 소진한 뒤에도 소유자는 최대 대기 간격 후 한 번 확인할 수 있습니다.
+export function assertProviderCheckAllowed(
+  gate: ProviderGateView,
+  now: Date,
+  source: "automatic" | "manual" = "automatic",
+) {
+  if (gate.retryAt && gate.retryAt > now) throw new ProviderGateError("RETRY_TOO_EARLY");
+  if (gate.reason !== "capacity" || !gate.capacityState) return;
+  const state = gate.capacityState;
+  if (state.checks >= state.policy.maxChecks) {
+    if (source !== "manual" || !gate.blockedAt)
+      throw new ProviderGateError("RECOVERY_LIMIT_REACHED");
+    if (gate.blockedAt.getTime() + state.policy.maxDelayMs > now.getTime())
+      throw new ProviderGateError("RETRY_TOO_EARLY");
+  }
+  if (state.nextCheckAt && Date.parse(state.nextCheckAt) > now.getTime())
+    throw new ProviderGateError("RETRY_TOO_EARLY");
+}
+
 // 호출자는 실행 소유권·작업 상태·종료 근거를 같은 트랜잭션에서 먼저 검사합니다.
 export function reserveProviderCheck(
   db: GateDb,
   taskId: string,
   expectedVersion: number,
   now = new Date(),
+  source: "automatic" | "manual" = "automatic",
 ) {
   const gate = readProviderGate(db);
   if (!gate?.blocked || gate.version !== expectedVersion)
     throw new ProviderGateError("GATE_CHANGED");
-  if (gate.retryAt && gate.retryAt > now) throw new ProviderGateError("RETRY_TOO_EARLY");
-  if (gate.reason === "capacity" && gate.capacityState) {
-    if (gate.capacityState.checks >= gate.capacityState.policy.maxChecks)
-      throw new ProviderGateError("RECOVERY_LIMIT_REACHED");
-    if (
-      gate.capacityState.nextCheckAt &&
-      Date.parse(gate.capacityState.nextCheckAt) > now.getTime()
-    )
-      throw new ProviderGateError("RETRY_TOO_EARLY");
-  }
+  assertProviderCheckAllowed(gate, now, source);
   if (gate.probeTaskId || gate.probeRunId) throw new ProviderGateError("PROVIDER_CHECK_RESERVED");
   db.update(providerGates)
     .set({ probeTaskId: taskId })
@@ -151,7 +162,7 @@ export function recordProviderOutcome(
         blocked: !recovered,
         reason: recovered ? null : gate.reason,
         retryAt: recovered ? null : gate.retryAt,
-        blockedAt: recovered ? null : gate.blockedAt,
+        blockedAt: recovered ? null : now,
         probeTaskId: null,
         probeRunId: null,
         capacityState: recovered

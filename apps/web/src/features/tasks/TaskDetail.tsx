@@ -26,7 +26,8 @@ const actions: Record<RecoveryAction, string> = {
 const retryReasons: Record<string, string> = {
   capacity_waiting: "사용량 제한 회복을 확인할 시각까지 기다립니다. 계정 전체의 차단은 유지됩니다.",
   capacity_check_ready: "사용량 제한을 확인할 실행 하나를 예약했습니다.",
-  capacity_check_limit: "계정 확인 횟수 상한에 도달했습니다. 정책을 검토해 주세요.",
+  capacity_check_limit:
+    "자동 한도 확인을 마쳤습니다. 대기 시간이 지난 뒤 작업 재개로 다시 확인할 수 있습니다.",
   capacity_termination_unconfirmed: "이전 실행의 종료를 확인하지 못해 한도 확인도 보류했습니다.",
   retry_scheduled: "예약된 시각에 실행 조건을 확인한 뒤 자동으로 이어갑니다.",
   retry_ready: "재시도 시각이 됐습니다. 배정 조건을 확인하고 있습니다.",
@@ -192,9 +193,13 @@ export function TaskDetail({
   const viewingLatest = run?.id === latest?.id;
   const title = taskTitle(task.instruction);
   const capacityLimited =
-    gate?.reason === "capacity" &&
+    gate?.blocked &&
+    gate.reason === "capacity" &&
     !!gate.capacityState &&
-    (gate.capacityState.checks >= gate.capacityState.policy.maxChecks ||
+    ((gate.capacityState.checks >= gate.capacityState.policy.maxChecks &&
+      (!gate.blockedAt ||
+        Date.parse(gate.blockedAt) + gate.capacityState.policy.maxDelayMs > Date.now())) ||
+      (!!gate.retryAt && Date.parse(gate.retryAt) > Date.now()) ||
       (!!gate.capacityState.nextCheckAt &&
         Date.parse(gate.capacityState.nextCheckAt) > Date.now()));
   const retryLimited =

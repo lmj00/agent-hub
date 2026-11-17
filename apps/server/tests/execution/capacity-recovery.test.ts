@@ -423,3 +423,191 @@ test("legacy capacity blocks adopt a bounded policy without changing provider re
     capacityState: { checks: 0, policy },
   });
 });
+
+function exhaustChecks(retryAt: Date | null = null) {
+  let run = blocked();
+  for (let index = 0; index < policy.maxChecks; index++) {
+    run = dueProbe();
+    store.finish(run.id, {
+      status: "waiting_capacity",
+      errorCode: "capacity",
+      result: null,
+      usage: null,
+      retryAt,
+      terminationConfirmedAt: new Date(),
+    });
+  }
+  capacity.tick();
+  return run;
+}
+function manualCheck(run: { id: string; taskId: string }, version = gate().version) {
+  return recovery.request(
+    {
+      taskId: run.taskId,
+      runId: run.id,
+      action: "resume",
+      requestKey: randomUUID(),
+      providerGateVersion: version,
+    },
+    null,
+    true,
+  );
+}
+async function processCheck(id: string) {
+  await createRecoveryProcessor(recovery, {
+    confirm: async () => new Date(),
+    cleanup: async () => {},
+  }).process(id);
+}
+
+test("an explicit resume after exhausted automatic checks reserves one probe without resetting history", async () => {
+  const run = exhaustChecks();
+  const old = gate();
+  expect(() => manualCheck(run)).toThrow("RETRY_TOO_EARLY");
+  vi.setSystemTime(Date.now() + policy.maxDelayMs);
+  expect(capacity.tick()).toBe(false);
+  expect(() => manualCheck(run, old.version - 1)).toThrow("GATE_CHANGED");
+  const receipt = manualCheck(run);
+  await processCheck(receipt.request.id);
+  expect(recovery.findById(receipt.request.id)).toMatchObject({
+    status: "completed",
+    resultStatus: "queued",
+  });
+  expect(gate()).toMatchObject({
+    blocked: true,
+    version: old.version,
+    probeTaskId: taskId,
+    capacityState: old.capacityState,
+  });
+  expect(() => manualCheck(run)).toThrow("PROVIDER_CHECK_RESERVED");
+  owner.release();
+  database.close();
+  connect();
+  const probe = store.claim(taskId, "fixture");
+  expect(store.listByTask(taskId)[0]?.attempt).toBe(policy.maxChecks + 2);
+  expect(gate().capacityState?.checks).toBe(policy.maxChecks + 1);
+  expect(store.claimNext("fixture", ["example"]).kind).toBe("held");
+  store.finish(probe.id, {
+    status: "succeeded",
+    errorCode: null,
+    result: "Recovered",
+    usage: null,
+    terminationConfirmedAt: new Date(),
+  });
+  expect(gate()).toMatchObject({ blocked: false, capacityState: null });
+  expect(store.listByTask(taskId)).toHaveLength(policy.maxChecks + 2);
+});
+
+test.each(["capacity", "transient"])(
+  "a failed explicit probe (%s) keeps the automatic cap and enforces another cooldown",
+  async (errorCode) => {
+    const run = exhaustChecks();
+    vi.setSystemTime(Date.now() + policy.maxDelayMs);
+    const receipt = manualCheck(run);
+    await processCheck(receipt.request.id);
+    const probe = store.claim(taskId, "fixture");
+    store.finish(probe.id, {
+      status: errorCode === "capacity" ? "waiting_capacity" : "failed",
+      errorCode,
+      result: null,
+      usage: null,
+      terminationConfirmedAt: new Date(),
+    });
+    capacity.tick();
+    expect(gate()).toMatchObject({
+      blocked: true,
+      capacityState: { checks: policy.maxChecks + 1, reason: "check_limit" },
+    });
+    expect(() => manualCheck(probe)).toThrow("RETRY_TOO_EARLY");
+    vi.setSystemTime(Date.now() + policy.maxDelayMs);
+    expect(capacity.tick()).toBe(false);
+    expect(store.claimNext("fixture", ["example"]).kind).toBe("held");
+  },
+);
+
+test("explicit checks still respect provider time, task budget and termination", async () => {
+  const run = exhaustChecks();
+  vi.setSystemTime(Date.now() + policy.maxDelayMs);
+  database.db
+    .update(providerGates)
+    .set({ retryAt: new Date(Date.now() + 10000) })
+    .run();
+  expect(() => manualCheck(run)).toThrow("RETRY_TOO_EARLY");
+  vi.setSystemTime(Date.now() + 10000);
+  expect(() =>
+    recovery.request(
+      {
+        taskId,
+        runId: run.id,
+        action: "resume",
+        requestKey: randomUUID(),
+        providerGateVersion: gate().version,
+      },
+      null,
+      false,
+    ),
+  ).toThrow("TERMINATION_TRACKING_REQUIRED");
+  const current = task().retryState!;
+  database.db
+    .update(tasks)
+    .set({ retryState: { ...current, totalRunMs: defaultRetryPolicy.maxTotalRunMs } })
+    .where(eq(tasks.id, taskId))
+    .run();
+  expect(() => manualCheck(run)).toThrow("RECOVERY_LIMIT_REACHED");
+});
+
+test("queued explicit recovery rechecks a changed gate and future cooldown before reservation", async () => {
+  const run = exhaustChecks();
+  vi.setSystemTime(Date.now() + policy.maxDelayMs);
+  const receipt = manualCheck(run);
+  database.db
+    .update(providerGates)
+    .set({ retryAt: new Date(Date.now() + 10000) })
+    .run();
+  await processCheck(receipt.request.id);
+  expect(recovery.findById(receipt.request.id)).toMatchObject({
+    status: "rejected",
+    errorCode: "RETRY_TOO_EARLY",
+  });
+  expect(gate().probeTaskId).toBeNull();
+  vi.setSystemTime(Date.now() + 10000);
+  const newer = manualCheck(run);
+  database.db
+    .update(providerGates)
+    .set({ version: gate().version + 1 })
+    .run();
+  await processCheck(newer.request.id);
+  expect(recovery.findById(newer.request.id)).toMatchObject({
+    status: "rejected",
+    errorCode: "GATE_CHANGED",
+  });
+  expect(gate().probeTaskId).toBeNull();
+});
+
+test("exhausted checks cannot be claimed through an unproven reservation", () => {
+  exhaustChecks();
+  vi.setSystemTime(Date.now() + policy.maxDelayMs);
+  database.db.update(providerGates).set({ probeTaskId: taskId }).run();
+  database.db.update(tasks).set({ status: "queued" }).where(eq(tasks.id, taskId)).run();
+  expect(store.claimNext("fixture", ["example"])).toMatchObject({
+    kind: "held",
+    reason: "provider_capacity",
+  });
+  expect(gate().capacityState?.checks).toBe(policy.maxChecks);
+});
+
+test("a completed manual reservation still respects a later provider cooldown at claim", async () => {
+  const run = exhaustChecks();
+  vi.setSystemTime(Date.now() + policy.maxDelayMs);
+  const receipt = manualCheck(run);
+  await processCheck(receipt.request.id);
+  database.db
+    .update(providerGates)
+    .set({ retryAt: new Date(Date.now() + 10000) })
+    .run();
+  expect(store.claimNext("fixture", ["example"])).toMatchObject({
+    kind: "held",
+    reason: "provider_capacity",
+  });
+  expect(gate().capacityState?.checks).toBe(policy.maxChecks);
+});

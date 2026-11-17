@@ -10,6 +10,7 @@ import { assertExecutionOwner } from "./execution-owner.js";
 import { unresolvedRun } from "./execution-slot.js";
 import {
   ProviderGateError,
+  assertProviderCheckAllowed,
   providerScope,
   readProviderGate,
   recordProviderOutcome,
@@ -104,16 +105,13 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
                 input.providerGateVersion !== (gate?.version ?? 0))
             )
               throw new RecoveryError("GATE_CHANGED");
-            if (gate?.blocked && gate.retryAt && gate.retryAt > new Date())
-              throw new RecoveryError("RETRY_TOO_EARLY");
-            if (gate?.blocked && gate.reason === "capacity" && gate.capacityState) {
-              if (gate.capacityState.checks >= gate.capacityState.policy.maxChecks)
-                throw new RecoveryError("RECOVERY_LIMIT_REACHED");
-              if (
-                gate.capacityState.nextCheckAt &&
-                Date.parse(gate.capacityState.nextCheckAt) > Date.now()
-              )
-                throw new RecoveryError("RETRY_TOO_EARLY");
+            if (gate?.blocked) {
+              try {
+                assertProviderCheckAllowed(gate, new Date(), "manual");
+              } catch (error) {
+                if (error instanceof ProviderGateError) throw new RecoveryError(error.code);
+                throw error;
+              }
             }
             if (gate?.probeTaskId && gate.probeRunId !== run?.id)
               throw new RecoveryError("PROVIDER_CHECK_RESERVED");
@@ -392,7 +390,7 @@ export function createDrizzleRecoveryStore(db: Db, ownerToken?: string): Recover
           if (finalStatus === "queued" && !gate?.blocked) return finish("TASK_ALREADY_QUEUED");
           if (gate?.blocked) {
             try {
-              reserveProviderCheck(tx, task.id, request.providerGateVersion!, now);
+              reserveProviderCheck(tx, task.id, request.providerGateVersion!, now, "manual");
             } catch (error) {
               if (error instanceof ProviderGateError) return finish(error.code);
               throw error;

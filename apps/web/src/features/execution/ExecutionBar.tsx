@@ -22,7 +22,8 @@ const capacityReasons: Record<string, string> = {
   waiting: "확인 시각까지 기다립니다.",
   ready: "확인 실행 하나를 예약했습니다.",
   checking: "확인 실행이 진행 중입니다.",
-  check_limit: "계정 확인 횟수 상한에 도달했습니다. 제한 정책을 검토해 주세요.",
+  check_limit:
+    "자동 한도 확인을 마쳤습니다. 대기 시간이 지난 뒤 작업 재개로 다시 확인할 수 있습니다.",
   task_limit: "원인 작업의 실행 상한에 도달했습니다. 작업 기록을 검토해 주세요.",
   task_unavailable:
     "원인 작업을 자동으로 재개할 수 없습니다. 실행 가능한 작업을 선택해 수동으로 확인해 주세요.",
@@ -38,6 +39,20 @@ export function ExecutionBar({
   stale?: boolean;
 }) {
   const disclosure = useRef<HTMLDetailsElement>(null);
+  const manualCheckAt =
+    gate.blocked &&
+    gate.reason === "capacity" &&
+    gate.capacityState &&
+    gate.capacityState.checks >= gate.capacityState.policy.maxChecks &&
+    gate.blockedAt
+      ? new Date(
+          Math.max(
+            Date.parse(gate.blockedAt) + gate.capacityState.policy.maxDelayMs,
+            gate.retryAt ? Date.parse(gate.retryAt) : 0,
+            gate.capacityState.nextCheckAt ? Date.parse(gate.capacityState.nextCheckAt) : 0,
+          ),
+        ).toISOString()
+      : null;
   const needsAttention =
     gate.blocked || queue.state === "held" || queue.state === "error" || !!queue.reason || stale;
   useEffect(() => {
@@ -88,6 +103,7 @@ export function ExecutionBar({
             <strong>
               계정 확인 {gate.capacityState.checks} / {gate.capacityState.policy.maxChecks}회
             </strong>
+            {manualCheckAt ? <span>수동 재개 가능 시각 {dateTime(manualCheckAt)}</span> : null}
             {gate.capacityState.nextCheckAt ? (
               <span>다음 확인 가능 시각 {dateTime(gate.capacityState.nextCheckAt)}</span>
             ) : null}

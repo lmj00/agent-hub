@@ -2126,3 +2126,62 @@ test("reads report code in a safe console, copies and wraps it, and preserves co
   await expect(terminal.getByRole("status")).toContainText("복사하지 못했습니다.");
   await page.screenshot({ path: testInfo.outputPath("console-mobile.png"), fullPage: true });
 });
+
+test("allows owner resume after automatic capacity checks and cooldown, preserving gate version", async ({
+  page,
+}) => {
+  await login(page);
+  await createProject(page, "수동 계정 확인");
+  await createTask(page, "재개 버튼 확인");
+  await expect(page.locator(".detail-top .status-failed")).toBeVisible();
+  let recent = true;
+  let providerWait = false;
+  await page.route("**/execution/provider-gate", async (route) => {
+    const response = await route.fetch();
+    const gate = await response.json();
+    await route.fulfill({
+      response,
+      json: {
+        ...gate,
+        version: 42,
+        blocked: true,
+        reason: "capacity",
+        blockedAt: new Date(Date.now() - (recent ? 0 : 7200000)).toISOString(),
+        retryAt: providerWait ? new Date(Date.now() + 3600000).toISOString() : null,
+        capacityState: {
+          policy: {
+            version: 1,
+            initialDelayMs: 1000,
+            maxDelayMs: 3600000,
+            jitterRatio: 0,
+            maxChecks: 3,
+          },
+          checks: 3,
+          nextCheckAt: null,
+          decisionVersion: 42,
+          reason: "check_limit",
+        },
+      },
+    });
+  });
+  const resume = page.getByRole("button", { name: "작업 재개", exact: true });
+  await expect(page.getByLabel("계정 사용량 확인")).toContainText("수동 재개 가능 시각");
+  await expect(resume).toBeDisabled();
+  recent = false;
+  await expect(resume).toBeEnabled();
+  providerWait = true;
+  await expect(resume).toBeDisabled();
+  providerWait = false;
+  await expect(resume).toBeEnabled();
+  let payload: { providerGateVersion: number; action: string } | undefined;
+  await page.route("**/tasks/*/recovery-requests", async (route) => {
+    payload = route.request().postDataJSON();
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "GATE_CHANGED" }),
+    });
+  });
+  await resume.click();
+  await expect.poll(() => payload).toMatchObject({ providerGateVersion: 42, action: "resume" });
+});

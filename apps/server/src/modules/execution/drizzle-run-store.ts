@@ -15,6 +15,7 @@ import {
   events,
   projects,
   providerGates,
+  recoveryRequests,
   repositoryImports,
   runs,
   steps,
@@ -29,6 +30,8 @@ import {
 } from "./run-task.js";
 import {
   providerGateView,
+  ProviderGateError,
+  assertProviderCheckAllowed,
   providerScope,
   readProviderGate,
   recordProviderOutcome,
@@ -127,15 +130,27 @@ export function createDrizzleRunStore(
         ) {
           return { kind: "held", runId: gate.sourceRunId!, reason: `provider_${gate.reason}` };
         }
-        if (
-          probing &&
-          gate.reason === "capacity" &&
-          gate.capacityState &&
-          (gate.capacityState.checks >= gate.capacityState.policy.maxChecks ||
-            (gate.capacityState.nextCheckAt &&
-              Date.parse(gate.capacityState.nextCheckAt) > Date.now()))
-        ) {
-          return { kind: "held", runId: gate.sourceRunId!, reason: "provider_capacity" };
+        if (probing) {
+          // 완료된 소유자 재개 요청만 자동 확인 상한 이후의 예약 근거로 받습니다.
+          const manual = tx
+            .select({ id: recoveryRequests.id })
+            .from(recoveryRequests)
+            .where(
+              and(
+                eq(recoveryRequests.taskId, gate.probeTaskId!),
+                eq(recoveryRequests.providerGateVersion, gate.version),
+                eq(recoveryRequests.action, "resume"),
+                eq(recoveryRequests.status, "completed"),
+                eq(recoveryRequests.resultStatus, "queued"),
+              ),
+            )
+            .get();
+          try {
+            assertProviderCheckAllowed(gate, new Date(), manual ? "manual" : "automatic");
+          } catch (error) {
+            if (!(error instanceof ProviderGateError)) throw error;
+            return { kind: "held", runId: gate.sourceRunId!, reason: `provider_${gate.reason}` };
+          }
         }
         if ("workspaceKeys" in selection && selection.workspaceKeys.length === 0) {
           return probing
