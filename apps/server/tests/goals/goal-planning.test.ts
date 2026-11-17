@@ -7,7 +7,9 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { acquireExecutionOwner } from "../../src/modules/execution/execution-owner.js";
+import { createAutomaticRecovery } from "../../src/modules/execution/automatic-recovery.js";
 import type { GoalDefinition, GoalPlan } from "@agent-hub/contracts";
 import { openDatabase } from "../../src/db/connection.js";
 import {
@@ -154,6 +156,9 @@ async function execute(
     async analyze(request) {
       expect(request.responseMode).toBe("goal-plan");
       expect(request.workflow).toBeUndefined();
+      expect(request.planningCriterionIds).toEqual(
+        readPlanningContext(database.db, taskId)!.progress!.criteria.map((item) => item.id),
+      );
       const output = JSON.stringify(proposal(request, overrides));
       beforeResult?.();
       return {
@@ -812,6 +817,73 @@ test("explicit retry of a rejected proposal retains the earlier Run's evidence a
   expect(workRows()).toHaveLength(1);
 });
 
+test("a mistyped criterion is replanned automatically on the same Task without accepting the rejected work", async () => {
+  const plan = reserve();
+  const owner = acquireExecutionOwner(database.db);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    store = createDrizzleRunStore(database.db, owner.token, {
+      automaticRecovery: defaultRetryPolicy,
+    });
+    const recovery = createDrizzleRecoveryStore(database.db, owner.token);
+    const automatic = createAutomaticRecovery({
+      db: database.db,
+      ownerToken: owner.token,
+      policy: defaultRetryPolicy,
+      workspaceKeys: ["example"],
+      recovery,
+      random: () => 0,
+    });
+    const invalid = await execute(plan.taskId, {
+      tasks: [
+        {
+          title: "Fix",
+          instruction: "Return 42",
+          acceptanceCriteria: "Returns 42",
+          paths: ["src/main.ts"],
+          evidence: ["Returns 41"],
+          criterionIds: ["f".repeat(64)],
+        },
+      ],
+    });
+    expect(invalid).toMatchObject({ status: "waiting_retry", errorCode: "plan_criteria_invalid" });
+    expect(workRows()).toHaveLength(0);
+    automatic.tick();
+    const waiting = database.db.select().from(tasks).where(eq(tasks.id, plan.taskId)).get()!;
+    expect(waiting.retryState?.reason).toBe("retry_scheduled");
+    vi.setSystemTime(new Date(waiting.retryState!.nextAttemptAt!));
+    automatic.tick();
+    const criterionId = readPlanningContext(database.db, plan.taskId)!.progress!.criteria[0]!.id;
+    const result = await execute(plan.taskId, {
+      tasks: [
+        {
+          title: "Fix",
+          instruction: "Return 42",
+          acceptanceCriteria: "Returns 42",
+          paths: ["src/main.ts"],
+          evidence: ["Returns 41"],
+          criterionIds: [criterionId],
+        },
+      ],
+    });
+    expect(result.status).toBe("succeeded");
+    expect(workRows()).toHaveLength(1);
+    expect(workRows()[0]!.plannedWork?.criterionIds).toEqual([criterionId]);
+    expect(database.db.select().from(runs).where(eq(runs.id, invalid.runId)).get()).toMatchObject({
+      errorCode: "plan_criteria_invalid",
+      planResult: { status: "rejected" },
+    });
+    expect(database.db.select().from(runs).where(eq(runs.id, result.runId)).get()?.attempt).toBe(2);
+    expect(
+      database.db.select().from(tasks).where(eq(tasks.id, plan.taskId)).get()?.retryState?.retries,
+    ).toBe(1);
+    expect(database.db.select().from(planningCycles).all()).toHaveLength(1);
+  } finally {
+    vi.useRealTimers();
+    owner.release();
+  }
+});
+
 test("unresolved or cancelled work cannot be renamed through a new plan even after a Goal edit", async () => {
   const plan = reserve();
   await execute(plan.taskId);
@@ -1354,9 +1426,13 @@ test.each(["invalid key", "uppercase", "blank", "extra permissions"])(
   },
 );
 
-test.each([true, false])(
-  "full specialist roster reuses existing roles and rejects new roles atomically: reuse=%s",
-  async (reuse) => {
+test.each([
+  { reuse: true, foreign: false },
+  { reuse: false, foreign: false },
+  { reuse: false, foreign: true },
+])(
+  "full specialist roster enforces its limit before retrying reference errors: %j",
+  async ({ reuse, foreign }) => {
     const { assignedAgent } = await import("../../src/modules/goals/agent-roles.js");
     for (let index = 0; index < 8; index++) {
       const id = randomUUID();
@@ -1405,6 +1481,7 @@ test.each([true, false])(
             name: "Proposed",
             mission: "Proposed mission",
           },
+          ...(foreign ? { criterionIds: ["f".repeat(64)] } : {}),
         },
       ],
     });
@@ -1482,7 +1559,10 @@ test.each(["foreign", "duplicate"])(
         },
       ],
     });
-    expect(result).toMatchObject({ status: "blocked", errorCode: "invalid_plan" });
+    expect(result).toMatchObject({
+      status: kind === "foreign" ? "waiting_retry" : "blocked",
+      errorCode: kind === "foreign" ? "plan_criteria_invalid" : "invalid_plan",
+    });
     expect(workRows()).toHaveLength(0);
   },
 );

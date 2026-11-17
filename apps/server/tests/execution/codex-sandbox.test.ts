@@ -92,6 +92,8 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("Codex container sandbo
     "wrong-bundle",
     "unknown-model-policy",
     "missing-model-policy",
+    "invalid-planning-criteria",
+    "planning-criteria-on-analysis",
   ])(
     "production runner blocks %s before SDK invocation",
     async (mode) => {
@@ -108,6 +110,11 @@ describe.skipIf(process.env.RUN_CONTAINER_TESTS !== "1")("Codex container sandbo
       const request = {
         instruction: "Inspect",
         model: "fixture",
+        ...(mode === "invalid-planning-criteria"
+          ? { responseMode: "goal-plan", planningCriterionIds: ["not-an-id"] }
+          : mode === "planning-criteria-on-analysis"
+            ? { planningCriterionIds: ["a".repeat(64)] }
+            : {}),
         ...(mode === "missing-model-policy"
           ? {
               modelPolicy: {

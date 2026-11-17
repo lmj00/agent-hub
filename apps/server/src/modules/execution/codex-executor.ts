@@ -1,9 +1,6 @@
 import { Codex, type CodexOptions, type ThreadOptions } from "@openai/codex-sdk";
-import {
-  analysisResponseSchema,
-  developmentAssessmentSchema,
-  goalPlanOutputSchema,
-} from "@agent-hub/contracts";
+import { analysisResponseSchema, developmentAssessmentSchema } from "@agent-hub/contracts";
+import { planningOutputSchema } from "./planning-schema.js";
 import {
   loadRuntimeSkill,
   parseRuntimeSkillContext,
@@ -109,9 +106,11 @@ export function createCodexExecutor(
         request.signal.throwIfAborted();
         skillInstructions = loaded.instructions;
       } else if (request.runtimeSkill) throw new AnalysisError("unsupported_settings");
+      if (request.planningCriterionIds && request.responseMode !== "goal-plan")
+        throw new AnalysisError("unsupported_settings");
       const outputSchema =
         request.responseMode === "goal-plan"
-          ? goalPlanOutputSchema
+          ? planningOutputSchema(request.planningCriterionIds)
           : request.responseMode === "assessment"
             ? request.development
               ? developmentAssessmentSchema

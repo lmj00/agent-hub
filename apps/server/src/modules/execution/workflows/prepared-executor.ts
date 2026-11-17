@@ -133,6 +133,13 @@ export function createPreparedExecutor(
             ? {
                 instruction: planningInstruction(input),
                 responseMode: "goal-plan" as const,
+                ...(input.progress
+                  ? {
+                      planningCriterionIds: input.progress.criteria.map(
+                        (criterion) => criterion.id,
+                      ),
+                    }
+                  : {}),
               }
             : workflow
               ? { workflow }

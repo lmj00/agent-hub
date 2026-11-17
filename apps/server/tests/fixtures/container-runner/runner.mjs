@@ -44,6 +44,7 @@ if (request.instruction === "forged-termination") {
 if (request.responseMode === "goal-plan") {
   if (request.workflow) throw new Error("Planning must not use the analysis workflow");
   const context = JSON.parse(request.instruction.split("\n").at(-1));
+  if (JSON.stringify(request.planningCriterionIds) !== JSON.stringify(context.progress.criteria.map(item => item.id))) throw new Error("Missing parent-owned planning criteria");
   if (context.services?.[0]?.latest?.snapshot?.summary !== "container planning evidence") throw new Error("Missing server observation evidence");
   const path = context.files[0];
   readFileSync(`/workspace/${path}`, "utf8");

@@ -394,6 +394,7 @@ function runnerInput(request: AnalysisRequest) {
     modelPolicy: request.modelPolicy,
     workflow: request.workflow,
     responseMode: request.responseMode,
+    planningCriterionIds: request.planningCriterionIds,
     development: request.development,
     runtimeSkillVersion: request.runtimeSkillVersion,
     stepSequence: request.stepSequence,

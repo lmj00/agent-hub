@@ -67,7 +67,12 @@ export function applyPlanningCompletion(
       .run();
     return {
       ...completion,
-      status: completion.status === "succeeded" ? "blocked" : completion.status,
+      status:
+        completion.status !== "succeeded"
+          ? completion.status
+          : reason === "plan_criteria_invalid"
+            ? "waiting_retry"
+            : "blocked",
       result: null,
       errorCode: reason,
     };
@@ -108,16 +113,18 @@ export function applyPlanningCompletion(
   const agents = new Map(readGoalAgents(db, goal.id).map((agent) => [agent.key, agent]));
   const criteria = goalCriteria(goal.id, goal.definition);
   for (const proposed of plan.tasks) {
-    if (
-      proposed.criterionIds &&
-      (new Set(proposed.criterionIds).size !== proposed.criterionIds.length ||
-        proposed.criterionIds.some((id) => !criteria.some((item) => item.id === id)))
-    )
-      return reject("invalid_plan");
     if (proposed.agent && !agents.has(proposed.agent.key))
       agents.set(proposed.agent.key, assignedAgent(goal.id, proposed.agent));
   }
   if (agents.size > maxGoalAgents) return reject("invalid_plan");
+  // A foreign reference is repairable only after scope, dependencies, source
+  // freshness and role limits pass. No proposed work has been written yet.
+  if (
+    plan.tasks.some((proposed) =>
+      proposed.criterionIds?.some((id) => !criteria.some((item) => item.id === id)),
+    )
+  )
+    return reject("plan_criteria_invalid");
   const createdTaskIds: string[] = [];
   const suppressed: NonNullable<PlanResult["suppressed"]> = [];
   for (const [proposalIndex, proposed] of plan.tasks.entries()) {

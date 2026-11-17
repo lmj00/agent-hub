@@ -168,6 +168,54 @@ test("planning selects the server-owned structured schema without changing read-
   );
 });
 
+test("planning restricts completion references to the supplied Goal IDs", async () => {
+  fake.events = [
+    { type: "item.completed", item: { type: "agent_message", text: "{}" } },
+    {
+      type: "turn.completed",
+      usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 },
+    },
+  ];
+  const ids = ["a".repeat(64), "b".repeat(64)];
+  await createCodexExecutor("/tmp/private-auth").analyze(
+    { ...request, responseMode: "goal-plan", planningCriterionIds: ids },
+    () => {},
+  );
+  const schema = fake.run.mock.lastCall![1].outputSchema as typeof goalPlanOutputSchema;
+  expect(schema.properties.tasks.items.properties.criterionIds.items).toMatchObject({ enum: ids });
+  expect(
+    goalPlanOutputSchema.properties.tasks.items.properties.criterionIds.items,
+  ).not.toHaveProperty("enum");
+  expect(JSON.stringify(schema)).not.toContain('"uniqueItems"');
+  await createCodexExecutor("/tmp/private-auth").analyze(
+    { ...request, responseMode: "goal-plan", planningCriterionIds: ["c".repeat(64)] },
+    () => {},
+  );
+  expect(
+    fake.run.mock.lastCall![1].outputSchema.properties.tasks.items.properties.criterionIds.items
+      .enum,
+  ).toEqual(["c".repeat(64)]);
+  expect(schema.properties.tasks.items.properties.criterionIds.items).toMatchObject({ enum: ids });
+});
+
+test.each(
+  [[], ["bad"], ["a".repeat(64), "a".repeat(64)], Array(33).fill("a".repeat(64))].map((ids) => ({
+    ids,
+  })),
+)(
+  "rejects malformed planning reference configuration before calling the SDK: %j",
+  async ({ ids }) => {
+    fake.run.mockClear();
+    await expect(
+      createCodexExecutor("/tmp/private-auth").analyze(
+        { ...request, responseMode: "goal-plan", planningCriterionIds: ids },
+        () => {},
+      ),
+    ).rejects.toThrow("unsupported_settings");
+    expect(fake.run).not.toHaveBeenCalled();
+  },
+);
+
 test("uses explicit ChatGPT auth, scoped read-only permissions, medium effort and no API-key inheritance", () => {
   const options = codexOptions("/tmp/private-auth", request.workspace);
   expect(Object.keys(options.env!).sort()).toEqual(["CODEX_HOME", "HOME", "PATH"]);

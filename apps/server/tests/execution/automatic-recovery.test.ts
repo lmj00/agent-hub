@@ -182,8 +182,16 @@ test("removing configured caps updates an existing blocked task without losing h
   expect(store.listByTask(taskId)).toHaveLength(2);
 });
 
-test.each([false, true])("routing recovery requires confirmed termination: %s", (confirmed) => {
-  const code = classifyCodexError("workspace routing discovery failed").code;
+test.each([
+  ["transient", false],
+  ["transient", true],
+  ["plan_criteria_invalid", false],
+  ["plan_criteria_invalid", true],
+] as const)("%s recovery requires confirmed termination: %s", (errorCode, confirmed) => {
+  const code =
+    errorCode === "transient"
+      ? classifyCodexError("workspace routing discovery failed").code
+      : errorCode;
   failure(code, confirmed);
   automatic.tick();
   if (!confirmed) {
@@ -197,7 +205,7 @@ test.each([false, true])("routing recovery requires confirmed termination: %s", 
   }
   expect(task()).toMatchObject({
     status: "waiting_retry",
-    retryState: { lastError: "transient", retries: 0, reason: "retry_scheduled" },
+    retryState: { lastError: code, retries: 0, reason: "retry_scheduled" },
   });
   expect(store.claimNext("fixture", ["example"]).kind).toBe("idle");
   due();

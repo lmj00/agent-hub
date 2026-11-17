@@ -91,6 +91,7 @@ export function retryableError(code: string | null) {
     code === "transient" ||
     code === "server_shutdown" ||
     code === "owner_lost" ||
+    code === "plan_criteria_invalid" ||
     code === "development_continue"
   );
 }
