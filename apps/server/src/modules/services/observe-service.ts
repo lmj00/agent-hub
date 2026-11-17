@@ -81,15 +81,21 @@ export async function observeService(
         Date.parse(snapshot.lastSuccessAt) > Date.parse(snapshot.observedAt))
     )
       throw new ObservationError("invalid_payload");
-    const withoutUrl = snapshot.summary.replaceAll(target.url, "[SERVICE_URL]");
-    const summary = target.bearerToken
-      ? withoutUrl.replaceAll(target.bearerToken, "[REDACTED]")
-      : withoutUrl;
+    const clean = (value: string, max: number) => {
+      const withoutUrl = value.replaceAll(target.url, "[SERVICE_URL]");
+      return redactOutput(
+        target.bearerToken ? withoutUrl.replaceAll(target.bearerToken, "[REDACTED]") : withoutUrl,
+      ).slice(0, max);
+    };
     return {
       receivedAt,
       success: true,
       errorCode: null,
-      snapshot: { ...snapshot, summary: redactOutput(summary).slice(0, 500) },
+      snapshot: {
+        ...snapshot,
+        summary: clean(snapshot.summary, 500),
+        ...(snapshot.details !== undefined ? { details: clean(snapshot.details, 6000) } : {}),
+      },
     };
   } catch (error) {
     return {

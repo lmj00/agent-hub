@@ -12,12 +12,17 @@ export type ServiceTargetConfig = {
   staleAfterMs: number;
   allowWaiting: boolean;
   activityTimeoutMs: number | null;
+  onDemand?: boolean;
   fingerprint: string;
 };
 export type ServiceConfig = {
   sourcePath: string;
   targets: ServiceTargetConfig[];
 };
+
+export function serviceConfigurationVersion(fingerprint: string): string {
+  return createHash("sha256").update(`inspection-source-v1:${fingerprint}`).digest("hex");
+}
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -54,6 +59,7 @@ export function loadServiceConfig(path: string): ServiceConfig {
       "staleAfterMs",
       "allowWaiting",
       "activityTimeoutMs",
+      "onDemand",
     ];
     if (Object.keys(target).some((key) => !fields.includes(key)))
       throw new Error("Unknown service observation config field");
@@ -106,6 +112,8 @@ export function loadServiceConfig(path: string): ServiceConfig {
     );
     if (target.allowWaiting !== undefined && typeof target.allowWaiting !== "boolean")
       throw new Error("Service allowWaiting must be a boolean");
+    if (target.onDemand !== undefined && typeof target.onDemand !== "boolean")
+      throw new Error("Service onDemand must be a boolean");
     const activityTimeoutMs =
       target.activityTimeoutMs === undefined || target.activityTimeoutMs === null
         ? null
@@ -120,6 +128,8 @@ export function loadServiceConfig(path: string): ServiceConfig {
       staleAfterMs,
       allowWaiting: target.allowWaiting ?? true,
       activityTimeoutMs,
+      // Preserve fingerprints for existing periodic targets.
+      ...(target.onDemand === true ? { onDemand: true } : {}),
     };
     // 연결 대상·판단 정책을 바꾸면 이전 성공을 새 설정의 정상 근거로 사용하지 않습니다.
     const fingerprint = createHash("sha256")

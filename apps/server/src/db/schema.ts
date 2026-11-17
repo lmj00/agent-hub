@@ -664,8 +664,28 @@ export const serviceTargets = sqliteTable(
     staleAfterMs: integer("stale_after_ms").notNull(),
     allowWaiting: integer("allow_waiting", { mode: "boolean" }).notNull(),
     activityTimeoutMs: integer("activity_timeout_ms"),
+    onDemand: integer("on_demand", { mode: "boolean" }).notNull().default(false),
   },
   (table) => [index("service_targets_project_idx").on(table.projectId)],
+);
+
+export const serviceInspections = sqliteTable(
+  "service_inspections",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "restrict" }),
+    targetKey: text("target_key")
+      .notNull()
+      .references(() => serviceTargets.key, { onDelete: "restrict" }),
+    fingerprint: text("fingerprint").notNull(),
+    requestedAt: integer("requested_at", { mode: "timestamp_ms" }).notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.targetKey] }),
+    index("service_inspections_pending_idx").on(table.completedAt, table.targetKey),
+  ],
 );
 
 export const serviceObservations = sqliteTable(

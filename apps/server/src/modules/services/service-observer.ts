@@ -29,16 +29,37 @@ export function createServiceObserver(options: {
 
   function schedule() {
     if (stopped || !options.targets.length) return;
-    const due = Math.min(...Array.from(nextChecks.values(), (date) => date.getTime()));
+    const due = Math.min(
+      ...options.targets.map((target) =>
+        target.onDemand ? Date.now() + 1000 : nextChecks.get(target.key)!.getTime(),
+      ),
+    );
     timer = setTimeout(check, Math.max(0, due - Date.now()));
   }
   function check() {
     if (stopped || running) return;
-    const target = options.targets.toSorted(
-      (a, b) => nextChecks.get(a.key)!.getTime() - nextChecks.get(b.key)!.getTime(),
-    )[0];
-    if (!target) return;
-    if (nextChecks.get(target.key)!.getTime() > Date.now()) {
+    let inspectionRunIds: string[] = [];
+    const target = options.targets
+      .toSorted((a, b) => nextChecks.get(a.key)!.getTime() - nextChecks.get(b.key)!.getTime())
+      .find((candidate) => {
+        if (nextChecks.get(candidate.key)!.getTime() > Date.now()) return false;
+        if (!candidate.onDemand) return true;
+        try {
+          options.store.assertOwner();
+          const pending = options.store.inspections(candidate);
+          if (!pending.runIds.length) return false;
+          nextChecks.set(candidate.key, new Date(pending.nextCheckAt));
+          if (pending.nextCheckAt > Date.now()) return false;
+          inspectionRunIds = pending.runIds;
+          return true;
+        } catch {
+          errors.add(candidate.key);
+          nextChecks.set(candidate.key, new Date(Date.now() + candidate.intervalMs));
+          report({ code: "SERVICE_OBSERVER_ERROR", targetKey: candidate.key });
+          return false;
+        }
+      });
+    if (!target) {
       schedule();
       return;
     }
@@ -49,7 +70,7 @@ export function createServiceObserver(options: {
         options.store.assertOwner();
         const result = await (options.observe ?? observeService)(target, signal);
         if (signal.aborted) return;
-        options.store.save(target, result);
+        options.store.save(target, result, inspectionRunIds);
         if (errors.delete(target.key)) {
           report({ code: "SERVICE_OBSERVER_RECOVERED", targetKey: target.key });
           lastReported.delete(target.key);
@@ -89,7 +110,11 @@ export function createServiceObserver(options: {
           started && !stopped ? options.targets.map((target) => target.key) : [],
         ),
         errors: new Set(errors),
-        nextChecks: new Map(nextChecks),
+        nextChecks: new Map(
+          [...nextChecks].filter(
+            ([key]) => !options.targets.find((target) => target.key === key)?.onDemand,
+          ),
+        ),
       };
     },
   };

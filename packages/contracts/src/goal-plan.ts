@@ -12,6 +12,9 @@ export const goalPlanSchema = Type.Object(
     inputDigest: Type.String({ pattern: "^[a-f0-9]{64}$" }),
     outcome: Type.Union([Type.Literal("work"), Type.Literal("wait"), Type.Literal("complete")]),
     summary: text(2000),
+    inspectionKeys: Type.Optional(
+      Type.Array(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$" }), { maxItems: 3 }),
+    ),
     evidence: Type.Array(text(500), { maxItems: 12 }),
     tasks: Type.Array(
       Type.Object(
@@ -42,6 +45,7 @@ export type GoalPlan = Static<typeof goalPlanSchema>;
 export const goalPlanOutputSchema = Type.Object(
   {
     ...goalPlanSchema.properties,
+    inspectionKeys: Type.Array(goalPlanSchema.properties.inspectionKeys.items, { maxItems: 3 }),
     tasks: Type.Array(Type.Required(goalPlanSchema.properties.tasks.items), { maxItems: 3 }),
   },
   { additionalProperties: false },

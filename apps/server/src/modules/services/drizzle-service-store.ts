@@ -1,11 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Service, ServiceObservation } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
-import { projects, serviceObservations, serviceTargets } from "../../db/schema.js";
+import {
+  projects,
+  serviceInspections,
+  serviceObservations,
+  serviceTargets,
+} from "../../db/schema.js";
 import { assertExecutionOwner } from "../execution/execution-owner.js";
 import { interpretObservation, type ObservationResult } from "./observe-service.js";
 import type { ServiceTargetConfig } from "./service-config.js";
+import { serviceConfigurationVersion } from "./service-config.js";
+import { pendingServiceInspections } from "./service-inspections.js";
 
 function observation(
   row: typeof serviceObservations.$inferSelect | undefined,
@@ -74,6 +81,10 @@ export function readServiceViews(
       return {
         key: target.key,
         name: target.name,
+        onDemand: target.onDemand,
+        ...(configuredOnly && target.onDemand
+          ? { configurationVersion: serviceConfigurationVersion(target.fingerprint) }
+          : {}),
         projectId: target.projectId,
         enabled,
         intervalMs: target.intervalMs,
@@ -122,6 +133,7 @@ export function createDrizzleServiceStore(
               staleAfterMs: target.staleAfterMs,
               allowWaiting: target.allowWaiting,
               activityTimeoutMs: target.activityTimeoutMs,
+              onDemand: target.onDemand ?? false,
             };
             tx.insert(serviceTargets)
               .values(row)
@@ -132,7 +144,19 @@ export function createDrizzleServiceStore(
         { behavior: "immediate" },
       );
     },
-    save(target: ServiceTargetConfig, result: ObservationResult) {
+    inspections(target: ServiceTargetConfig) {
+      const runIds = pendingServiceInspections(db, target);
+      const latest = runIds.length
+        ? db
+            .select({ receivedAt: serviceObservations.receivedAt })
+            .from(serviceObservations)
+            .where(eq(serviceObservations.targetKey, target.key))
+            .orderBy(desc(serviceObservations.sequence))
+            .get()
+        : undefined;
+      return { runIds, nextCheckAt: latest ? latest.receivedAt.getTime() + target.intervalMs : 0 };
+    },
+    save(target: ServiceTargetConfig, result: ObservationResult, inspectionRunIds: string[] = []) {
       db.transaction(
         (tx) => {
           assertExecutionOwner(tx, ownerToken);
@@ -151,6 +175,18 @@ export function createDrizzleServiceStore(
               ...result,
             })
             .run();
+          if (inspectionRunIds.length)
+            tx.update(serviceInspections)
+              .set({ completedAt: result.receivedAt })
+              .where(
+                and(
+                  eq(serviceInspections.targetKey, target.key),
+                  eq(serviceInspections.fingerprint, target.fingerprint),
+                  inArray(serviceInspections.runId, inspectionRunIds),
+                  isNull(serviceInspections.completedAt),
+                ),
+              )
+              .run();
           // 최근 1000건과 마지막 성공 기록을 남겨 장기 운영 시에도 보관량을 제한합니다.
           tx.run(sql`DELETE FROM service_observations WHERE sequence IN (
           SELECT sequence FROM service_observations WHERE target_key = ${target.key} ORDER BY sequence DESC LIMIT -1 OFFSET 1000

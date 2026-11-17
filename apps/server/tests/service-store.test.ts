@@ -190,6 +190,23 @@ test("the observer serializes requests and stopping it aborts only its pending r
   expect(database.db.select().from(serviceObservations).all()).toHaveLength(1);
   expect(monitor.getStatus().enabledKeys.size).toBe(0);
 });
+
+test("on-demand targets do not make network requests without a persisted planning request", async () => {
+  const selected = { ...target, onDemand: true };
+  store.configure([selected]);
+  const read = vi.fn(async () => good());
+  const monitor = createServiceObserver({
+    targets: [selected],
+    store,
+    observe: read,
+    report: () => {},
+  });
+  cleanup.push(() => monitor.stop());
+  monitor.start();
+  expect(read).not.toHaveBeenCalled();
+  expect(monitor.getStatus().enabledKeys.has(selected.key)).toBe(true);
+  expect(monitor.getStatus().nextChecks.has(selected.key)).toBe(false);
+});
 test("persistence failure marks that target unknown and does not prevent other targets from being observed", async () => {
   const next = { ...target, key: "second", fingerprint: "second" };
   store.configure([target, next]);

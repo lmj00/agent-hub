@@ -42,6 +42,9 @@ import { createProjectBudgetStore } from "../../src/modules/budgets/project-budg
 import { readPlanningWork } from "../../src/modules/goals/planning-work-state.js";
 import { initialRetryState, defaultRetryPolicy } from "../../src/modules/execution/retry-policy.js";
 import type { AnalysisExecutor, AnalysisRequest } from "../../src/modules/execution/analysis.js";
+import { createDrizzleServiceStore } from "../../src/modules/services/drizzle-service-store.js";
+import { createServiceObserver } from "../../src/modules/services/service-observer.js";
+import { serviceInspections } from "../../src/db/schema.js";
 
 const definition: GoalDefinition = {
   description: "Complete an example app",
@@ -117,6 +120,31 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true });
 });
 const reserve = () => planner.reserveNext(["example"])!;
+function inspectionFixture() {
+  const target = {
+    key: "research",
+    projectId,
+    name: "Research detail",
+    onDemand: true,
+    fingerprint: "a".repeat(64),
+    url: "http://127.0.0.1:4321/research",
+    timeoutMs: 1000,
+    intervalMs: 60000,
+    staleAfterMs: 3600000,
+    allowWaiting: true,
+    activityTimeoutMs: null,
+  };
+  const services = createDrizzleServiceStore(database.db);
+  services.configure([target]);
+  const observer = {
+    enabledKeys: new Set([target.key]),
+    errors: new Set<string>(),
+    nextChecks: new Map<string, Date>(),
+  };
+  planner = createPlanningStore(database.db, undefined, () => observer);
+  store = createDrizzleRunStore(database.db, undefined, {}, { getObserverStatus: () => observer });
+  return { target, services };
+}
 const runRow = (taskId: string) =>
   database.db.select().from(runs).where(eq(runs.taskId, taskId)).get()!;
 const workRows = () =>
@@ -146,6 +174,184 @@ function proposal(request: AnalysisRequest, overrides: Partial<GoalPlan> = {}): 
     ...overrides,
   };
 }
+
+test("a coordinator requests only selected evidence, survives reopening, and consumes it once", async () => {
+  const { target } = inspectionFixture();
+  const plan = reserve();
+  expect(
+    (await execute(plan.taskId, { outcome: "wait", tasks: [], inspectionKeys: [target.key] }))
+      .status,
+  ).toBe("succeeded");
+  const run = runRow(plan.taskId);
+  expect(workRows()).toEqual([]);
+  database.close();
+  database = openDatabase(join(directory, "hub.sqlite"));
+  const services = createDrizzleServiceStore(database.db);
+  services.configure([target]);
+  expect(services.inspections(target).runIds).toEqual([run.id]);
+  const read = vi.fn(async () => ({
+    receivedAt: new Date(),
+    success: true,
+    errorCode: null,
+    snapshot: {
+      observedAt: new Date().toISOString(),
+      processState: "unknown" as const,
+      activityState: "unknown" as const,
+      lastSuccessAt: null,
+      nextExpectedAt: null,
+      errorCount: 0,
+      summary: "Research only",
+      details: "sample_count=12; incomplete_fees=2",
+    },
+  }));
+  const monitor = createServiceObserver({
+    targets: [target],
+    store: services,
+    observe: read,
+    report: () => {},
+  });
+  try {
+    monitor.start();
+    await vi.waitFor(() =>
+      expect(database.db.select().from(serviceInspections).get()?.completedAt).toBeInstanceOf(Date),
+    );
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(services.inspections(target).runIds).toEqual([]);
+    expect(services.list(projectId, monitor.getStatus())[0]?.latest?.snapshot?.details).toContain(
+      "sample_count=12",
+    );
+  } finally {
+    await monitor.stop();
+  }
+  const restarted = createServiceObserver({
+    targets: [target],
+    store: services,
+    observe: read,
+    report: () => {},
+  });
+  restarted.start();
+  await restarted.stop();
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+test.each(["foreign", "changed", "disabled", "periodic", "duplicate", "work"])(
+  "invalid evidence selection %s creates no read request or work",
+  async (kind) => {
+    const { target } = inspectionFixture();
+    const plan = reserve();
+    const result = await execute(
+      plan.taskId,
+      {
+        outcome: kind === "work" ? "work" : "wait",
+        ...(kind === "work" ? {} : { tasks: [] }),
+        inspectionKeys:
+          kind === "foreign"
+            ? ["foreign"]
+            : kind === "duplicate"
+              ? [target.key, target.key]
+              : [target.key],
+      },
+      () => {
+        if (kind === "changed")
+          database.db
+            .update(serviceTargets)
+            .set({ fingerprint: "b".repeat(64) })
+            .run();
+        if (kind === "disabled")
+          database.db.update(serviceTargets).set({ configured: false }).run();
+        if (kind === "periodic") database.db.update(serviceTargets).set({ onDemand: false }).run();
+      },
+    );
+    expect(result).toMatchObject({ status: "blocked", errorCode: "invalid_plan" });
+    expect(database.db.select().from(serviceInspections).all()).toEqual([]);
+    expect(workRows()).toEqual([]);
+  },
+);
+
+test.each(["pause", "version", "cancel", "configuration", "project"])(
+  "accepted evidence requests do not dispatch after %s changes",
+  async (kind) => {
+    const { target, services } = inspectionFixture();
+    const plan = reserve();
+    await execute(plan.taskId, { outcome: "wait", tasks: [], inspectionKeys: [target.key] });
+    expect(services.inspections(target).runIds).toHaveLength(1);
+    if (kind === "pause") goalStore.change(goalId, "pause-inspection", 1, { action: "pause" });
+    if (kind === "version")
+      goalStore.change(goalId, "edit-inspection", 1, {
+        definition: { ...definition, description: "New scope" },
+      });
+    if (kind === "cancel")
+      database.db
+        .update(tasks)
+        .set({ cancelRequestedAt: new Date() })
+        .where(eq(tasks.id, plan.taskId))
+        .run();
+    if (kind === "configuration") services.configure([{ ...target, fingerprint: "b".repeat(64) }]);
+    if (kind === "project") {
+      const other = randomUUID();
+      database.db
+        .insert(projects)
+        .values({ id: other, name: "Other", workspaceKey: "other", createdAt: new Date() })
+        .run();
+      services.configure([{ ...target, projectId: other }]);
+    }
+    expect(services.inspections(target).runIds).toEqual([]);
+  },
+);
+
+test("inspection delivery rollback preserves the request and cooldown survives storage recreation", async () => {
+  const { target, services } = inspectionFixture();
+  const plan = reserve();
+  await execute(plan.taskId, { outcome: "wait", tasks: [], inspectionKeys: [target.key] });
+  const pending = services.inspections(target).runIds;
+  database.client.exec(
+    "CREATE TRIGGER reject_receipt BEFORE UPDATE ON service_inspections BEGIN SELECT RAISE(ABORT, 'fixture'); END;",
+  );
+  const failure = { receivedAt: new Date(), success: false, errorCode: "timeout", snapshot: null };
+  expect(() => services.save(target, failure, pending)).toThrow();
+  expect(database.db.select().from(serviceObservations).all()).toEqual([]);
+  expect(services.inspections(target).runIds).toEqual(pending);
+  database.client.exec("DROP TRIGGER reject_receipt");
+  services.save(target, failure, pending);
+  expect(services.inspections(target).runIds).toEqual([]);
+  const next = planner.reserveNext(["example"], new Date(goalStore.findById(goalId).nextCheckAt!))!;
+  await execute(next.taskId, { outcome: "wait", tasks: [], inspectionKeys: [target.key] });
+  const reopened = createDrizzleServiceStore(database.db);
+  expect(reopened.inspections(target).nextCheckAt).toBe(
+    failure.receivedAt.getTime() + target.intervalMs,
+  );
+});
+
+test("changed detail wakes a waiting coordinator; identical detail and a fresh timestamp do not", async () => {
+  const { target, services } = inspectionFixture();
+  const save = (details: string) =>
+    services.save(target, {
+      receivedAt: new Date(),
+      success: true,
+      errorCode: null,
+      snapshot: {
+        observedAt: new Date().toISOString(),
+        processState: "unknown",
+        activityState: "unknown",
+        lastSuccessAt: null,
+        nextExpectedAt: null,
+        errorCount: 0,
+        summary: "Research",
+        details,
+      },
+    });
+  save("count=1");
+  await execute(reserve().taskId, { outcome: "wait", tasks: [] });
+  const due = new Date(goalStore.findById(goalId).nextCheckAt!);
+  save("count=1");
+  expect(planner.reserveNext(["example"], due)).toBeNull();
+  save("count=2");
+  const next = planner.reserveNext(["example"], new Date(goalStore.findById(goalId).nextCheckAt!))!;
+  expect(next).not.toBeNull();
+  expect(
+    readPlanningContext(database.db, next.taskId)?.services[0]?.latest?.snapshot?.details,
+  ).toBe("count=2");
+});
 async function execute(
   taskId: string,
   overrides: Partial<GoalPlan> = {},

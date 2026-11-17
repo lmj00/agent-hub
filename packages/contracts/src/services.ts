@@ -9,6 +9,9 @@ export const serviceSnapshotSchema = object({
   nextExpectedAt: nullable(date),
   errorCount: Type.Integer({ minimum: 0, maximum: 2147483647 }),
   summary: Type.String({ maxLength: 500 }),
+  // Optional bounded evidence from an operator-configured read-only adapter.
+  details: Type.Optional(Type.String({ maxLength: 6000 })),
+  detailsTruncated: Type.Optional(Type.Boolean()),
 });
 export type ServiceSnapshot = Static<typeof serviceSnapshotSchema>;
 export const serviceObservationSchema = object({
@@ -32,6 +35,8 @@ export type ServiceState = (typeof serviceStates)[number];
 export const planningServiceSchema = object({
   key: text,
   name: text,
+  onDemand: Type.Optional(Type.Boolean()),
+  configurationVersion: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })),
   enabled: Type.Boolean(),
   state: enumeration(serviceStates),
   reason: text,
@@ -42,6 +47,8 @@ export type PlanningService = Static<typeof planningServiceSchema>;
 export const serviceSchema = object({
   key: text,
   name: text,
+  onDemand: Type.Optional(Type.Boolean()),
+  configurationVersion: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })),
   projectId: id,
   enabled: Type.Boolean(),
   intervalMs: Type.Integer(),

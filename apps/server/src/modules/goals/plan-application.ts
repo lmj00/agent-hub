@@ -14,6 +14,7 @@ import { preparedGoalChanged, planningSourceChanged } from "./prepared-input-sto
 import { goalVerificationOutcome } from "./goal-verification.js";
 import { overlappingWorkPaths, readPlanningWork } from "./planning-work-state.js";
 import { goalCriteria } from "./goal-criteria.js";
+import { requestServiceInspections } from "../services/service-inspections.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "insert" | "update">;
 
@@ -126,6 +127,8 @@ export function applyPlanningCompletion(
   )
     return reject("plan_criteria_invalid");
   const createdTaskIds: string[] = [];
+  if (!requestServiceInspections(db, run, plan.inspectionKeys ?? [], now))
+    return reject("invalid_plan");
   const suppressed: NonNullable<PlanResult["suppressed"]> = [];
   for (const [proposalIndex, proposed] of plan.tasks.entries()) {
     const blocking = work.suppressed.filter(

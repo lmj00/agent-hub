@@ -114,6 +114,58 @@ beforeEach(async () => {
   );
   target = loadServiceConfig(path).targets[0]!;
 });
+
+test("bounded detail uses the same credential redaction and rejects oversized evidence", async () => {
+  const fetcher = (details: string) =>
+    (async () =>
+      new Response(JSON.stringify(snapshot({ details })), {
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+  const signal = new AbortController().signal;
+  const result = await observeService(
+    target,
+    signal,
+    fetcher(`counts=12 ${token} ${target.url} sk-test-evidence-secret`),
+  );
+  expect(result.success).toBe(true);
+  expect(result.snapshot?.details).toContain("counts=12");
+  expect(JSON.stringify(result)).not.toContain(token);
+  expect(JSON.stringify(result)).not.toContain(target.url);
+  expect(JSON.stringify(result)).not.toContain("sk-test-evidence-secret");
+  expect(await observeService(target, signal, fetcher("x".repeat(6001)))).toMatchObject({
+    success: false,
+    errorCode: "invalid_payload",
+    snapshot: null,
+  });
+});
+
+test("on-demand policy is explicit and changes the source configuration fingerprint", () => {
+  const file = join(directory, "on-demand.json");
+  const save = (onDemand: unknown) =>
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        targets: [
+          {
+            key: target.key,
+            projectId: target.projectId,
+            name: target.name,
+            url: target.url,
+            onDemand,
+          },
+        ],
+      }),
+      { mode: 0o600 },
+    );
+  save(false);
+  const periodic = loadServiceConfig(file).targets[0]!;
+  save(true);
+  expect(loadServiceConfig(file).targets[0]).toMatchObject({ onDemand: true });
+  expect(loadServiceConfig(file).targets[0]!.fingerprint).not.toBe(periodic.fingerprint);
+  save("true");
+  expect(() => loadServiceConfig(file)).toThrow("onDemand");
+});
 afterEach(async () => {
   server.closeAllConnections();
   await new Promise<void>((resolve) => server.close(() => resolve()));

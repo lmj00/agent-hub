@@ -429,6 +429,37 @@ test("refuses an oversized required Goal instead of silently dropping permission
   };
   expect(() => buildPlanningInput(input, prepared())).toThrow("input_unavailable");
 });
+
+test("large selected evidence retains every source and marks shortened details rather than dropping sources", () => {
+  services.save(target, good());
+  const input = context();
+  const original = input.services[0]!;
+  input.services = Array.from({ length: 5 }, (_, index) => {
+    const service = structuredClone(original);
+    service.key = `source-${index}`;
+    service.onDemand = true;
+    service.configurationVersion = "a".repeat(64);
+    service.latest!.snapshot!.details = "한".repeat(5000);
+    service.lastSuccessful!.snapshot!.details = service.latest!.snapshot!.details;
+    return service;
+  });
+  const before = structuredClone(input);
+  const built = buildPlanningInput(input, prepared());
+  expect(built.services.map((service) => service.key)).toEqual(
+    input.services.map((service) => service.key),
+  );
+  expect(built.counts.services).toEqual({ total: 5, included: 5 });
+  expect(
+    Buffer.byteLength(JSON.stringify({ instruction: planningInstruction(built) })),
+  ).toBeLessThanOrEqual(60000);
+  for (const service of built.services) {
+    expect(service.latest?.snapshot?.details?.length).toBeGreaterThan(0);
+    if (service.latest!.snapshot!.details!.length < 5000)
+      expect(service.latest!.snapshot!.detailsTruncated).toBe(true);
+    expect(service.lastSuccessful?.snapshot?.details).toBeUndefined();
+  }
+  expect(input).toEqual(before);
+});
 test("fails before calling the provider when required Goal context cannot fit", async () => {
   const goalStore = createDrizzleGoalStore(database.db);
   goalStore.change(goalId, "large", 1, {

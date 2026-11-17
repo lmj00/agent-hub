@@ -61,6 +61,8 @@ function planningStateFingerprint(
     .sort((a, b) => a.key.localeCompare(b.key))
     .map((service) => ({
       key: service.key,
+      configurationVersion: service.configurationVersion,
+      onDemand: service.onDemand,
       enabled: service.enabled,
       state: service.state,
       reason: service.reason,
@@ -72,6 +74,8 @@ function planningStateFingerprint(
             activityState: service.latest.snapshot.activityState,
             errorCount: service.latest.snapshot.errorCount,
             summary: service.latest.snapshot.summary,
+            details: service.latest.snapshot.details,
+            detailsTruncated: service.latest.snapshot.detailsTruncated,
           }
         : null,
     }));
@@ -132,6 +136,9 @@ export function readPlanningContext(
                 ? {
                     ...value.snapshot,
                     summary: redactOutput(value.snapshot.summary),
+                    ...(value.snapshot.details !== undefined
+                      ? { details: redactOutput(value.snapshot.details) }
+                      : {}),
                   }
                 : null,
             }
@@ -139,6 +146,10 @@ export function readPlanningContext(
       return {
         key: service.key,
         name: redactOutput(service.name),
+        ...(service.onDemand !== undefined ? { onDemand: service.onDemand } : {}),
+        ...(service.configurationVersion !== undefined
+          ? { configurationVersion: service.configurationVersion }
+          : {}),
         enabled: service.enabled,
         state: service.state,
         reason: service.reason,
