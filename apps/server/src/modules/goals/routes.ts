@@ -6,6 +6,7 @@ import {
   goalSchema,
   goalsSchema,
   goalHistorySchema,
+  goalProgressSchema,
   errorResponses,
   idParamsSchema,
   projectParamsSchema,
@@ -95,6 +96,13 @@ export const goalRoutes: FastifyPluginAsync<{
       },
     },
     async (request) => store.findById(request.params.id),
+  );
+  app.get<{ Params: { id: string } }>(
+    "/goals/:id/progress",
+    {
+      schema: { params: idParamsSchema, response: { 200: goalProgressSchema, ...errorResponses } },
+    },
+    async (request) => store.progress(request.params.id),
   );
   app.get<{ Params: { id: string } }>(
     "/goals/:id/revisions",

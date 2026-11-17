@@ -13,7 +13,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import type { GoalDefinition } from "@agent-hub/contracts";
+import type { GoalDefinition, AnalysisAssessment } from "@agent-hub/contracts";
+import { goalCriteria } from "../../src/modules/goals/goal-criteria.js";
+import { readGoalProgress } from "../../src/modules/goals/goal-progress.js";
 import { openDatabase } from "../../src/db/connection.js";
 import {
   budgetPeriods,
@@ -141,6 +143,7 @@ function fixture(
     outcome?: "complete" | "wait";
     failed?: boolean;
     reject?: boolean;
+    criterionChecks?: AnalysisAssessment["criterionChecks"];
     noLoad?: boolean;
     beforeCall?: (request: AnalysisRequest, call: number) => void | Promise<void>;
     afterEvent?: (event: AnalysisEvent) => void | Promise<void>;
@@ -223,7 +226,10 @@ function fixture(
         output: JSON.stringify(
           options.reject
             ? { ...approval, complete: false, unresolved: ["목표 기준 부족"] }
-            : approval,
+            : {
+                ...approval,
+                ...(options.criterionChecks ? { criterionChecks: options.criterionChecks } : {}),
+              },
         ),
         usage,
       };
@@ -866,3 +872,58 @@ test.each([
     expect(database.db.select().from(goalRevisions).all()).toHaveLength(1);
   },
 );
+
+test.each(["unmet", "unknown", "foreign", "missing"])(
+  "whole-Goal claim cannot override criterion review: %s",
+  async (mode) => {
+    const criteria = goalCriteria(goalId, definition);
+    const criterionChecks =
+      mode === "missing"
+        ? []
+        : [
+            {
+              id: mode === "foreign" ? "f".repeat(64) : criteria[0]!.id,
+              status:
+                mode === "unmet"
+                  ? ("unmet" as const)
+                  : mode === "unknown"
+                    ? ("unknown" as const)
+                    : ("verified" as const),
+              evidence: ["criterion review fixture"],
+            },
+          ];
+    await execute(fixture({ criterionChecks }).executor);
+    expect(database.db.select().from(goals).get()!.status).toBe("active");
+    expect(goalVerificationPassed(database.db, row())).toBe(false);
+    expect(readGoalProgress(database.db, goalId).verifiedCount).toBe(0);
+  },
+);
+
+test("whole-Goal completion retains criterion evidence across its automatic version increment", async () => {
+  const criteria = goalCriteria(goalId, definition);
+  await execute(
+    fixture({
+      criterionChecks: criteria.map((item) => ({
+        id: item.id,
+        status: "verified",
+        evidence: ["src/main.mjs and tests/verify.mjs"],
+      })),
+    }).executor,
+  );
+  expect(database.db.select().from(goals).get()!).toMatchObject({
+    status: "completed",
+    version: 2,
+  });
+  // No tracked development HEAD exists for this untouched-source fixture. Keep
+  // its exact historical proof visible, but do not invent current-code freshness.
+  expect(readGoalProgress(database.db, goalId)).toMatchObject({
+    goalVersion: 2,
+    verifiedCount: 0,
+    criteria: [
+      {
+        status: "recheck",
+        proof: { runId: row().id, evidence: ["src/main.mjs and tests/verify.mjs"] },
+      },
+    ],
+  });
+});

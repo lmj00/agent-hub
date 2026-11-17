@@ -1,5 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import type { AnalysisAssessment } from "@agent-hub/contracts";
+import { goalCriteria } from "../../src/modules/goals/goal-criteria.js";
+import { readGoalProgress } from "../../src/modules/goals/goal-progress.js";
 import {
   cpSync,
   mkdirSync,
@@ -170,7 +173,7 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true });
 });
 
-async function approvedRound() {
+async function approvedRound(criterionChecks?: AnalysisAssessment["criterionChecks"]) {
   const executor: AnalysisExecutor = {
     async analyze(request, onEvent) {
       const identity: ExecutionIdentity = {
@@ -203,6 +206,7 @@ async function approvedRound() {
           },
         };
       const assessment = {
+        ...(criterionChecks ? { criterionChecks } : {}),
         report: "Candidate inspected",
         evidence: ["src/main.mjs"],
         unresolved: [],
@@ -1222,3 +1226,137 @@ test("planning reservations wait for a pending application from another Goal in 
   // The first Goal still has running work, but the distinct Goal can now plan.
   expect(createPlanningStore(database.db).reserveNext(["fixture"])?.goalId).toBe(other.id);
 });
+
+test("criterion proof requires applied independent review, survives reopen and expires on source or Goal change", async () => {
+  const goal = database.db.select().from(goals).where(eq(goals.id, goalId)).get()!;
+  const criteria = goalCriteria(goalId, goal.definition);
+  const task = database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+  database.db
+    .update(tasks)
+    .set({
+      plannedWork: {
+        ...task.plannedWork!,
+        goalCriteria: criteria,
+        criterionIds: criteria.map((item) => item.id),
+      },
+    })
+    .where(eq(tasks.id, taskId))
+    .run();
+  const checks = criteria.map((item) => ({
+    id: item.id,
+    status: "verified" as const,
+    evidence: ["src/main.mjs returns 42; fixed suite passed"],
+  }));
+  await approvedRound(checks);
+  expect(readGoalProgress(database.db, goalId).verifiedCount).toBe(0);
+  await prepared();
+  expect(readGoalProgress(database.db, goalId).verifiedCount).toBe(0);
+  const applied = await apply();
+  expect(readGoalProgress(database.db, goalId).verifiedCount).toBe(0);
+  store.finish(run.id, {
+    status: "succeeded",
+    result: "Candidate inspected",
+    errorCode: null,
+    usage: null,
+    terminationConfirmedAt: new Date(),
+  });
+  const progress = readGoalProgress(database.db, goalId);
+  expect(progress).toMatchObject({
+    verifiedCount: 1,
+    sourceRevision: applied.resultCommit,
+    criteria: [
+      {
+        status: "verified",
+        taskId,
+        proof: {
+          runId: run.id,
+          sourceRevision: applied.resultCommit,
+          evidence: checks[0]!.evidence,
+        },
+      },
+    ],
+  });
+  reopen();
+  expect(readGoalProgress(database.db, goalId)).toEqual(progress);
+  const goalStore = createDrizzleGoalStore(database.db);
+  goalStore.change(goalId, "pause-for-history", 1, { action: "pause" });
+  expect(readGoalProgress(database.db, goalId)).toMatchObject({
+    verifiedCount: 0,
+    criteria: [{ status: "recheck", taskId }],
+  });
+  goalStore.change(goalId, "resume-for-history", 2, { action: "resume" });
+  expect(readGoalProgress(database.db, goalId).criteria[0]!.taskId).toBe(taskId);
+  database.db
+    .update(developmentRepositories)
+    .set({ prepared: { ...repository(), head: "f".repeat(40) } })
+    .where(eq(developmentRepositories.projectId, projectId))
+    .run();
+  expect(readGoalProgress(database.db, goalId)).toMatchObject({
+    verifiedCount: 0,
+    criteria: [{ status: "recheck" }],
+  });
+  database.db
+    .update(developmentRepositories)
+    .set({ prepared: { ...repository(), head: applied.resultCommit } })
+    .where(eq(developmentRepositories.projectId, projectId))
+    .run();
+  createDrizzleGoalStore(database.db).change(goalId, "changed-criterion", 3, {
+    definition: { ...goal.definition, completionCriteria: "Result is 43, not the previous result" },
+  });
+  expect(readGoalProgress(database.db, goalId)).toMatchObject({
+    verifiedCount: 0,
+    criteria: [{ status: "pending", proof: null }],
+  });
+});
+
+test.each(["legacy", "foreign", "duplicate", "unknown", "tampered-test"])(
+  "Task success does not count as criterion proof: %s",
+  async (mode) => {
+    const goal = database.db.select().from(goals).where(eq(goals.id, goalId)).get()!;
+    const criteria = goalCriteria(goalId, goal.definition);
+    const task = database.db.select().from(tasks).where(eq(tasks.id, taskId)).get()!;
+    database.db
+      .update(tasks)
+      .set({
+        plannedWork: {
+          ...task.plannedWork!,
+          goalCriteria: criteria,
+          criterionIds: criteria.map((item) => item.id),
+        },
+      })
+      .where(eq(tasks.id, taskId))
+      .run();
+    const check = {
+      id: mode === "foreign" ? "0".repeat(64) : criteria[0]!.id,
+      status: mode === "unknown" ? ("unknown" as const) : ("verified" as const),
+      evidence: ["Claimed criterion evidence"],
+    };
+    await approvedRound(
+      mode === "legacy" ? undefined : mode === "duplicate" ? [check, check] : [check],
+    );
+    await prepared();
+    await apply();
+    store.finish(run.id, {
+      status: "succeeded",
+      result: "Candidate inspected",
+      errorCode: null,
+      usage: null,
+      terminationConfirmedAt: new Date(),
+    });
+    if (mode === "tampered-test") {
+      const round = database.db
+        .select()
+        .from(developmentRounds)
+        .where(eq(developmentRounds.runId, run.id))
+        .get()!;
+      database.db
+        .update(developmentRounds)
+        .set({
+          verificationResult: { ...round.verificationResult!, status: "failed", exitCode: 1 },
+        })
+        .where(eq(developmentRounds.runId, run.id))
+        .run();
+    }
+    expect(readGoalProgress(database.db, goalId).verifiedCount).toBe(0);
+  },
+);

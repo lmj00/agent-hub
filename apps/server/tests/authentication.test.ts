@@ -87,6 +87,7 @@ test("only liveness and authentication endpoints are public; private reads and w
     "/projects/00000000-0000-4000-8000-000000000001/budget",
     "/projects/00000000-0000-4000-8000-000000000001/goals",
     "/goals/00000000-0000-4000-8000-000000000001/revisions",
+    "/goals/00000000-0000-4000-8000-000000000001/progress",
   ]) {
     const response = await app.inject({ method: "GET", url });
     expect(response.statusCode).toBe(401);

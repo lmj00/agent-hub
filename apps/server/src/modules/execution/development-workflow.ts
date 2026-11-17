@@ -84,6 +84,9 @@ export function developmentInstruction(input: {
   previousReview?: AnalysisAssessment;
 }) {
   const prompt = [
+    input.role === "reviewer"
+      ? criterionReviewInstruction
+      : "Return criterionChecks=[]; only the independent reviewer evaluates Goal criteria.",
     `Role: ${input.role}. Development round ${input.round}/${maxDevelopmentRounds}. Work only on this Task.`,
     input.role === "developer"
       ? "Implement the requested change. Use prior test failures and review findings to correct the same candidate. Do not change test expectations to hide a failure. The server runs the fixed verification separately. Your report cannot approve or apply the change. Propose effort (medium/high/xhigh) for the independent review."
@@ -105,6 +108,9 @@ export function developmentInstruction(input: {
         ? { assignedAgent: input.work.agent }
         : {}),
       title: input.work.title,
+      ...(input.work.goalCriteria
+        ? { goalCriteria: input.work.goalCriteria, assignedCriterionIds: input.work.criterionIds }
+        : {}),
       acceptanceCriteria: input.work.acceptanceCriteria,
       writePaths: input.work.paths,
       evidence: input.work.evidence,
@@ -126,3 +132,6 @@ export function developmentInstruction(input: {
   if (Buffer.byteLength(prompt) > 60000) throw new AnalysisError("workflow_limit");
   return prompt;
 }
+
+export const criterionReviewInstruction =
+  "For goalCriteria, evaluate EVERY entire criterion independently, not just the assigned subtask. Return criterionChecks with exactly one matching id per criterion and concrete file/test evidence: verified only when this exact code and the server-run tests establish the whole criterion, unmet for an observed gap, unknown for missing evidence or integrations not actually tested. A passed Task does not imply a verified Goal criterion. Do not substitute mocks for requested live integration evidence. When no goalCriteria are supplied, return criterionChecks=[]. Keep each evidence concise; the complete response must fit 32768 UTF-8 bytes.";

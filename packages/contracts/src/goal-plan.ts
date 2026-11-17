@@ -1,6 +1,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 
 import { agentRoleSchema } from "./project-agents.js";
+import { criterionSchema } from "./goal-progress.js";
 
 const text = (maxLength: number) => Type.String({ minLength: 1, maxLength });
 export const goalPlanSchema = Type.Object(
@@ -15,6 +16,9 @@ export const goalPlanSchema = Type.Object(
       Type.Object(
         {
           agent: Type.Optional(agentRoleSchema),
+          criterionIds: Type.Optional(
+            Type.Array(criterionSchema.properties.id, { minItems: 1, maxItems: 32 }),
+          ),
           title: text(160),
           instruction: text(4000),
           acceptanceCriteria: text(2000),

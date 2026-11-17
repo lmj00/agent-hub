@@ -1381,3 +1381,71 @@ test.each([true, false])(
     else expect(outcome.errorCode).toBe("invalid_plan");
   },
 );
+
+test("coordinator links remaining criteria to distinct specialists and persists the exact Goal text", async () => {
+  goalStore.change(goalId, "two-criteria", 1, {
+    definition: { ...definition, completionCriteria: "Return 42\nRegression test proves 42" },
+  });
+  const plan = reserve();
+  const context = readPlanningContext(database.db, plan.taskId)!;
+  const ids = context.progress!.criteria.map((item) => item.id);
+  expect(context.progress).toMatchObject({
+    verifiedCount: 0,
+    criteria: [{ status: "pending" }, { status: "pending" }],
+  });
+  const result = await execute(plan.taskId, {
+    tasks: ids.map((id, index) => ({
+      title: index ? "Test the answer" : "Implement the answer",
+      instruction: "Advance the assigned condition",
+      acceptanceCriteria: index ? "Test proves 42" : "Return 42",
+      paths: [index ? "tests/main.test.ts" : "src/main.ts"],
+      evidence: ["Prepared code lacks this behavior"],
+      criterionIds: [id],
+      agent: {
+        key: index ? "testing" : "implementation",
+        name: index ? "검증 담당" : "구현 담당",
+        mission: "Complete the assigned criterion",
+      },
+    })),
+  });
+  expect(result.status).toBe("succeeded");
+  const work = workRows();
+  expect(work).toHaveLength(2);
+  expect(work.map((item) => item.plannedWork!.criterionIds![0]).sort()).toEqual([...ids].sort());
+  expect(new Set(work.map((item) => item.plannedWork!.agent!.id)).size).toBe(2);
+  for (const task of work)
+    expect(task.plannedWork!.goalCriteria?.map((item) => item.text)).toEqual([
+      "Return 42",
+      "Regression test proves 42",
+    ]);
+  const { readGoalProgress } = await import("../../src/modules/goals/goal-progress.js");
+  expect(readGoalProgress(database.db, goalId)).toMatchObject({
+    verifiedCount: 0,
+    criteria: [
+      { status: "queued", taskId: expect.any(String) },
+      { status: "queued", taskId: expect.any(String) },
+    ],
+  });
+});
+
+test.each(["foreign", "duplicate"])(
+  "invalid criterion binding rejects the entire plan: %s",
+  async (kind) => {
+    const plan = reserve();
+    const id = readPlanningContext(database.db, plan.taskId)!.progress!.criteria[0]!.id;
+    const result = await execute(plan.taskId, {
+      tasks: [
+        {
+          title: "Change answer",
+          instruction: "Return 42",
+          acceptanceCriteria: "Return 42",
+          paths: ["src/main.ts"],
+          evidence: ["Returns 41"],
+          criterionIds: kind === "foreign" ? ["f".repeat(64)] : [id, id],
+        },
+      ],
+    });
+    expect(result).toMatchObject({ status: "blocked", errorCode: "invalid_plan" });
+    expect(workRows()).toHaveLength(0);
+  },
+);

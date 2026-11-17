@@ -13,6 +13,7 @@ import {
 import { preparedGoalChanged, planningSourceChanged } from "./prepared-input-store.js";
 import { goalVerificationOutcome } from "./goal-verification.js";
 import { overlappingWorkPaths, readPlanningWork } from "./planning-work-state.js";
+import { goalCriteria } from "./goal-criteria.js";
 
 type Db = Pick<ReturnType<typeof openDatabase>["db"], "select" | "insert" | "update">;
 
@@ -105,7 +106,14 @@ export function applyPlanningCompletion(
     incompleteGoal = verification === "incomplete";
   }
   const agents = new Map(readGoalAgents(db, goal.id).map((agent) => [agent.key, agent]));
+  const criteria = goalCriteria(goal.id, goal.definition);
   for (const proposed of plan.tasks) {
+    if (
+      proposed.criterionIds &&
+      (new Set(proposed.criterionIds).size !== proposed.criterionIds.length ||
+        proposed.criterionIds.some((id) => !criteria.some((item) => item.id === id)))
+    )
+      return reject("invalid_plan");
     if (proposed.agent && !agents.has(proposed.agent.key))
       agents.set(proposed.agent.key, assignedAgent(goal.id, proposed.agent));
   }
@@ -137,6 +145,9 @@ export function applyPlanningCompletion(
       continue;
     const id = randomUUID();
     const plannedWork: PlannedWork = {
+      ...(proposed.criterionIds
+        ? { criterionIds: proposed.criterionIds, goalCriteria: criteria }
+        : {}),
       ...(proposed.agent ? { agent: agents.get(proposed.agent.key)! } : {}),
       planningTaskId: run.taskId,
       problemKey: key,

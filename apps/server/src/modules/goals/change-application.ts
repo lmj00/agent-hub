@@ -207,6 +207,26 @@ function matches(application: ChangeApplication, current: ReturnType<typeof evid
   );
 }
 
+// Read the same parent-owned proof used by completion/recovery, never a Task's report.
+export function readAppliedCriterionEvidence(db: Reader, application: ChangeApplication) {
+  try {
+    if (application.status !== "applied" || !application.appliedAt) return null;
+    const current = evidence(db, application.runId);
+    if (
+      !matches(application, current) ||
+      current.run.status !== "succeeded" ||
+      !current.run.terminationConfirmedAt
+    )
+      return null;
+    return {
+      assessment: current.round.review!.assessment,
+      criteria: current.task.plannedWork?.goalCriteria,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Reservation and cancel/Goal updates are ordered by the SQLite writer. Only a
 // reservation made before a stop may reach Git; subsequent stops do not erase it.
 export async function prepareChangeApplication(

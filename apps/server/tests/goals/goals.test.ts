@@ -360,3 +360,37 @@ test("upgrading a pre-goal database preserves task data and adds both goal table
     upgraded.close();
   }
 });
+
+test("owner progress preserves line criteria and stable identity across restart without inventing legacy work", async () => {
+  const created = await app.inject({
+    method: "POST",
+    url: url(),
+    payload: {
+      requestKey: "items",
+      definition: {
+        ...definition,
+        completionCriteria: "첫 조건\n\n둘째 조건",
+      },
+    },
+  });
+  const goal = created.json();
+  const path = `/goals/${goal.id}/progress`;
+  const response = await app.inject({ method: "GET", url: path });
+  expect(response.statusCode).toBe(200);
+  expect(response.headers["cache-control"]).toBe("no-store");
+  const progress = response.json();
+  expect(progress).toMatchObject({
+    goalVersion: 1,
+    verifiedCount: 0,
+    criteria: [
+      { text: "첫 조건", status: "pending", proof: null },
+      { text: "둘째 조건", status: "pending", proof: null },
+    ],
+  });
+  await app.close();
+  app = buildApp({ databasePath });
+  expect((await app.inject({ method: "GET", url: path })).json()).toEqual(progress);
+  expect(
+    (await app.inject({ method: "GET", url: `/goals/${randomUUID()}/progress` })).statusCode,
+  ).toBe(404);
+});

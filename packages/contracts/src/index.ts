@@ -144,6 +144,12 @@ export {
 } from "./public-projects.js";
 
 export { projectUsageSchema, type ProjectUsage } from "./project-usage.js";
+export {
+  goalProgressSchema,
+  criterionChecksSchema,
+  type GoalProgress,
+  type GoalCriterion,
+} from "./goal-progress.js";
 
 export {
   agentRoleSchema,

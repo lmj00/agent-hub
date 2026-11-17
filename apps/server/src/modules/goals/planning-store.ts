@@ -17,6 +17,7 @@ import { redactOutput } from "../execution/analysis.js";
 import type { PlanningContext } from "./goal-plan-policy.js";
 import { revalidateGoalWork } from "./revalidate-goal-work.js";
 import { readGoalAgents } from "./agent-roles.js";
+import { readGoalProgress } from "./goal-progress.js";
 import { readPlanningWork } from "./planning-work-state.js";
 import { allowedGoalPath, privateInputPath } from "../workspace/prepared-workspace.js";
 
@@ -104,7 +105,12 @@ export function readPlanningContext(
     .limit(20)
     .all();
   const work = readPlanningWork(db, goal.id);
+  const progress = readGoalProgress(db, goal.id);
   return {
+    progress: {
+      verifiedCount: progress.verifiedCount,
+      criteria: progress.criteria.map(({ id, status, taskId }) => ({ id, status, taskId })),
+    },
     agents: readGoalAgents(db, goal.id),
     goalId: goal.id,
     goalVersion: goal.version,

@@ -6,6 +6,7 @@ import { goalRevisions, goals, projects, runs, tasks } from "../../db/schema.js"
 import { GoalError, normalizeGoalDefinition } from "./goal-policy.js";
 import { narrowsGoalScope } from "./goal-scope-policy.js";
 import { revalidateGoalWork } from "./revalidate-goal-work.js";
+import { readGoalProgress } from "./goal-progress.js";
 
 function view(row: typeof goals.$inferSelect): Goal {
   return {
@@ -28,6 +29,9 @@ export function createDrizzleGoalStore(db: ReturnType<typeof openDatabase>["db"]
       throw new GoalError("PROJECT_NOT_FOUND");
   }
   return {
+    progress(id: string) {
+      return db.transaction((tx) => readGoalProgress(tx, id));
+    },
     register(projectId: string, requestKey: string, input: GoalDefinition) {
       const definition = normalizeGoalDefinition(input),
         hash = fingerprint({ action: "create", definition });

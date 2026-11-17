@@ -1,5 +1,6 @@
 import { object, nullable } from "./schema.js";
 import { Type, type Static } from "@sinclair/typebox";
+import { criterionChecksSchema } from "./goal-progress.js";
 
 const scopeExpansionSchema = nullable(
   object({
@@ -12,6 +13,7 @@ const scopeExpansionSchema = nullable(
 );
 
 export const analysisAssessmentSchema = object({
+  criterionChecks: Type.Optional(criterionChecksSchema),
   report: Type.String({ minLength: 1, maxLength: 16000 }),
   evidence: Type.Array(Type.String({ minLength: 1, maxLength: 500 }), {
     maxItems: 8,
@@ -34,6 +36,7 @@ export type AnalysisAssessment = Static<typeof analysisAssessmentSchema>;
 // Structured model output requires every property; stored history stays compatible.
 export const analysisResponseSchema = object({
   ...analysisAssessmentSchema.properties,
+  criterionChecks: criterionChecksSchema,
   scopeExpansion: scopeExpansionSchema,
 });
 // A developer only produces a candidate. Independent verification owns approval.
