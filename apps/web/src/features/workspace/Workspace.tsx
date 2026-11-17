@@ -286,6 +286,12 @@ export function Workspace({
                     projectId={project.id}
                     onExpired={onExpired}
                     onObserved={observeGoals}
+                    active={section === "goals"}
+                    onOpenTask={(id) => {
+                      setTaskId(id);
+                      setSection("work");
+                      document.getElementById("project-nav-work")?.focus();
+                    }}
                   />
                 </div>
               </>

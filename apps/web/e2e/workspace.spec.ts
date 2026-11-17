@@ -2294,3 +2294,66 @@ test("specialist roster opens the assigned task and keeps old projects explicitl
   await panel.getByRole("button", { name: "에이전트 연결 확인", exact: true }).click();
   await expect(page.locator("#detail-heading")).toHaveText("에이전트 연결 확인");
 });
+
+test("goal criteria progress preserves wording, exposes evidence and handles lookup failures", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/");
+  await createProject(page, `조건별 목표 ${Date.now()}`);
+  const projectId = /#project\/(.+)$/.exec(page.url())![1]!;
+  await createTask(page, "조건 연결 확인 작업");
+  const task = (await (await page.request.get(`/projects/${projectId}/tasks`)).json()).tasks[0];
+  await openSection(page, "목표");
+  await page.getByRole("button", { name: "목표 등록 +", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "프로젝트 목표", exact: true })
+    .fill("여러 조건을 확인하는 목표");
+  await page
+    .getByLabel("완료·평가 기준", { exact: true })
+    .fill("첫 번째 기능을 구현한다\n외부 연동은 실제로 확인한다");
+  await page.getByRole("button", { name: "목표 저장", exact: true }).click();
+  await page.getByRole("button", { name: "조건별 진행 보기", exact: true }).click();
+  const progress = page.getByRole("region", { name: "완료 조건별 진행", exact: true });
+  await expect(progress).toContainText("2개 중 0개 검증 완료");
+  await expect(progress).toContainText("외부 연동은 실제로 확인한다");
+  await expect(progress.getByText("미착수", { exact: true })).toHaveCount(2);
+  // UI-only response fixture; server proof validation is tested against actual SQLite/Git journals.
+  await page.route("**/goals/*/progress", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.verifiedCount = 1;
+    data.criteria[0] = {
+      ...data.criteria[0],
+      status: "verified",
+      taskId: task.id,
+      agentName: "구현 담당",
+      proof: {
+        runId: "00000000-0000-4000-8000-000000000001",
+        sourceRevision: "a".repeat(40),
+        recordedAt: "2026-11-17T00:00:00.000Z",
+        evidence: ["화면 검증용 근거: 고정 테스트와 별도 검토"],
+      },
+    };
+    await route.fulfill({ json: data });
+  });
+  await expect(progress).toContainText("2개 중 1개 검증 완료");
+  await progress.locator("summary").click();
+  await expect(progress).toContainText("화면 검증용 근거: 고정 테스트와 별도 검토");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await progress.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("goal-criteria-mobile.png"), fullPage: true });
+  await progress.getByRole("button", { name: "구현 담당 · 연결된 작업 보기 →" }).click();
+  await expect(page.locator("#detail-heading")).toHaveText("조건 연결 확인 작업");
+  await openSection(page, "목표");
+  await expect(progress).toContainText("2개 중 1개 검증 완료");
+  await page.route("**/goals/*/progress", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "UNAVAILABLE", message: "fixture" }),
+    }),
+  );
+  await expect(progress.getByRole("alert")).toContainText("현재 진행 상황을 확인할 수 없습니다");
+  await expect(progress).toContainText("마지막 확인 기록");
+});

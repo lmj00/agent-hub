@@ -10,6 +10,7 @@ import { api, ApiError, errorMessage } from "../../shared/api.js";
 import { usePolling } from "../../shared/use-polling.js";
 import { Drawer } from "../../shared/Drawer.js";
 import { dateTime, taskTitle } from "../../shared/format.js";
+import { GoalProgress } from "./GoalProgress.js";
 
 const labels = { active: "활성", paused: "일시정지", completed: "완료" };
 const defaults: GoalDefinition = {
@@ -27,13 +28,18 @@ export function GoalPanel({
   projectId,
   onExpired,
   onObserved,
+  onOpenTask,
+  active = true,
 }: {
   projectId: string;
   onExpired: () => void;
   onObserved?: (projectId: string, goals: Goal[] | null) => void;
+  onOpenTask?: (id: string) => void;
+  active?: boolean;
 }) {
   const [revision, setRevision] = useState(0),
     [editing, setEditing] = useState<Goal | "new" | null>(null);
+  const [progressId, setProgressId] = useState<string | null>(null);
   const [historyId, setHistoryId] = useState<string | null>(null),
     [error, setError] = useState<unknown>(null),
     [busy, setBusy] = useState(false);
@@ -132,6 +138,22 @@ export function GoalPanel({
                 <summary>완료 기준</summary>
                 <p>{goal.definition.completionCriteria}</p>
               </details>
+              <button
+                className="text-button"
+                aria-expanded={progressId === goal.id}
+                onClick={() => setProgressId(progressId === goal.id ? null : goal.id)}
+              >
+                {progressId === goal.id ? "조건별 진행 접기" : "조건별 진행 보기"}
+              </button>
+              {active && progressId === goal.id ? (
+                <GoalProgress
+                  key={`${goal.id}:${goal.version}`}
+                  goalId={goal.id}
+                  version={goal.version}
+                  onExpired={onExpired}
+                  {...(onOpenTask ? { onOpenTask } : {})}
+                />
+              ) : null}
               <p className="subtle-note">
                 {goal.definition.kind === "finite" ? "완료 기준이 있는 목표" : "지속 관리 목표"} ·
                 우선순위 {goal.definition.priority}
@@ -295,11 +317,16 @@ function GoalForm({
       <label htmlFor="goal-criteria">완료·평가 기준</label>
       <textarea
         id="goal-criteria"
+        aria-describedby="goal-criteria-help"
         required
         maxLength={6000}
         value={draft.completionCriteria}
         onChange={(event) => setDraft({ ...draft, completionCriteria: event.target.value })}
       />
+      <small id="goal-criteria-help">
+        한 줄에 한 가지 조건을 적으세요. 각 조건의 작업과 검증 근거를 추적합니다. 32줄을 넘으면
+        나머지는 마지막 항목으로 묶습니다.
+      </small>
       <div className="goal-fields">
         <label>
           목표 종류

@@ -1330,6 +1330,59 @@ a {
   gap: 8px;
   margin-top: 14px;
 }
+.goal-progress {
+  margin-block: 18px;
+}
+.goal-progress-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  align-items: baseline;
+}
+.goal-progress-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.goal-progress-list {
+  list-style: none;
+  margin: 16px 0;
+  padding: 0;
+  display: grid;
+  gap: 22px;
+}
+.goal-progress-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.goal-progress-heading strong {
+  flex: 1;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.goal-progress-status {
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.goal-progress-marker {
+  color: var(--muted);
+}
+.goal-progress-list > li[data-state="verified"] .goal-progress-marker {
+  color: #16754b;
+}
+.goal-progress-list > li[data-state="running"] .goal-progress-marker {
+  color: #3565b8;
+}
+.goal-progress-list > li > p,
+.goal-progress-list details {
+  margin: 6px 0 6px 24px;
+  color: var(--muted);
+}
+.goal-progress-list details {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .goal-actions button {
   width: auto;
 }
