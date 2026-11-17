@@ -32,6 +32,7 @@ beforeEach(() => {
 afterEach(async () => {
   await app?.close();
   app = undefined;
+  vi.useRealTimers();
   rmSync(directory, { recursive: true, force: true });
 });
 async function start(executor: AnalysisExecutor) {
@@ -150,6 +151,10 @@ test("automatic recovery cannot start with an executor that cannot prove termina
 });
 
 test("capacity recovery waits for provided time, reserves one check and reopens the queue only after success", async () => {
+  // Keep database/app startup time out of the provider's retry deadline.
+  // Only Date is controlled; the real queue and HTTP polling still run normally.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
   config.capacityRecovery = {
     version: 1,
     initialDelayMs: 1000,
@@ -174,6 +179,7 @@ test("capacity recovery waits for provided time, reserves one check and reopens 
     capacityState: { checks: 0, nextCheckAt: retryAt.toISOString() },
   });
   expect(analyze).toHaveBeenCalledTimes(1);
+  vi.setSystemTime(retryAt);
   await vi.waitFor(async () => expect((await view(id)).status).toBe("succeeded"), {
     timeout: 4000,
   });
