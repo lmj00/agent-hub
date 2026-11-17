@@ -23,9 +23,23 @@ const developmentStage: Record<DevelopmentEvidence["phase"], string> = {
 export function RunAttention({ run, viewingLatest }: { run: RunDetails; viewingLatest: boolean }) {
   if (!run.stopReason && !run.errorCode) return null;
   const assessment = run.steps.findLast((step) => step.assessment)?.assessment;
-  const incomplete = run.errorCode === "analysis_incomplete";
+  const incomplete = [
+    "analysis_incomplete",
+    "development_stalled",
+    "environment_required",
+    "permission_required",
+    "decision_required",
+  ].includes(run.errorCode ?? "");
+  const blocker = incomplete
+    ? (run.developmentEvidence?.rounds.at(-1)?.review?.assessment.blocker ?? assessment?.blocker)
+    : null;
+  const stalled = run.errorCode === "development_stalled";
   const continuing = run.errorCode === "development_continue";
-  const finding = incomplete ? (assessment?.unresolved[0] ?? assessment?.report) : null;
+  const finding = stalled
+    ? runErrors.development_stalled
+    : incomplete
+      ? (blocker?.reason ?? assessment?.unresolved[0] ?? assessment?.report)
+      : null;
   return (
     <section className="run-attention" aria-label="실행 보류 사유">
       {!viewingLatest ? (
@@ -35,11 +49,22 @@ export function RunAttention({ run, viewingLatest }: { run: RunDetails; viewingL
         <h3>
           {run.stopReason
             ? stopReasons[run.stopReason]
-            : incomplete
-              ? "확인이 필요한 내용"
-              : continuing
-                ? "후속 수정 대기"
-                : "실행 확인 필요"}
+            : stalled
+              ? "진전 없는 반복 보류"
+              : blocker
+                ? {
+                    implementation: "수정 방법 확인 필요",
+                    information: "추가 정보 필요",
+                    environment: "실행 환경 조치 필요",
+                    permission: "권한·인증 확인 필요",
+                    decision: "사용자 결정 필요",
+                    unknown: "원인 확인 필요",
+                  }[blocker.kind]
+                : incomplete
+                  ? "확인이 필요한 내용"
+                  : continuing
+                    ? "후속 수정 대기"
+                    : "실행 확인 필요"}
         </h3>
         <span className="attention-mark" aria-hidden="true">
           {continuing ? "↻" : "!"}
@@ -55,6 +80,11 @@ export function RunAttention({ run, viewingLatest }: { run: RunDetails; viewingL
               "실행 중 문제가 기록됐습니다. 상세 기록을 확인해 주세요.")
             : "실행 중단 요청이 기록됐습니다."}
       </p>
+      {blocker ? (
+        <p className="attention-next">
+          <strong>다음 조치</strong> · {blocker.nextAction}
+        </p>
+      ) : null}
       {incomplete ? (
         <p className="attention-next">
           아래 확인 내용을 읽고 원인을 해결한 뒤 재개하세요. 같은 지시로 다시 실행하며, 답변 입력은

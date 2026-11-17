@@ -2357,3 +2357,50 @@ test("goal criteria progress preserves wording, exposes evidence and handles loo
   await expect(progress.getByRole("alert")).toContainText("현재 진행 상황을 확인할 수 없습니다");
   await expect(progress).toContainText("마지막 확인 기록");
 });
+
+test("shows an operator action for permission blockers and distinguishes unchanged-work holds", async ({
+  page,
+}, testInfo) => {
+  await login(page);
+  await createProject(page, "보류 조치 표시 예제");
+  await createTask(page, "연동 검증");
+  await expect(page.locator(".detail-top .status-succeeded")).toBeVisible();
+  let stalled = false;
+  await page.route("**/runs/*", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.status = "blocked";
+    body.errorCode = stalled ? "development_stalled" : "permission_required";
+    body.result = null;
+    body.steps.at(-1).assessment = {
+      report: "실제 계정 접근은 확인하지 못했습니다.",
+      evidence: ["접근 권한 미확인"],
+      unresolved: ["저장소 읽기 권한 필요"],
+      complete: false,
+      next: null,
+      blocker: {
+        kind: "permission",
+        reason: "설치된 앱에 저장소 읽기 권한이 없습니다.",
+        nextAction: "GitHub App 설치 설정에서 대상 저장소 접근을 허용한 뒤 재개하세요.",
+      },
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await page.reload();
+  await openSection(page, "작업");
+  await openTask(page, /연동 검증/);
+  const attention = page.getByRole("region", { name: "실행 보류 사유" });
+  await expect(attention.getByRole("heading", { name: "권한·인증 확인 필요" })).toBeVisible();
+  await expect(attention).toContainText("대상 저장소 접근을 허용한 뒤 재개하세요.");
+  await expect(attention).not.toContainText("자동으로 권한");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await attention.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("permission-blocker-mobile.png") });
+  stalled = true;
+  await expect(attention.getByRole("heading", { name: "진전 없는 반복 보류" })).toBeVisible({
+    timeout: 15000,
+  });
+  await expect(attention).toContainText("같은 코드와 테스트 조건으로 세 번");
+  await expect(attention).toContainText("자동 반복을 멈췄습니다");
+});
