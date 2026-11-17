@@ -13,6 +13,8 @@ import {
   projectSchema as projectResponseSchema,
   projectOverviewSchema,
   projectUsageSchema,
+  projectAgentsSchema,
+  type ProjectAgents,
   type ProjectUsage,
   projectOverviewQuerySchema,
   type ProjectOverview,
@@ -31,7 +33,8 @@ export const projectRoutes: FastifyPluginAsync<{
   store: ProjectStore;
   overview: (offset: number) => ProjectOverview;
   usage: (id: string) => ProjectUsage;
-}> = async (app, { store, overview, usage }) => {
+  agents: (id: string, offset: number) => ProjectAgents;
+}> = async (app, { store, overview, usage, agents }) => {
   app.addHook("onRequest", async (_request, reply) => {
     reply.header("Cache-Control", "no-store");
   });
@@ -126,6 +129,21 @@ export const projectRoutes: FastifyPluginAsync<{
       if (!store.findById(request.params.id))
         return reply.code(404).send({ error: "PROJECT_NOT_FOUND", message: "Project not found" });
       return usage(request.params.id);
+    },
+  );
+  app.get<{ Params: { id: string }; Querystring: { offset?: string } }>(
+    "/projects/:id/agents",
+    {
+      schema: {
+        params: projectParamsSchema,
+        querystring: projectOverviewQuerySchema,
+        response: { 200: projectAgentsSchema, ...projectErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      if (!store.findById(request.params.id))
+        return reply.code(404).send({ error: "PROJECT_NOT_FOUND", message: "Project not found" });
+      return agents(request.params.id, Number(request.query.offset ?? 0));
     },
   );
 };

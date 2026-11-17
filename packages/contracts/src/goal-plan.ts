@@ -1,5 +1,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 
+import { agentRoleSchema } from "./project-agents.js";
+
 const text = (maxLength: number) => Type.String({ minLength: 1, maxLength });
 export const goalPlanSchema = Type.Object(
   {
@@ -12,6 +14,7 @@ export const goalPlanSchema = Type.Object(
     tasks: Type.Array(
       Type.Object(
         {
+          agent: Type.Optional(agentRoleSchema),
           title: text(160),
           instruction: text(4000),
           acceptanceCriteria: text(2000),
@@ -28,3 +31,12 @@ export const goalPlanSchema = Type.Object(
   { additionalProperties: false },
 );
 export type GoalPlan = Static<typeof goalPlanSchema>;
+
+// Saved plans from older executors remain readable. New Codex calls must assign a role.
+export const goalPlanOutputSchema = Type.Object(
+  {
+    ...goalPlanSchema.properties,
+    tasks: Type.Array(Type.Required(goalPlanSchema.properties.tasks.items), { maxItems: 3 }),
+  },
+  { additionalProperties: false },
+);

@@ -25,7 +25,7 @@ export {
   projectOverviewQuerySchema,
   type ProjectOverview,
 } from "./project-overview.js";
-export { goalPlanSchema, type GoalPlan } from "./goal-plan.js";
+export { goalPlanSchema, goalPlanOutputSchema, type GoalPlan } from "./goal-plan.js";
 export {
   planningEvidenceSchema,
   type PlanningEvidence,
@@ -144,3 +144,12 @@ export {
 } from "./public-projects.js";
 
 export { projectUsageSchema, type ProjectUsage } from "./project-usage.js";
+
+export {
+  agentRoleSchema,
+  assignedAgentSchema,
+  projectAgentsSchema,
+  type AgentRole,
+  type AssignedAgent,
+  type ProjectAgents,
+} from "./project-agents.js";

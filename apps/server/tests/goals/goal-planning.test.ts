@@ -1,3 +1,5 @@
+import { readGoalAgents } from "../../src/modules/goals/agent-roles.js";
+import { readProjectAgents } from "../../src/modules/projects/project-agents.js";
 import { runExecutions } from "../../src/db/schema.js";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -1211,3 +1213,171 @@ test("renamed proposals against the same unchanged code are suppressed and repea
   expect(workRows()).toHaveLength(1);
   expect(reserve()).toBeNull();
 });
+
+test("planning assigns and persists a specialist, reusing its immutable mission across tasks", async () => {
+  const plan = reserve();
+  const agent = { key: "backend", name: "백엔드 개발", mission: "계산과 경계 조건을 검증합니다." };
+  const outcome = await execute(plan.taskId, {
+    tasks: [
+      {
+        title: "Implementation",
+        instruction: "Return 42",
+        acceptanceCriteria: "Return 42",
+        paths: ["src/main.ts"],
+        evidence: ["Wrong value"],
+        agent,
+      },
+      {
+        title: "Regression",
+        instruction: "Test 42",
+        acceptanceCriteria: "Test passes",
+        paths: ["tests/main.test.ts"],
+        evidence: ["Missing test"],
+        agent: {
+          ...agent,
+          name: "Do not overwrite",
+          mission: "New text must not rewrite the stored role",
+        },
+      },
+    ],
+  });
+  expect(outcome.status).toBe("succeeded");
+  const work = workRows();
+  expect(work).toHaveLength(2);
+  const role = work[0]!.plannedWork!.agent!;
+  expect(role).toMatchObject(agent);
+  expect(role.id).toMatch(/^[a-f0-9]{64}$/);
+  expect(work[1]!.plannedWork!.agent).toEqual(role);
+  const reopened = openDatabase(join(directory, "hub.sqlite"));
+  try {
+    expect(readGoalAgents(reopened.db, goalId)).toEqual([role]);
+    expect(readProjectAgents(reopened.db, projectId).agents).toMatchObject([
+      { ...agent, taskCount: 2, completedTasks: 0, runningTasks: 0 },
+    ]);
+    expect(readProjectAgents(reopened.db, randomUUID()).agents).toEqual([]);
+  } finally {
+    reopened.close();
+  }
+  const nextPlanId = randomUUID();
+  database.db
+    .insert(tasks)
+    .values({
+      id: nextPlanId,
+      projectId,
+      goalId,
+      goalVersion: 1,
+      kind: "planning",
+      instruction: "Next plan",
+      requestKey: nextPlanId,
+      createdAt: new Date(),
+    })
+    .run();
+  database.db
+    .insert(planningCycles)
+    .values({
+      taskId: nextPlanId,
+      goalId,
+      goalVersion: 1,
+      status: "reserved",
+      createdAt: new Date(),
+    })
+    .run();
+  expect(readPlanningContext(database.db, nextPlanId)?.agents).toEqual([role]);
+  const saved = readGoalAgents(database.db, goalId);
+  expect(() => store.finish(outcome.runId, outcome)).toThrow();
+  expect(readGoalAgents(database.db, goalId)).toEqual(saved);
+});
+
+test.each(["invalid key", "uppercase", "blank", "extra permissions"])(
+  "invalid specialist proposal is rejected atomically: %s",
+  async (kind) => {
+    const plan = reserve();
+    const agent = { key: "backend", name: "Backend", mission: "Implement and verify" };
+    if (kind === "invalid key") agent.key = "../escape";
+    if (kind === "uppercase") agent.key = "Constructor";
+    if (kind === "blank") agent.mission = "  ";
+    const outcome = await execute(plan.taskId, {
+      tasks: [
+        {
+          title: "Implementation",
+          instruction: "Return 42",
+          acceptanceCriteria: "Return 42",
+          paths: ["src/main.ts"],
+          evidence: ["Wrong value"],
+          agent:
+            kind === "extra permissions"
+              ? ({ ...agent, permissions: "all" } as typeof agent)
+              : agent,
+        },
+      ],
+    });
+    expect(outcome).toMatchObject({ status: "blocked", errorCode: "invalid_plan" });
+    expect(workRows()).toHaveLength(0);
+    expect(readGoalAgents(database.db, goalId)).toEqual([]);
+  },
+);
+
+test.each([true, false])(
+  "full specialist roster reuses existing roles and rejects new roles atomically: reuse=%s",
+  async (reuse) => {
+    const { assignedAgent } = await import("../../src/modules/goals/agent-roles.js");
+    for (let index = 0; index < 8; index++) {
+      const id = randomUUID();
+      database.db
+        .insert(tasks)
+        .values({
+          id,
+          projectId,
+          goalId,
+          goalVersion: 1,
+          kind: "work",
+          status: "succeeded",
+          instruction: "Historical work",
+          requestKey: id,
+          createdAt: new Date(),
+          plannedWork: {
+            planningTaskId: randomUUID(),
+            problemKey: `historical-${index}`,
+            sourceRevision: "a".repeat(40),
+            sourceDigest: "b".repeat(64),
+            title: "Historical work",
+            paths: [`src/old-${index}.ts`],
+            acceptanceCriteria: "Verified",
+            evidence: ["Fixture history"],
+            agent: assignedAgent(goalId, {
+              key: `role-${index}`,
+              name: `Role ${index}`,
+              mission: "Existing specialist mission",
+            }),
+          },
+        })
+        .run();
+    }
+    const plan = reserve();
+    expect(readPlanningContext(database.db, plan.taskId)?.agents).toHaveLength(8);
+    const outcome = await execute(plan.taskId, {
+      tasks: [
+        {
+          title: "Implementation",
+          instruction: "Return 42",
+          acceptanceCriteria: "Return 42",
+          paths: ["src/main.ts"],
+          evidence: ["Wrong value"],
+          agent: {
+            key: reuse ? "role-0" : "new-role",
+            name: "Proposed",
+            mission: "Proposed mission",
+          },
+        },
+      ],
+    });
+    expect(outcome.status).toBe(reuse ? "succeeded" : "blocked");
+    expect(workRows()).toHaveLength(reuse ? 9 : 8);
+    expect(readGoalAgents(database.db, goalId)).toHaveLength(8);
+    if (reuse)
+      expect(workRows().find((task) => task.status === "queued")!.plannedWork!.agent!.mission).toBe(
+        "Existing specialist mission",
+      );
+    else expect(outcome.errorCode).toBe("invalid_plan");
+  },
+);

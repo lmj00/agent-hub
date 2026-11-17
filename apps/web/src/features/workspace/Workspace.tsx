@@ -4,6 +4,7 @@ import { api, ApiError, errorMessage } from "../../shared/api.js";
 import { usePolling } from "../../shared/use-polling.js";
 import { dateTime } from "../../shared/format.js";
 import { Brand } from "../../shared/Brand.js";
+import { AgentPanel } from "../projects/AgentPanel.js";
 import { UsagePanel } from "../projects/UsagePanel.js";
 import { PublicationPanel } from "../projects/PublicationPanel.js";
 import { ProjectForm } from "../projects/ProjectForm.js";
@@ -24,7 +25,9 @@ export function Workspace({
 }) {
   const [projectId, setProjectId] = useState<string | null>(() => selectedProject());
   const [taskId, setTaskId] = useState<string | null>(null);
-  const [section, setSection] = useState<"work" | "goals" | "usage" | "settings">("work");
+  const [section, setSection] = useState<"work" | "goals" | "usage" | "agents" | "settings">(
+    "work",
+  );
   const [observedGoals, setObservedGoals] = useState<{
     projectId: string;
     goals: Goal[] | null;
@@ -127,6 +130,11 @@ export function Workspace({
                     "목표",
                     "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8",
                   ],
+                  [
+                    "agents",
+                    "에이전트",
+                    "M8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M2 21v-2a6 6 0 0 1 12 0v2 M16 4a4 4 0 0 1 0 8 M18 15a5 5 0 0 1 4 6",
+                  ],
                   ["usage", "사용량", "M5 20V10 M12 20V4 M19 20v-7"],
                   ["settings", "설정", "M4 7h16 M4 17h16 M8 4v6 M16 14v6"],
                 ] as const
@@ -192,6 +200,7 @@ export function Workspace({
                         work: "작업",
                         goals: "목표",
                         usage: "사용량",
+                        agents: "에이전트",
                         settings: "설정",
                       } as const
                     )[section]
@@ -307,6 +316,19 @@ export function Workspace({
                 </span>
                 <h2>프로젝트를 찾을 수 없습니다</h2>
                 <p>전체 현황에서 프로젝트를 다시 선택하세요.</p>
+              </div>
+            ) : null}
+            {project && section === "agents" ? (
+              <div id="project-agents" aria-labelledby="project-nav-agents">
+                <AgentPanel
+                  key={project.id}
+                  projectId={project.id}
+                  onExpired={onExpired}
+                  onOpenTask={(id) => {
+                    setTaskId(id);
+                    setSection("work");
+                  }}
+                />
               </div>
             ) : null}
             {project && section === "usage" ? (

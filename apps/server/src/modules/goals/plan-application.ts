@@ -1,3 +1,4 @@
+import { assignedAgent, readGoalAgents, maxGoalAgents } from "./agent-roles.js";
 import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
@@ -103,6 +104,12 @@ export function applyPlanningCompletion(
     completedGoal = verification === "passed";
     incompleteGoal = verification === "incomplete";
   }
+  const agents = new Map(readGoalAgents(db, goal.id).map((agent) => [agent.key, agent]));
+  for (const proposed of plan.tasks) {
+    if (proposed.agent && !agents.has(proposed.agent.key))
+      agents.set(proposed.agent.key, assignedAgent(goal.id, proposed.agent));
+  }
+  if (agents.size > maxGoalAgents) return reject("invalid_plan");
   const createdTaskIds: string[] = [];
   const suppressed: NonNullable<PlanResult["suppressed"]> = [];
   for (const [proposalIndex, proposed] of plan.tasks.entries()) {
@@ -130,6 +137,7 @@ export function applyPlanningCompletion(
       continue;
     const id = randomUUID();
     const plannedWork: PlannedWork = {
+      ...(proposed.agent ? { agent: agents.get(proposed.agent.key)! } : {}),
       planningTaskId: run.taskId,
       problemKey: key,
       sourceRevision: run.preparedInput.revision!,

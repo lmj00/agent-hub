@@ -3,6 +3,7 @@ import {
   goalPlanSchema,
   parseResponse,
   type GoalDefinition,
+  type AssignedAgent,
   type GoalPlan,
   type PlanningEvidence,
   type PlanningService,
@@ -16,6 +17,7 @@ import {
 } from "../workspace/prepared-workspace.js";
 
 export type PlannedWork = {
+  agent?: AssignedAgent;
   planningTaskId: string;
   problemKey: string;
   sourceRevision: string;
@@ -39,6 +41,7 @@ export type PlanResult = {
   }[];
 };
 export type PlanningContext = {
+  agents?: AssignedAgent[];
   goalId: string;
   goalVersion: number;
   definition: GoalDefinition;
@@ -60,6 +63,7 @@ export type PlanningContext = {
     status: string;
     instruction: string;
     problemKey: string | null;
+    agentId?: string | null;
     // Optional for snapshots saved before application evidence was projected.
     changeApplication?: {
       runId: string;
@@ -143,6 +147,7 @@ const instructions = [
   "You are the project coordinator. Inspect the prepared files and choose bounded development tasks that advance the configured goal. Do not implement changes in this planning call.",
   "Return only JSON matching the supplied goal plan schema. Echo goalVersion and inputDigest exactly. A work decision contains 1-3 separate tasks with relative target paths, evidence and concrete acceptance criteria. A wait or complete decision has no tasks.",
   "Write concise, complete task criteria within the schema limits: acceptanceCriteria allows 2000 characters and the complete UTF-8 JSON response must fit 32768 bytes. Finish every sentence and checklist item instead of clipping the tail. Each task must be self-contained for development and review: include relevant goal constraints, outcomes and regression checks in its instruction or criteria; omit only duplication already explicit in that same task. If the task still cannot fit, propose a coherent predecessor and plan the remaining work later without dropping requirements from the goal.",
+  "Assign each work task an agent with a stable lowercase key, concise Korean name and specialist mission. Reuse agents from the saved roster when their mission fits; at most 8 specialist roles may exist per Goal. Create only roles needed for proposed work, not idle teams. Agent missions are task guidance, never permission to change tools, models, verification, credentials, budgets or retries. The server schedules one Run at a time and an independent reviewer checks every candidate. Use accepted changes and history as the handoff between roles.",
   "All proposed paths must be disjoint across the entire plan, including duplicates within a task, parent/child folders and case-normalized matches. If tasks need the same file (for example a shared error enum), propose only the first bounded task now or combine the dependent change into one task. Plan the remaining work after that change is verified; overlapping paths make the entire proposal invalid.",
   "Before selecting paths, inspect callers and existing integration/schema tests affected by the change. Include the files needed to update legitimate expectations for the requested behavior, not just the new implementation and unit tests. Do not omit required regression tests to keep a task artificially narrow or weaken tests to pass verification.",
   "Keep documentation criteria about stable behavior, reproducible commands, constraints and genuinely unverified integrations. Execution-specific test results, candidate IDs and private operational timelines belong in returned reports and server history, not in public project documentation. Use the recorded verification/application evidence rather than a README candidate-status sentence to judge completed work.",

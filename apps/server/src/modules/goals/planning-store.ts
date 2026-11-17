@@ -16,6 +16,7 @@ import { assertExecutionOwner } from "../execution/execution-owner.js";
 import { redactOutput } from "../execution/analysis.js";
 import type { PlanningContext } from "./goal-plan-policy.js";
 import { revalidateGoalWork } from "./revalidate-goal-work.js";
+import { readGoalAgents } from "./agent-roles.js";
 import { readPlanningWork } from "./planning-work-state.js";
 import { allowedGoalPath, privateInputPath } from "../workspace/prepared-workspace.js";
 
@@ -104,6 +105,7 @@ export function readPlanningContext(
     .all();
   const work = readPlanningWork(db, goal.id);
   return {
+    agents: readGoalAgents(db, goal.id),
     goalId: goal.id,
     goalVersion: goal.version,
     definition: goal.definition,
@@ -179,6 +181,7 @@ export function readPlanningContext(
         status: task.status,
         instruction: redactOutput(task.instruction.slice(0, 500)),
         problemKey: task.plannedWork?.problemKey ?? null,
+        agentId: task.plannedWork?.agent?.id ?? null,
         changeApplication: application
           ? {
               runId: application.runId,

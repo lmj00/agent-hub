@@ -2252,3 +2252,45 @@ test("project usage shows reported tokens and partial cost without claiming subs
   );
   await page.screenshot({ path: "test-results/project-usage-mobile.png", fullPage: true });
 });
+
+test("specialist roster opens the assigned task and keeps old projects explicitly unassigned", async ({
+  page,
+}) => {
+  await login(page);
+  await createProject(page, "에이전트 확인 프로젝트");
+  const projectId = /#project\/(.+)$/.exec(page.url())![1]!;
+  const menu = page.getByRole("navigation", { name: "프로젝트 메뉴" });
+  await menu.getByRole("button", { name: "에이전트", exact: true }).click();
+  await expect(page.getByLabel("프로젝트 에이전트")).toContainText(
+    "아직 배정된 전문 역할이 없습니다",
+  );
+  await createTask(page, "에이전트 연결 확인");
+  const response = await page.request.get(`/projects/${projectId}/tasks`);
+  const task = (await response.json()).tasks[0];
+  await page.route(`**/projects/${projectId}/agents?*`, async (route) =>
+    route.fulfill({
+      json: {
+        agents: [
+          {
+            id: "a".repeat(64),
+            goalId: "00000000-0000-4000-8000-000000000001",
+            key: "backend",
+            name: "백엔드 개발",
+            mission: "서버 동작과 경계 조건을 확인합니다.",
+            taskCount: 1,
+            completedTasks: 0,
+            runningTasks: 1,
+            latestTask: { id: task.id, title: "에이전트 연결 확인", status: "running" },
+          },
+        ],
+        nextOffset: null,
+      },
+    }),
+  );
+  await menu.getByRole("button", { name: "에이전트", exact: true }).click();
+  const panel = page.getByLabel("프로젝트 에이전트");
+  await expect(panel).toContainText("백엔드 개발");
+  await expect(panel).toContainText("서버 동작과 경계 조건을 확인합니다");
+  await panel.getByRole("button", { name: "에이전트 연결 확인", exact: true }).click();
+  await expect(page.locator("#detail-heading")).toHaveText("에이전트 연결 확인");
+});

@@ -1,3 +1,4 @@
+import { developmentInstruction } from "../../src/modules/execution/development-workflow.js";
 import { execFile, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -1199,4 +1200,34 @@ test("a rejected termination observation after allocation remains unconfirmed", 
   expect(result.terminationConfirmedAt).toBeNull();
   expect(readExecutions(database.db, run.id)).toHaveLength(3);
   expect(existsSync(readDevelopmentRounds(database.db, run.id)[0]!.input!.directory)).toBe(true);
+});
+
+test("specialist mission reaches development but not the independent reviewer instruction", () => {
+  const agent = {
+    id: "a".repeat(64),
+    key: "backend",
+    name: "Backend specialist",
+    mission: "Focus on reconciliation edge cases",
+  };
+  const assigned = { ...work, agent };
+  const developer = developmentInstruction({
+    instruction: "Fix behavior",
+    work: assigned,
+    round: 1,
+    role: "developer",
+    verificationConfig: configuration,
+  });
+  const reviewer = developmentInstruction({
+    instruction: "Fix behavior",
+    work: assigned,
+    round: 1,
+    role: "reviewer",
+    verificationConfig: configuration,
+  });
+  expect(JSON.parse(developer.split("\n").at(-1)!).assignedAgent).toEqual(agent);
+  expect(developer).toContain(
+    "existing permissions, writePaths, fixed tests and independent review still take precedence",
+  );
+  expect(reviewer).not.toContain(agent.mission);
+  expect(reviewer).toContain("You cannot modify files");
 });

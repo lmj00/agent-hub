@@ -26,7 +26,7 @@ import { type AnalysisEvent, classifyCodexError } from "../../src/modules/execut
 import {
   analysisAssessmentSchema,
   analysisResponseSchema,
-  goalPlanSchema,
+  goalPlanOutputSchema,
   parseResponse,
 } from "@agent-hub/contracts";
 import { loadRuntimeSkill } from "../../src/modules/execution/runtime-skills.js";
@@ -159,7 +159,7 @@ test("planning selects the server-owned structured schema without changing read-
   );
   expect(fake.run).toHaveBeenLastCalledWith(
     expect.stringContaining("Return JSON matching the supplied schema"),
-    expect.objectContaining({ outputSchema: goalPlanSchema }),
+    expect.objectContaining({ outputSchema: goalPlanOutputSchema }),
   );
   // The actual provider rejected this JSON Schema keyword with HTTP 400.
   expect(JSON.stringify(fake.run.mock.lastCall?.[1])).not.toContain('"uniqueItems"');
