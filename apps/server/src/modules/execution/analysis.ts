@@ -147,7 +147,7 @@ export function classifyCodexError(message: string): AnalysisError {
   )
     return new AnalysisError("unsupported_settings");
   if (
-    /network|ECONNRESET|ECONNREFUSED|ETIMEDOUT|fetch failed|connection (?:reset|closed|timed out)|\b50[234]\b|temporarily unavailable|server error|overloaded/i.test(
+    /network|ECONNRESET|ECONNREFUSED|ETIMEDOUT|fetch failed|connection (?:reset|closed|timed out)|\b50[234]\b|temporarily unavailable|server error|overloaded|\bworkspace routing discovery failed\b/i.test(
       message,
     )
   )

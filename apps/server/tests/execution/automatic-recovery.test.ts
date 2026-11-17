@@ -182,6 +182,31 @@ test("removing configured caps updates an existing blocked task without losing h
   expect(store.listByTask(taskId)).toHaveLength(2);
 });
 
+test.each([false, true])("routing recovery requires confirmed termination: %s", (confirmed) => {
+  const code = classifyCodexError("workspace routing discovery failed").code;
+  failure(code, confirmed);
+  automatic.tick();
+  if (!confirmed) {
+    expect(task().status).not.toBe("waiting_retry");
+    expect(store.claimNext("fixture", ["example"]).kind).toBe("idle");
+    expect(database.db.select().from(recoveryRequests).all()).toMatchObject([
+      { taskId, action: "reconcile", status: "pending" },
+    ]);
+    expect(store.listByTask(taskId)).toHaveLength(1);
+    return;
+  }
+  expect(task()).toMatchObject({
+    status: "waiting_retry",
+    retryState: { lastError: "transient", retries: 0, reason: "retry_scheduled" },
+  });
+  expect(store.claimNext("fixture", ["example"]).kind).toBe("idle");
+  due();
+  automatic.tick();
+  expect(store.claimNext("fixture", ["example"]).kind).toBe("claimed");
+  expect(store.listByTask(taskId)).toHaveLength(2);
+  expect(task().retryState?.retries).toBe(1);
+});
+
 test("one failed attempt schedules once, waits, and consumes a retry only at claim", () => {
   const first = failure();
   expect(automatic.tick()).toBe(true);

@@ -383,6 +383,20 @@ test("classifies a failed turn without returning its raw error", async () => {
   expect(classifyCodexError("model not supported").code).toBe("unsupported_settings");
 });
 
+test("classifies workspace routing discovery failure without exposing provider details", async () => {
+  fake.events = [{ type: "turn.failed", error: { message: "workspace routing discovery failed" } }];
+  await expect(
+    createCodexExecutor("/tmp/private-auth").analyze(request, () => {}),
+  ).rejects.toMatchObject({ code: "transient", message: "transient" });
+  expect(classifyCodexError("workspace routing discovery failed: 401 Unauthorized").code).toBe(
+    "authentication",
+  );
+  expect(classifyCodexError("workspace routing discovery failed: quota exceeded").code).toBe(
+    "capacity",
+  );
+  expect(classifyCodexError("unknown workspace failure").code).toBe("provider_error");
+});
+
 test("a rejected structured output schema is a settings block, without exposing provider details", async () => {
   fake.events = [
     {
