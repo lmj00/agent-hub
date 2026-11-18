@@ -760,6 +760,25 @@ test("whole-Goal review bounds saved evidence and escaped test output without lo
   expect(() => goalVerificationInstruction(input, result)).toThrow("workflow_limit");
 });
 
+test("whole-Goal review still bounds a large saved log before allocating optional context", async () => {
+  await execute(fixture().executor);
+  const input = structuredClone(row().planningInput!);
+  const output = `BEGIN\n${"test output\n".repeat(5500)}\nEND`;
+  const result = { ...row().planResult!.verification!.test!.result, output };
+  const prompt = goalVerificationInstruction(input, result);
+  const reviewed = JSON.parse(prompt.split("\n").at(-1)!);
+  expect(Buffer.byteLength(JSON.stringify({ instruction: prompt }))).toBeLessThanOrEqual(60000);
+  expect(reviewed.actualTest).toMatchObject({
+    status: result.status,
+    candidateDigest: result.candidateDigest,
+    outputTruncated: true,
+    storedOutputBytes: Buffer.byteLength(output),
+  });
+  expect(reviewed.actualTest.output).toMatch(/^BEGIN/);
+  expect(reviewed.actualTest.output).toMatch(/END$/);
+  expect(reviewed.definition).toEqual(input.definition);
+});
+
 test.each([
   "suppressed old work",
   "unfinished old Run",
