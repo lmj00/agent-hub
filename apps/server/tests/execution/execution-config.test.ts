@@ -86,7 +86,7 @@ test("missing or tied priorities select versions within a family without guessin
     return accountModelRouting(home, "fallback", "medium").models.astra;
   };
   for (const candidates of [
-    [model("gpt-6.9-astra"), model("gpt-6.10-astra"), model("gpt-9-nova")],
+    [model("gpt-6.9-astra"), model("gpt-6.10-astra")],
     [model("gpt-6.9-astra", 1), model("gpt-6.10-astra")],
     [model("gpt-6.9-astra", 1), model("gpt-6.10-astra", 1)],
   ]) {
@@ -101,8 +101,84 @@ test("missing or tied priorities select versions within a family without guessin
   expect(astra([model("gpt-6-nova", 1), model("gpt-7-nova"), model("gpt-6-astra", 99)])).toBe(
     "gpt-7-nova",
   );
+  expect(astra([model("gpt-6.10-astra"), model("gpt-9-nova")])).toBe("fallback");
   expect(astra([model("gpt-9-nova"), model("gpt-7-other")])).toBe("fallback");
   expect(astra([model("gpt-9-nova")])).toBe("gpt-9-nova");
+});
+
+test("provider successors inherit roles across releases and must support the requested capabilities", () => {
+  const home = join(directory, "auth");
+  const entry = (slug: string, description = "", successor?: string) => ({
+    slug,
+    description,
+    visibility: "list",
+    input_modalities: ["text", "image"],
+    supported_reasoning_levels: [{ effort: "medium" }, { effort: "high" }],
+    upgrade: successor ? { model: successor, migration_markdown: "provider notice" } : null,
+  });
+  const retired = {
+    ...entry("retired", "Complex coding and visual understanding", "middle"),
+    visibility: "hide",
+  };
+  const middle = entry("middle", "", "new-family");
+  const target = { ...entry("new-family"), description: null, input_modalities: ["text"] };
+  function select(entries: unknown[], fallback = "retired") {
+    writeFileSync(join(home, "models_cache.json"), JSON.stringify({ models: entries }));
+    return accountModelRouting(home, fallback, "high");
+  }
+  for (const models of [
+    [retired, middle, target],
+    [target, middle, retired],
+  ]) {
+    const { models: roles, visual } = select(models);
+    expect(roles).toEqual({ sol: "new-family", luna: "new-family", astra: "new-family" });
+    expect(visual).toBe("middle");
+  }
+  const incumbent = { ...retired, priority: 1 };
+  const competitor = { ...entry("other", "Complex coding"), priority: 5 };
+  expect(select([incumbent, competitor, middle, target], "default").models).toEqual({
+    sol: "default",
+    luna: "default",
+    astra: "new-family",
+  });
+  expect(
+    select([incumbent, competitor, middle, { ...target, priority: 8 }], "default").models.astra,
+  ).toBe("other");
+  expect(
+    select(
+      [
+        { ...entry("old", "", "nova"), priority: 1 },
+        entry("nova"),
+        { ...entry("backup"), priority: 5 },
+      ],
+      "elsewhere",
+    ).models.sol,
+  ).toBe("nova");
+  const ranked = { ...entry("provider-default"), priority: 1 };
+  expect(select([entry("default"), ranked], "default").models.sol).toBe("provider-default");
+  expect(
+    select(
+      [
+        { ...entry("gpt-1-a", "Everyday coding"), priority: 1 },
+        { ...entry("gpt-1-b", "Everyday coding"), priority: 1 },
+        entry("gpt-2-c", "Everyday coding"),
+      ],
+      "gpt-1-c",
+    ).models.sol,
+  ).toBe("gpt-1-c");
+  for (const invalid of [
+    { ...target, visibility: "hide" },
+    { ...target, supported_reasoning_levels: [{ effort: "medium" }] },
+    { ...target, input_modalities: ["image"] },
+    { ...target, slug: "missing-target" },
+  ]) {
+    expect(select([retired, middle, invalid]).models.astra).toBe("middle");
+  }
+  const original = entry("first", "Complex coding", "second");
+  const cycle = entry("second", "", "first");
+  expect(select([original, cycle]).models.astra).toBe("first");
+  expect(select([cycle, original]).models.astra).toBe("first");
+  expect(select([{ ...original, upgrade: { model: "first" } }]).models.astra).toBe("first");
 });
 
 test("model routing is opt-in and validates each configured model ID", () => {

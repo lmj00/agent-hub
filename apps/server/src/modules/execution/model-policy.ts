@@ -3,6 +3,10 @@ import { modelTiers, type ModelTier, type ModelRecommendation } from "@agent-hub
 export type ModelRouting = { models: Record<ModelTier, string> };
 export type ModelPolicy = ModelRouting & { version: 1; minimumTier: "luna" | "sol" };
 
+export function isModelId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(value);
+}
+
 export function parseModelRouting(value: unknown): ModelRouting {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("modelRouting must contain models for luna, sol and astra");
@@ -18,11 +22,7 @@ export function parseModelRouting(value: unknown): ModelRouting {
   const entries = models as Record<string, unknown>;
   if (
     Object.keys(entries).length !== modelTiers.length ||
-    modelTiers.some(
-      (tier) =>
-        typeof entries[tier] !== "string" ||
-        !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(entries[tier]),
-    )
+    modelTiers.some((tier) => !isModelId(entries[tier]))
   )
     throw new Error("Each model tier requires an explicit valid model ID");
   return {

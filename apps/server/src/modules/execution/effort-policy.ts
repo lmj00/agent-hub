@@ -1,4 +1,4 @@
-import type { Effort } from "@agent-hub/contracts";
+import { efforts as levels, type Effort } from "@agent-hub/contracts";
 export type EffortPolicy = {
   version: 1;
   mode: "fixed" | "adaptive";
@@ -14,7 +14,6 @@ export const defaultEffortPolicy: EffortPolicy = {
   mode: "fixed",
   maxEffort: "medium",
 };
-const levels = ["medium", "high", "xhigh"] as const;
 export function parseEffortPolicy(value: unknown): EffortPolicy {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("effortPolicy must be an object");

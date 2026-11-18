@@ -1,6 +1,6 @@
 import { isWithin } from "../../shared/path-containment.js";
 import { parseEffortPolicy } from "./effort-policy.js";
-import { parseModelRouting } from "./model-policy.js";
+import { isModelId, parseModelRouting } from "./model-policy.js";
 import {
   parseVerificationWorkspaces,
   parseVerificationConfig,
@@ -37,8 +37,7 @@ export function loadExecutionConfig(file: string) {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Execution config must be an object");
   const config = value as Record<string, unknown>;
-  if (typeof config.model !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(config.model))
-    throw new Error("An explicit model is required");
+  if (!isModelId(config.model)) throw new Error("An explicit model is required");
   if (typeof config.codexHome !== "string" || !config.codexHome.trim())
     throw new Error("codexHome is required");
   const codexHome = realpathSync(resolve(dirname(configPath), config.codexHome));
