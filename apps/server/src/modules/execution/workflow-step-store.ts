@@ -65,7 +65,10 @@ export function saveWorkflowStep(
   if (update.sequence === 1) {
     if (history.length !== 1 || latest.purpose || latest.status !== "running")
       throw new AnalysisError("invalid_plan");
-    const selectedModel = selectModel(run.model, modelPolicy, task?.plannedWork?.model);
+    const selectedModel =
+      modelPolicy?.minimumTier === "sol"
+        ? selectModel(run.model, modelPolicy, task?.plannedWork?.model)
+        : { model: run.model, reason: latest.modelReason };
     db.update(steps)
       .set({
         purpose: task?.plannedWork ? "개발" : "초기 분석",

@@ -100,7 +100,8 @@ export function loadExecutionConfig(file: string) {
     : false;
   return {
     model: config.model,
-    ...(config.modelRouting !== undefined
+    accountModelCatalog: config.modelRouting === "auto",
+    ...(config.modelRouting !== undefined && config.modelRouting !== "auto"
       ? { modelRouting: parseModelRouting(config.modelRouting) }
       : {}),
     codexHome,

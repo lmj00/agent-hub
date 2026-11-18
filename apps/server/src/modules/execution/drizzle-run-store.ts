@@ -4,6 +4,7 @@ import { recordExecution } from "./execution-record-store.js";
 import { saveWorkflowStep } from "./workflow-step-store.js";
 import type { ExecutionConfig } from "./execution-config.js";
 import { defaultEffortPolicy, selectInitialEffort } from "./effort-policy.js";
+import { accountModelRouting, requestsVisualInspection } from "./model-catalog.js";
 import { selectModel, sensitiveModelScope, type ModelPolicy } from "./model-policy.js";
 import { ensureRetryState, readRetryBaseline } from "./retry-state-store.js";
 import { remainingRetryRunMs, retryLimitReason } from "./retry-policy.js";
@@ -80,6 +81,8 @@ export function createDrizzleRunStore(
       | "analysisWorkflow"
       | "timeoutMs"
       | "modelRouting"
+      | "accountModelCatalog"
+      | "codexHome"
     >
   > = {},
   runtime: {
@@ -374,24 +377,32 @@ export function createDrizzleRunStore(
             .run();
           const effortPolicy = policies.effortPolicy ?? defaultEffortPolicy;
           const effortSelection = selectInitialEffort(task.instruction, effortPolicy);
-          const modelPolicy: ModelPolicy | null = policies.modelRouting
-            ? {
-                ...policies.modelRouting,
-                version: 1,
-                minimumTier:
-                  planning ||
-                  sensitiveModelScope(
-                    [
-                      task.instruction,
-                      task.plannedWork?.acceptanceCriteria,
-                      ...(task.plannedWork?.paths ?? []),
-                    ].join("\n"),
-                  )
-                    ? "sol"
-                    : "luna",
-              }
+          const sensitive = sensitiveModelScope(
+            [
+              task.instruction,
+              task.plannedWork?.acceptanceCriteria,
+              ...(task.plannedWork?.paths ?? []),
+            ].join("\n"),
+          );
+          const catalog =
+            policies.accountModelCatalog && policies.codexHome
+              ? accountModelRouting(policies.codexHome, model, effortPolicy.maxEffort)
+              : undefined;
+          const models = catalog?.models ?? policies.modelRouting?.models;
+          const modelPolicy: ModelPolicy | null = models
+            ? { models, version: 1, minimumTier: planning || sensitive ? "sol" : "luna" }
             : null;
-          const modelSelection = selectModel(model, modelPolicy, task.plannedWork?.model);
+          const modelSelection =
+            catalog?.visual &&
+            !planning &&
+            !sensitive &&
+            task.plannedWork?.model?.tier !== "astra" &&
+            requestsVisualInspection(task.instruction)
+              ? {
+                  model: catalog.visual,
+                  reason: "시각 검토 요청에 맞춰 계정 목록에서 이미지 분석 모델을 선택했습니다.",
+                }
+              : selectModel(model, modelPolicy, task.plannedWork?.model);
           tx.insert(runs)
             .values({
               id,

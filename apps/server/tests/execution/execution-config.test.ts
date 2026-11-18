@@ -1,3 +1,4 @@
+import { accountModelRouting } from "../../src/modules/execution/model-catalog.js";
 import { isWithin } from "../../src/shared/path-containment.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +25,49 @@ beforeEach(() => {
       workspaces: { example: "workspace" },
     }),
   );
+});
+
+test("automatic routing follows eligible account models on each new selection", () => {
+  const original = JSON.parse(readFileSync(file, "utf8"));
+  writeFileSync(file, JSON.stringify({ ...original, modelRouting: "auto" }));
+  const config = loadExecutionConfig(file);
+  expect(config.accountModelCatalog).toBe(true);
+  const choose = () => accountModelRouting(config.codexHome, config.model, "high").models;
+  const cache = join(config.codexHome, "models_cache.json");
+  expect(choose().sol).toBe(config.model);
+  const model = (slug: string, description: string, priority: number) => ({
+    slug,
+    description,
+    priority,
+    visibility: "list",
+    input_modalities: ["text", "image"],
+    supported_reasoning_levels: [{ effort: "medium" }, { effort: "high" }],
+  });
+  const models = [
+    model("base", "Everyday coding", 1),
+    model("specialist", "Visual understanding", 2),
+    model("expert", "Complex coding", 3),
+    model("light", "Affordable", 4),
+  ];
+  writeFileSync(cache, JSON.stringify({ models }));
+  const prior = choose();
+  expect(prior).toEqual({ sol: "base", luna: "light", astra: "expert" });
+  expect(accountModelRouting(config.codexHome, config.model, "high").visual).toBe("specialist");
+  writeFileSync(
+    cache,
+    JSON.stringify({
+      models: [
+        { ...models[0], slug: "hidden", visibility: "hide", priority: -5 },
+        { ...models[0], slug: "unsupported", supported_reasoning_levels: [], priority: -3 },
+        model("future-family", "Everyday coding", 0),
+        ...models,
+      ],
+    }),
+  );
+  expect(choose().sol).toBe("future-family");
+  expect(prior.sol).toBe("base");
+  writeFileSync(cache, "{");
+  expect(choose().sol).toBe(config.model);
 });
 
 test("model routing is opt-in and validates each configured model ID", () => {

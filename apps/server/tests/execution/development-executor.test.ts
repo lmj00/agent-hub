@@ -350,6 +350,54 @@ const runWith = (executor: AnalysisExecutor, signal = new AbortController().sign
     executor,
   );
 
+test("catalog routes visual work to a specialist and independent review to the pinned generalist", async () => {
+  const model = (slug: string, description: string) => ({
+    slug,
+    description,
+    priority: 1,
+    visibility: "list",
+    input_modalities: ["text", "image"],
+    supported_reasoning_levels: [{ effort: "medium" }],
+  });
+  const cache = join(directory, "models_cache.json");
+  writeFileSync(
+    cache,
+    JSON.stringify({
+      models: [
+        model("future-general", "Everyday coding"),
+        model("future-visual", "Visual understanding"),
+      ],
+    }),
+  );
+  store = createDrizzleRunStore(
+    database.db,
+    undefined,
+    {
+      accountModelCatalog: true,
+      codexHome: directory,
+    },
+    { developmentWorkspaceKeys: ["fixture"] },
+  );
+  database.db.update(tasks).set({ instruction: "스크린샷 검토" }).where(eq(tasks.id, taskId)).run();
+  claim();
+  expect(run.model).toBe("future-visual");
+  writeFileSync(cache, JSON.stringify({ models: [model("new-general", "Everyday coding")] }));
+  const seen: string[] = [];
+  const result = await runWith(
+    wrap(
+      fake({
+        firstPass: true,
+        onCall: (request) => {
+          if (!request.verification) seen.push(request.model);
+        },
+      }),
+    ),
+  );
+  expect(result.status).toBe("succeeded");
+  expect(seen).toEqual(["future-visual", "future-general"]);
+  expect(store.findById(run.id)?.steps.map((step) => step.model)).toEqual(seen);
+});
+
 test("project-selected developer and independently selected reviewer use the persisted Step models", async () => {
   store = createDrizzleRunStore(
     database.db,
