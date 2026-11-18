@@ -2,7 +2,7 @@ import { constants, closeSync, fstatSync, openSync, readFileSync } from "node:fs
 import { join } from "node:path";
 import type { Effort } from "@agent-hub/contracts";
 
-type Candidate = { slug: string; description: string; priority: number; image: boolean };
+type Candidate = { slug: string; description: string; priority: number | null; image: boolean };
 
 // The account's CLI refreshes this file. Read only the metadata needed for routing.
 function readCandidates(home: string, efforts: string[]): Candidate[] {
@@ -23,7 +23,6 @@ function readCandidates(home: string, efforts: string[]): Candidate[] {
         typeof m.slug !== "string" ||
         !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(m.slug) ||
         typeof m.description !== "string" ||
-        !Number.isFinite(m.priority) ||
         !Array.isArray(m.input_modalities) ||
         !m.input_modalities.includes("text") ||
         !Array.isArray(m.supported_reasoning_levels) ||
@@ -37,11 +36,11 @@ function readCandidates(home: string, efforts: string[]): Candidate[] {
       candidates.push({
         slug: m.slug,
         description: m.description,
-        priority: m.priority,
+        priority: Number.isFinite(m.priority) ? m.priority : null,
         image: m.input_modalities.includes("image"),
       });
     }
-    return candidates.sort((a, b) => a.priority - b.priority || a.slug.localeCompare(b.slug));
+    return candidates;
   } catch {
     return [];
   } finally {
@@ -49,21 +48,56 @@ function readCandidates(home: string, efforts: string[]): Candidate[] {
   }
 }
 
+function bestRanked(models: Candidate[]) {
+  const best = models.reduce((rank, model) => Math.min(rank, model.priority ?? Infinity), Infinity);
+  return models.filter((model) => model.priority === null || model.priority === best);
+}
+
+function family(slug: string) {
+  // Only compare release numbers when the vendor and the full family suffix match.
+  return slug.replace(/^([a-z]+)-\d+(?:\.\d+)*-([a-z][a-z0-9-]*)$/i, "$1-*-$2");
+}
+
+const numericOrder = new Intl.Collator("en", { numeric: true });
+
+function chooseCandidate(matches: Candidate[], preferredFamily: string) {
+  const families = Map.groupBy(matches, (m) => family(m.slug));
+  const winners = Array.from(
+    families.values(),
+    (group) =>
+      bestRanked(group).sort(
+        (a, b) => numericOrder.compare(b.slug, a.slug) || a.slug.localeCompare(b.slug),
+      )[0]!,
+  );
+  const finalists = bestRanked(winners);
+  if (finalists.length === 1) return finalists[0]?.slug;
+  return finalists.find((m) => family(m.slug) === preferredFamily)?.slug;
+}
+
 export function accountModelRouting(home: string, fallback: string, maxEffort: Effort) {
   const levels = ["medium", "high", "xhigh"];
   const candidates = readCandidates(home, levels.slice(0, levels.indexOf(maxEffort) + 1));
-  const choose = (pattern: RegExp) => candidates.find((m) => pattern.test(m.description))?.slug;
-  const general = choose(/general.purpose|go-to|everyday|general coding/i) ?? fallback;
-  const specialist = candidates.find(
-    (m) =>
-      m.image && /visual understanding|computer use|image analysis|\bvision\b/i.test(m.description),
+  const choose = (pattern: RegExp, preferredFamily: string) =>
+    chooseCandidate(
+      candidates.filter((m) => pattern.test(m.description)),
+      preferredFamily,
+    );
+  const general =
+    choose(/general.purpose|go-to|everyday|general coding/i, family(fallback)) ?? fallback;
+  const visual = chooseCandidate(
+    candidates.filter(
+      (m) =>
+        m.image &&
+        /visual understanding|computer use|image analysis|\bvision\b/i.test(m.description),
+    ),
+    "gpt-*-terra",
   );
   return {
-    visual: specialist?.slug,
+    visual,
     models: {
-      luna: choose(/affordable|simpler tasks|easier tasks|lightweight/i) ?? general,
+      luna: choose(/affordable|simpler tasks|easier tasks|lightweight/i, "gpt-*-luna") ?? general,
       sol: general,
-      astra: choose(/most capable|complex|advanced reasoning/i) ?? general,
+      astra: choose(/most capable|complex|advanced reasoning/i, "gpt-*-astra") ?? general,
     },
   };
 }

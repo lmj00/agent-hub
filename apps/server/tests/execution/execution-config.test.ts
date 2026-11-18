@@ -70,6 +70,38 @@ test("automatic routing follows eligible account models on each new selection", 
   expect(choose().sol).toBe(config.model);
 });
 
+test("missing or tied priorities select versions within a family without guessing across families", () => {
+  const home = join(directory, "auth");
+  const cache = join(home, "models_cache.json");
+  const model = (slug: string, priority?: number) => ({
+    slug,
+    priority,
+    description: "Complex coding",
+    visibility: "list",
+    input_modalities: ["text"],
+    supported_reasoning_levels: [{ effort: "medium" }],
+  });
+  const astra = (models: ReturnType<typeof model>[]) => {
+    writeFileSync(cache, JSON.stringify({ models }));
+    return accountModelRouting(home, "fallback", "medium").models.astra;
+  };
+  for (const candidates of [
+    [model("gpt-6.9-astra"), model("gpt-6.10-astra"), model("gpt-9-nova")],
+    [model("gpt-6.9-astra", 1), model("gpt-6.10-astra")],
+    [model("gpt-6.9-astra", 1), model("gpt-6.10-astra", 1)],
+  ]) {
+    expect(astra(candidates)).toBe("gpt-6.10-astra");
+    expect(astra(candidates.reverse())).toBe("gpt-6.10-astra");
+  }
+  expect(astra([model("gpt-6.10-astra", 2), model("gpt-9-nova", 1)])).toBe("gpt-9-nova");
+  expect(astra([model("gpt-6.9-astra", 1), model("gpt-6.10-astra", 2)])).toBe("gpt-6.9-astra");
+  expect(
+    astra([model("gpt-6.9-astra", 1), model("gpt-6.10-astra", 2), model("gpt-6.3-astra")]),
+  ).toBe("gpt-6.9-astra");
+  expect(astra([model("gpt-9-nova"), model("gpt-7-other")])).toBe("fallback");
+  expect(astra([model("gpt-9-nova")])).toBe("gpt-9-nova");
+});
+
 test("model routing is opt-in and validates each configured model ID", () => {
   expect(loadExecutionConfig(file).modelRouting).toBeUndefined();
   const original = JSON.parse(readFileSync(file, "utf8"));
