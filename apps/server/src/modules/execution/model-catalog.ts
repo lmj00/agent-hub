@@ -61,17 +61,12 @@ function family(slug: string) {
 const numericOrder = new Intl.Collator("en", { numeric: true });
 
 function chooseCandidate(matches: Candidate[], preferredFamily: string) {
-  const families = Map.groupBy(matches, (m) => family(m.slug));
-  const winners = Array.from(
-    families.values(),
-    (group) =>
-      bestRanked(group).sort(
-        (a, b) => numericOrder.compare(b.slug, a.slug) || a.slug.localeCompare(b.slug),
-      )[0]!,
-  );
-  const finalists = bestRanked(winners);
-  if (finalists.length === 1) return finalists[0]?.slug;
-  return finalists.find((m) => family(m.slug) === preferredFamily)?.slug;
+  const families = Map.groupBy(bestRanked(matches), (m) => family(m.slug));
+  const group =
+    families.size === 1 ? families.values().next().value : families.get(preferredFamily);
+  return group?.sort(
+    (a, b) => numericOrder.compare(b.slug, a.slug) || a.slug.localeCompare(b.slug),
+  )[0]?.slug;
 }
 
 export function accountModelRouting(home: string, fallback: string, maxEffort: Effort) {

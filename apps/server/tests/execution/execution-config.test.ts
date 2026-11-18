@@ -98,6 +98,9 @@ test("missing or tied priorities select versions within a family without guessin
   expect(
     astra([model("gpt-6.9-astra", 1), model("gpt-6.10-astra", 2), model("gpt-6.3-astra")]),
   ).toBe("gpt-6.9-astra");
+  expect(astra([model("gpt-6-nova", 1), model("gpt-7-nova"), model("gpt-6-astra", 99)])).toBe(
+    "gpt-7-nova",
+  );
   expect(astra([model("gpt-9-nova"), model("gpt-7-other")])).toBe("fallback");
   expect(astra([model("gpt-9-nova")])).toBe("gpt-9-nova");
 });
