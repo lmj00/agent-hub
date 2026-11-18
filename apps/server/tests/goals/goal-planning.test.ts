@@ -1346,7 +1346,7 @@ test("the prompt may omit held problems but the server still enforces every one"
   });
 });
 
-test("a recovery accepted after planning began prevents creating otherwise unrelated work", async () => {
+test("a recovery arriving during planning rejects stale work and replans only after it settles", async () => {
   const original = await terminalWork("failed"),
     prior = runRow(original.id),
     plan = reserve();
@@ -1367,6 +1367,60 @@ test("a recovery accepted after planning began prevents creating otherwise unrel
   });
   expect(workRows()).toEqual([original]);
   expect(runRow(plan.taskId).planResult?.status).toBe("rejected");
+  const rejected = runRow(plan.taskId);
+  const owner = acquireExecutionOwner(database.db);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    store = createDrizzleRunStore(database.db, owner.token, {
+      automaticRecovery: defaultRetryPolicy,
+    });
+    const automatic = createAutomaticRecovery({
+      db: database.db,
+      ownerToken: owner.token,
+      policy: defaultRetryPolicy,
+      workspaceKeys: ["example"],
+      recovery: createDrizzleRecoveryStore(database.db, owner.token),
+      random: () => 0,
+    });
+    automatic.tick();
+    expect(database.db.select().from(tasks).where(eq(tasks.id, plan.taskId)).get()?.status).toBe(
+      "blocked",
+    );
+    database.client.exec("UPDATE recovery_requests SET status = 'completed' WHERE id = 'late'");
+    database.db.update(tasks).set({ status: "succeeded" }).where(eq(tasks.id, original.id)).run();
+    automatic.tick();
+    const waiting = database.db.select().from(tasks).where(eq(tasks.id, plan.taskId)).get()!;
+    expect(waiting.retryState?.reason).toBe("retry_scheduled");
+    vi.setSystemTime(new Date(waiting.retryState!.nextAttemptAt!));
+    automatic.tick();
+    const fresh = await execute(plan.taskId, {
+      tasks: [
+        {
+          ...proposedWork(["tests/main.test.ts"]),
+          title: "Fresh plan after recovery",
+          instruction: "Use the recovered result",
+        },
+      ],
+    });
+    expect(fresh.status).toBe("succeeded");
+    expect(workRows()).toHaveLength(2);
+    expect(workRows().find((item) => item.id !== original.id)?.plannedWork?.title).toBe(
+      "Fresh plan after recovery",
+    );
+    expect(
+      database.db.select().from(runs).where(eq(runs.id, rejected.id)).get()?.planResult?.status,
+    ).toBe("rejected");
+    expect(database.db.select().from(runs).where(eq(runs.id, fresh.runId)).get()).toMatchObject({
+      attempt: 2,
+      planResult: { status: "applied" },
+    });
+    expect(
+      database.db.select().from(tasks).where(eq(tasks.id, plan.taskId)).get()?.retryState?.retries,
+    ).toBe(1);
+  } finally {
+    vi.useRealTimers();
+    owner.release();
+  }
 });
 
 test("three consecutive suppressed proposals stop a pointless planning loop", async () => {

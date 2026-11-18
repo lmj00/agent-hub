@@ -1,4 +1,4 @@
-import { readGoalExecutionBlock } from "../goals/goal-execution-store.js";
+import { readGoalExecutionBlock, readGoalWorkSettled } from "../goals/goal-execution-store.js";
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
@@ -169,11 +169,23 @@ export function createAutomaticRecovery(options: {
             }
             if (readGoalExecutionBlock(tx, task)) continue;
             if (task.budgetWait) continue;
-            if (state.decisionRunId !== run.id || state.reason === "termination_unconfirmed") {
+            const replanAfterWork =
+              task.kind === "planning" &&
+              task.goalId !== null &&
+              run.errorCode === "work_unresolved" &&
+              run.stopReason !== "unknown" &&
+              run.stopReason !== "timeout";
+            // Recheck even during backoff: a later work recovery invalidates the old plan.
+            if (replanAfterWork && !readGoalWorkSettled(tx, task.goalId!)) continue;
+            if (
+              state.decisionRunId !== run.id ||
+              state.reason === "termination_unconfirmed" ||
+              (replanAfterWork && state.reason === "not_retryable")
+            ) {
               state = { ...state, decisionRunId: run.id };
               const limit = retryLimitReason(state);
               if (
-                !retryableError(run.errorCode) ||
+                (!retryableError(run.errorCode) && !replanAfterWork) ||
                 run.stopReason === "unknown" ||
                 run.stopReason === "timeout"
               ) {

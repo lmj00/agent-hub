@@ -2,6 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import type { openDatabase } from "../../db/connection.js";
 import { goals, tasks } from "../../db/schema.js";
 import { goalExecutionBlock, type TaskGoalReference } from "./goal-execution-policy.js";
+import { readPlanningWork } from "./planning-work-state.js";
 
 // Keep paused/stale goals out of queue selection so they cannot starve other work.
 export const assignableGoal = sql`(
@@ -23,4 +24,12 @@ export function readGoalExecutionBlock(
       ? undefined
       : db.select().from(goals).where(eq(goals.id, task.goalId)).get();
   return goalExecutionBlock(task, goal);
+}
+
+export function readGoalWorkSettled(
+  db: Pick<ReturnType<typeof openDatabase>["db"], "select">,
+  goalId: string,
+) {
+  const work = readPlanningWork(db, goalId);
+  return !work.unresolved && work.suppressed.length === 0;
 }

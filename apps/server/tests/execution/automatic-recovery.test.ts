@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { openDatabase } from "../../src/db/connection.js";
-import { events, projects, recoveryRequests, runs, tasks } from "../../src/db/schema.js";
+import { events, goals, projects, recoveryRequests, runs, tasks } from "../../src/db/schema.js";
 import { createAutomaticRecovery } from "../../src/modules/execution/automatic-recovery.js";
 import { createDrizzleRunStore } from "../../src/modules/execution/drizzle-run-store.js";
 import { createDrizzleRecoveryStore } from "../../src/modules/execution/drizzle-recovery-store.js";
@@ -96,6 +96,207 @@ function failure(errorCode = "transient", proof = true) {
   return run;
 }
 const due = () => vi.setSystemTime(new Date(task().retryState!.nextAttemptAt!));
+
+function planningFailure() {
+  const goalId = randomUUID();
+  database.db
+    .insert(goals)
+    .values({
+      id: goalId,
+      projectId: task().projectId,
+      requestKey: goalId,
+      status: "active",
+      version: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      definition: {
+        description: "Improve calculation",
+        completionCriteria: "Tests pass",
+        kind: "continuous",
+        priority: 50,
+        allowedPaths: ["src", "tests"],
+        excludedPaths: [],
+        checkIntervalMs: 60000,
+        budget: { windowMs: 3600000, maxCalls: 20, maxRunMs: 1800000 },
+      },
+    })
+    .run();
+  database.db
+    .update(tasks)
+    .set({ kind: "planning", goalId, goalVersion: 1 })
+    .where(eq(tasks.id, taskId))
+    .run();
+  const run = failure("work_unresolved");
+  // Reproduce a hold persisted by the old server, including its retry accounting.
+  database.db
+    .update(tasks)
+    .set({
+      status: "blocked",
+      retryState: {
+        ...task().retryState!,
+        decisionRunId: run.id,
+        reason: "not_retryable",
+        nextAttemptAt: null,
+      },
+    })
+    .where(eq(tasks.id, taskId))
+    .run();
+  return { goalId, run };
+}
+
+function addPlanningWork(status: typeof tasks.$inferInsert.status = "queued") {
+  const id = randomUUID();
+  database.db
+    .insert(tasks)
+    .values({
+      id,
+      projectId: task().projectId,
+      goalId: task().goalId,
+      goalVersion: 1,
+      kind: "work",
+      instruction: "Fix calculation",
+      requestKey: id,
+      createdAt: new Date(),
+      status,
+      plannedWork:
+        status === "queued"
+          ? null
+          : {
+              planningTaskId: taskId,
+              problemKey: "calculation",
+              sourceRevision: "a".repeat(40),
+              sourceDigest: "b".repeat(64),
+              title: "Fix calculation",
+              acceptanceCriteria: "Returns 42",
+              paths: ["src/main.ts"],
+              evidence: ["Returns 41"],
+            },
+    })
+    .run();
+  return id;
+}
+
+test("a persisted planning hold retries on the same Task only after work settles", () => {
+  const { run } = planningFailure();
+  const workId = addPlanningWork();
+  const before = task().retryState!;
+  expect(automatic.tick()).toBe(false);
+  const workRun = store.claim(workId, "fixture");
+  store.finish(workRun.id, {
+    status: "succeeded",
+    errorCode: null,
+    result: "fixed",
+    usage: null,
+    terminationConfirmedAt: new Date(),
+  });
+  expect(automatic.tick()).toBe(true);
+  expect(task()).toMatchObject({
+    status: "waiting_retry",
+    retryState: {
+      reason: "retry_scheduled",
+      retries: before.retries,
+      totalRunMs: before.totalRunMs,
+    },
+  });
+  expect(automatic.tick()).toBe(false);
+  due();
+  expect(automatic.tick()).toBe(true);
+  const next = store.claimNext("fixture", ["example"]);
+  expect(next).toMatchObject({ kind: "claimed", run: { taskId } });
+  expect(store.listByTask(taskId).map((attempt) => attempt.attempt)).toEqual([2, 1]);
+  expect(store.findById(run.id)?.errorCode).toBe("work_unresolved");
+  expect(task().retryState?.retries).toBe(before.retries + 1);
+});
+
+test.each(["blocked", "failed", "cancelled"] as const)(
+  "a planning hold does not retry around %s work",
+  (status) => {
+    planningFailure();
+    addPlanningWork(status);
+    for (let count = 0; count < 3; count++) expect(automatic.tick()).toBe(false);
+    expect(task().retryState?.nextAttemptAt).toBeNull();
+  },
+);
+
+test("work becoming active during backoff keeps the planning retry out of the queue", () => {
+  planningFailure();
+  automatic.tick();
+  expect(task().retryState?.reason).toBe("retry_scheduled");
+  const workId = addPlanningWork();
+  due();
+  expect(automatic.tick()).toBe(false);
+  expect(task().status).toBe("waiting_retry");
+  database.db.update(tasks).set({ status: "succeeded" }).where(eq(tasks.id, workId)).run();
+  expect(automatic.tick()).toBe(true);
+  expect(task().status).toBe("queued");
+});
+
+test.each(["pending_recovery", "unconfirmed_run"])(
+  "a successful work label cannot hide %s from a planning retry",
+  (uncertainty) => {
+    planningFailure();
+    const workId = addPlanningWork();
+    const workRun = store.claim(workId, "fixture");
+    store.finish(workRun.id, {
+      status: "succeeded",
+      errorCode: null,
+      result: "fixed",
+      usage: null,
+      terminationConfirmedAt: new Date(),
+    });
+    if (uncertainty === "pending_recovery") {
+      database.db
+        .insert(recoveryRequests)
+        .values({
+          id: randomUUID(),
+          taskId: workId,
+          runId: workRun.id,
+          requestKey: "pending",
+          action: "reconcile",
+          status: "pending",
+          createdAt: new Date(),
+        })
+        .run();
+    } else
+      database.db
+        .update(runs)
+        .set({ terminationConfirmedAt: null })
+        .where(eq(runs.id, workRun.id))
+        .run();
+    expect(automatic.tick()).toBe(false);
+    expect(task().retryState?.nextAttemptAt).toBeNull();
+  },
+);
+
+test.each(["paused", "stale", "cancelled", "limit", "unknown", "timeout"])(
+  "settled work does not bypass the %s planning guard",
+  (guard) => {
+    const { goalId, run } = planningFailure();
+    if (guard === "paused")
+      database.db.update(goals).set({ status: "paused" }).where(eq(goals.id, goalId)).run();
+    if (guard === "stale")
+      database.db.update(goals).set({ version: 2 }).where(eq(goals.id, goalId)).run();
+    if (guard === "cancelled")
+      database.db
+        .update(tasks)
+        .set({ cancelRequestedAt: new Date() })
+        .where(eq(tasks.id, taskId))
+        .run();
+    if (guard === "limit")
+      database.db
+        .update(tasks)
+        .set({ retryState: { ...task().retryState!, retries: policy.maxRetries! } })
+        .where(eq(tasks.id, taskId))
+        .run();
+    if (guard === "unknown" || guard === "timeout")
+      database.db.update(runs).set({ stopReason: guard }).where(eq(runs.id, run.id)).run();
+    automatic.tick();
+    expect(task().retryState?.nextAttemptAt).toBeNull();
+    expect(automatic.tick()).toBe(false);
+    expect(store.listByTask(taskId)).toHaveLength(1);
+    if (guard === "limit") expect(task().retryState?.reason).toBe("retry_limit");
+  },
+);
 
 test("policy rejects invalid limits and jitter cannot exceed the maximum delay", () => {
   expect(parseRetryPolicy({})).toEqual(defaultRetryPolicy);
@@ -501,6 +702,7 @@ test.each([
   "output_limit",
   "workflow_limit",
   "analysis_incomplete",
+  "work_unresolved",
   "authentication",
   "capacity",
 ])("%s is not silently retried", (error) => {
