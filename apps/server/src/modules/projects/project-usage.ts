@@ -2,15 +2,9 @@ import { eq, sql } from "drizzle-orm";
 import type { ProjectUsage } from "@agent-hub/contracts";
 import type { openDatabase } from "../../db/connection.js";
 import { runs, steps, tasks } from "../../db/schema.js";
+import pricing from "./reference-pricing.json" with { type: "json" };
 
-// USD per million tokens, Standard short context, checked 2026-11-17.
-// This is a reference conversion, not historical billing or subscription usage.
-const rates: Record<string, { input: number; cached: number; output: number }> = {
-  "gpt-6-astra": { input: 10, cached: 1, output: 50 },
-  "gpt-6.1-sol": { input: 2, cached: 0.1, output: 10 },
-  "gpt-6.1-terra": { input: 1, cached: 0.05, output: 5 },
-  "gpt-6-luna": { input: 0.1, cached: 0.01, output: 0.5 },
-};
+const rates: Record<string, { input: number; cached: number; output: number }> = pricing.rates;
 
 export function readProjectUsage(
   db: Pick<ReturnType<typeof openDatabase>["db"], "select">,
@@ -75,8 +69,8 @@ export function readProjectUsage(
       .filter((row) => row.referenceCostUsd === null)
       .reduce((total, row) => total + row.reportedSteps, 0),
     pricing: {
-      date: "2026-11-17",
-      source: "https://developers.openai.com/api/docs/pricing",
+      date: pricing.date,
+      source: pricing.source,
       basis: "api-standard-short-context",
     },
     models,
